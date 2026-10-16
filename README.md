@@ -33,6 +33,10 @@ Requirements: JDK 21 and the Android SDK (platform 37).
 
 The debug APK is in `app/build/outputs/apk/debug/`.
 
+Release builds are signed with a key whose passwords stay in the macOS Keychain. To make a key once, run
+`scripts/make-release-key.sh`, then build with `./gradlew :app:assembleRelease`. Without `keystore.properties`
+the release APK is unsigned. Keep the keystore and its Keychain items together: updates need the same key.
+
 ## Gmail with Google sign-in (optional)
 
 An **app password** works without any setup. It needs 2-Step Verification on the Google account:
@@ -59,4 +63,4 @@ IP address to every message sent through its servers. Riseup removes it.
 
 ## Licence
 
-Not chosen yet.
+Plico is free software under the GNU General Public License v3.0. See [LICENSE](LICENSE).

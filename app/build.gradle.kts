@@ -9,6 +9,16 @@ val localProps = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
+// Release signing: keystore.properties (not in git) names the keystore and the Keychain items
+// that hold its passwords. See scripts/make-release-key.sh.
+val signingProps = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f ->
+    Properties().apply { f.inputStream().use { load(it) } }
+}
+
+fun keychain(service: String): String =
+    providers.exec { commandLine("security", "find-generic-password", "-s", service, "-w") }
+        .standardOutput.asText.get().trim()
+
 android {
     namespace = "app.plico"
     compileSdk = 37
@@ -21,8 +31,19 @@ android {
         versionName = "0.1.0"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Optional preset for browser OAuth. The user can also enter a client ID in the app.
-        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps.getProperty("plico.googleClientId", "")}\"")
+        // Release builds never contain a Google OAuth client ID (privacy PS9); debug builds may preset one.
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"\"")
+    }
+
+    signingConfigs {
+        if (signingProps != null) {
+            create("release") {
+                storeFile = file(signingProps.getProperty("storeFile"))
+                storePassword = keychain(signingProps.getProperty("storePasswordKeychain"))
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = keychain(signingProps.getProperty("keyPasswordKeychain"))
+            }
+        }
     }
 
     buildTypes {
@@ -31,9 +52,12 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             vcsInfo { include = false }
+            // Without a release key, produce an unsigned artifact instead of using the debug identity.
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps.getProperty("plico.googleClientId", "")}\"")
         }
     }
 
