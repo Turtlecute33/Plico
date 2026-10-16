@@ -1,0 +1,138 @@
+package app.plico.sync
+
+import app.plico.data.FolderRole
+import app.plico.data.MailView
+import app.plico.data.NewAttachment
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+/** Bodies, attachments, server search and the reply/forward drafts that use them, on a scripted server. */
+class BodiesFetchTest : OpFixture() {
+    private val riseup = account()
+    private val inbox = mailbox(riseup, "INBOX", FolderRole.INBOX)
+
+    private fun literal(text: String) = "{${text.toByteArray().size}}\r\n$text"
+
+    private val alternative = """(("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 12 1)""" +
+        """("text" "html" ("charset" "utf-8") NIL NIL "7bit" 40 1) "alternative")"""
+
+    @Test
+    fun bodiesAreFetchedJoinedAndIndexed() {
+        val id = insert(header(riseup, inbox, 7, date = clock)).single()
+        val html = "<p>Fresh <b>pineapple</b> today</p>"
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7 (UID BODYSTRUCTURE)", "* 1 FETCH (UID 7 BODYSTRUCTURE $alternative)")
+            .expect("UID FETCH 7 (UID BODY.PEEK[2])", "* 1 FETCH (UID 7 BODY[2] ${literal(html)})")
+        assertEquals(1, Bodies.fetchWindow(session(riseup, imap), folders.get(inbox)!!, 25))
+        imap.finish()
+        val body = assertNotNull(messages.body(id))
+        assertEquals(html, body.html)
+        assertEquals("Fresh pineapple today", body.text)
+        val message = messages.get(id)!!
+        assertTrue(message.hasBody)
+        assertEquals("Fresh pineapple today", message.snippet)
+        val found = runBlocking { messages.observeList(MailView.Search("pineap", null), 10).first() }
+        assertEquals(listOf(id), found.map { it.id })
+        // Nothing is left in the window.
+        assertEquals(0, Bodies.fetchWindow(session(riseup, FakeImap()), folders.get(inbox)!!, 25))
+    }
+
+    @Test
+    fun attachmentsDownloadInChunks() {
+        val id = insert(header(riseup, inbox, 7)).single()
+        val head = "a".repeat(1_048_576)
+        messages.saveBody(id, null, "", "", "", listOf(NewAttachment("2", "notes.txt", "text/plain", head.length + 3L, "7bit", null, false)))
+        val attachment = messages.attachments(id).single()
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7 (UID BODY.PEEK[2]<0.1048576>)", "* 1 FETCH (UID 7 BODY[2]<0> ${literal(head)})")
+            .expect("UID FETCH 7 (UID BODY.PEEK[2]<1048576.1048576>)", "* 1 FETCH (UID 7 BODY[2]<1048576> ${literal("end")})")
+        val progress = ArrayList<Float>()
+        val file = Attachments.load(session(riseup, imap), attachment.id) { progress += it }
+        imap.finish()
+        assertEquals(head.length + 3L, file.length())
+        assertTrue(file.readText().endsWith("aend"))
+        assertEquals(1f, progress.last())
+        // Cached now: no server needed.
+        assertEquals(file, Attachments.load(session(riseup, FakeImap()), attachment.id) {})
+    }
+
+    @Test
+    fun base64AttachmentsAreDecoded() {
+        val id = insert(header(riseup, inbox, 7)).single()
+        messages.saveBody(id, null, "", "", "", listOf(NewAttachment("1.2", "a.bin", "application/octet-stream", 8, "base64", null, false)))
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7 (UID BODY.PEEK[1.2]<0.1048576>)", "* 1 FETCH (UID 7 BODY[1.2]<0> ${literal("ZGF0YQ==")})")
+        val file = Attachments.load(session(riseup, imap), messages.attachments(id).single().id) {}
+        imap.finish()
+        assertEquals("data", file.readText())
+    }
+
+    @Test
+    fun serverSearchFetchesTheMissingHits() {
+        val known = insert(header(riseup, inbox, 3)).single()
+        val headers = "From: Ann <ann@example.org>\r\nSubject: Lunch plans\r\nMessage-ID: <x@example.org>\r\n\r\n"
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID SEARCH RETURN (ALL) CHARSET UTF-8 TEXT {literal}", "* ESEARCH UID ALL 3,9")
+            .expect(
+                Regex(Regex.escape("UID FETCH 9 (UID FLAGS INTERNALDATE RFC822.SIZE MODSEQ BODY.PEEK[HEADER.FIELDS (") + ".*"),
+                "* 1 FETCH (UID 9 FLAGS (\\Seen) INTERNALDATE \"16-Oct-2026 09:14:59 +0000\" RFC822.SIZE 99 MODSEQ (5) " +
+                    "BODY[HEADER.FIELDS (FROM SUBJECT MESSAGE-ID)] ${literal(headers)})",
+            )
+            .expect("UID FETCH 9 (UID BODYSTRUCTURE)", "* 1 FETCH (UID 9 BODYSTRUCTURE (\"text\" \"plain\" NIL NIL NIL \"7bit\" 9 1))")
+            .expect("UID FETCH 9 (UID BODY.PEEK[1])", "* 1 FETCH (UID 9 BODY[1] ${literal("Café bar")})")
+        val ids = Search.server(session(riseup, imap), "Café", null)
+        imap.finish()
+        assertEquals("UID SEARCH RETURN (ALL) CHARSET UTF-8 TEXT {literal}", imap.commands[1])
+        assertEquals("Café", imap.literals.single().toString(Charsets.UTF_8))
+        val hit = messages.byUid(inbox, 9)!!
+        assertEquals(listOf(hit.id, known), ids)
+        assertEquals("Lunch plans", hit.subject)
+        assertEquals(1_792_142_099_000, hit.date)
+        assertTrue(hit.notified && hit.seen && hit.hasBody)
+    }
+
+    @Test
+    fun replyQuotesTheBodyAndForwardCopiesTheAttachments() {
+        val source = insert(
+            header(riseup, inbox, 7).copy(
+                fromName = "Ann", fromEmail = "ann@example.org", toList = "user@riseup.net, Bob <bob@example.org>",
+                subject = "Re: Plan", messageId = "<p@example.org>", refs = "<r@example.org>", date = 1_792_142_099_000,
+            ),
+        ).single()
+        messages.saveBody(
+            source, null, "Hello\nthere", "Hello there", "Hello there",
+            listOf(NewAttachment("2", "plan.pdf", "application/pdf", 8, "base64", null, false)),
+        )
+        val replyId = runBlocking { actions.reply(source, all = true) }
+        val reply = drafts.get(replyId)!!
+        assertEquals("user@riseup.net", reply.fromEmail)
+        assertEquals("Ann <ann@example.org>", reply.toList)
+        assertEquals("Bob <bob@example.org>", reply.ccList)
+        assertEquals("Re: Plan", reply.subject)
+        assertEquals("\n\nOn 2026-10-16 09:14 UTC, Ann wrote:\n> Hello\n> there", reply.body)
+        assertEquals("<p@example.org>", reply.inReplyTo)
+        assertEquals("<r@example.org> <p@example.org>", reply.refs)
+        assertEquals(source, reply.sourceMessage)
+
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7 (UID BODY.PEEK[2]<0.1048576>)", "* 1 FETCH (UID 7 BODY[2]<0> ${literal("ZGF0YQ==")})")
+        session(riseup, imap)
+        val forwardId = runBlocking { actions.forward(source) }
+        imap.finish()
+        val forward = drafts.get(forwardId)!!
+        assertEquals("Fwd: Re: Plan", forward.subject)
+        assertTrue(forward.body.endsWith("Subject: Re: Plan\nTo: user@riseup.net, Bob <bob@example.org>\n\nHello\nthere"), forward.body)
+        val copy = forward.attachments.single()
+        assertEquals("plan.pdf", copy.name)
+        assertEquals("data", store.files.outboxDir(forwardId).resolve(copy.file).readText())
+    }
+}

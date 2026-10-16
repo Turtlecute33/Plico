@@ -1,14 +1,35 @@
 package app.plico.sync
 
 import app.plico.PlicoApp
+import java.util.concurrent.ConcurrentHashMap
 
-/** Registry of [AccountSession]s; the push engine is their host. Owner: sync-engine agent. */
+/** Registry of [AccountSession]s; the push engine is their host. */
 class Sessions(private val app: PlicoApp) {
-    /** The session of [accountId], created on first use. */
-    operator fun get(accountId: Long): AccountSession = TODO()
+    private val sessions = ConcurrentHashMap<Long, AccountSession>()
 
-    fun all(): List<AccountSession> = TODO()
+    /**
+     * True while the UI is visible; set by the push engine. Sessions then stay connected for 2 min after work,
+     * run the backfill on any network, and the change to visible syncs every account (a user action).
+     */
+    @Volatile
+    var appVisible: Boolean = false
+        set(value) {
+            val shown = value && !field
+            field = value
+            if (shown) all().forEach { it.kick(AccountSession.Reason.USER_REFRESH) }
+        }
+
+    /** The session of [accountId], created on first use. */
+    operator fun get(accountId: Long): AccountSession {
+        sessions[accountId]?.let { return it }
+        val host = app.push // outside computeIfAbsent: the engine may create sessions while it starts
+        return sessions.computeIfAbsent(accountId) { AccountSession(app, it, host) }
+    }
+
+    fun all(): List<AccountSession> = sessions.values.toList()
 
     /** Closes and forgets the session (account removed). */
-    fun remove(accountId: Long): Unit = TODO()
+    fun remove(accountId: Long) {
+        sessions.remove(accountId)?.close()
+    }
 }

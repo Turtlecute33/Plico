@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Common -->
+    <string name="settings_back">Back</string>
+    <string name="settings_save">Save</string>
+    <string name="settings_add">Add</string>
+    <string name="settings_allow">Allow</string>
+    <string name="settings_change">Change</string>
+    <string name="settings_off">Off</string>
+    <string name="settings_no_app">No app can open this page.</string>
+
+    <!-- Accounts -->
+    <string name="settings_accounts">Accounts</string>
+    <string name="settings_add_account">Add account</string>
+    <string name="settings_state_sign_in">Sign-in needed</string>
+    <string name="settings_state_tls">Secure connection failed</string>
+    <string name="settings_state_setup">Setup problem</string>
+    <string name="settings_state_sign_in_text">Plico cannot sign in to this account. Sync stops until you sign in again.</string>
+    <string name="settings_state_tls_text">Plico cannot make a secure connection to the server. It tries again later.</string>
+    <string name="settings_state_setup_text">This account needs a change in the settings on the server side.</string>
+
+    <!-- Gmail sign-in -->
+    <string name="settings_gmail_sign_in">Gmail sign-in</string>
+    <string name="settings_client_id">Google OAuth client ID</string>
+    <string name="settings_client_id_label">Client ID</string>
+    <string name="settings_client_id_none">Not set. Gmail accounts use an app password.</string>
+    <string name="settings_client_id_invalid">This is not a Google OAuth client ID. A client ID ends with .apps.googleusercontent.com.</string>
+    <string name="settings_client_id_in_use">Accounts that sign in with Google use this client. After a change, sign in to them again.</string>
+    <string name="settings_client_id_guide">Sign-in with Google in the browser and with the Google account on this phone needs an OAuth client that you own.\n\n1. In the Google Cloud console, make a project.\n2. Set up the OAuth consent screen: \"External\", publishing status \"In production\", and a support email that is not personal.\n3. Make an OAuth client of the type Android for the package name %1$s and the SHA-1 of the key that signs this app.\n4. Copy the client ID into this field.\n\nGoogle can refuse browser sign-in for new clients. An app password always works.</string>
+
+    <!-- Notifications -->
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_hide_content">Hide content</string>
+    <string name="settings_hide_content_text">Notifications show only the number of new messages.</string>
+    <string name="settings_hide_content_locked">Always on while the app lock is on.</string>
+    <string name="settings_mail_channel">New mail in %1$s</string>
+    <string name="settings_mail_channel_text">Sound, vibration and importance</string>
+    <string name="settings_account_channel">Notification settings</string>
+    <string name="settings_folder_notify_note">Notifications come for the inbox. For another folder or label, touch and hold it in the menu.</string>
+
+    <!-- Privacy and security -->
+    <string name="settings_privacy">Privacy and security</string>
+    <string name="settings_remote_content">Show remote images</string>
+    <string name="settings_remote_content_text">Remote images can tell the sender that you read a message. When this is off, they load only after you tap Show.</string>
+    <string name="settings_confirm_links">Confirm links</string>
+    <string name="settings_confirm_links_text">Show the full address before a link opens.</string>
+    <string name="settings_dark_email">Dark messages</string>
+    <string name="settings_dark_email_text">Show messages in dark colours when the app uses the dark theme.</string>
+    <string name="settings_app_lock">App lock</string>
+    <string name="settings_app_lock_text">Unlock with a fingerprint, your face or the screen lock.</string>
+    <string name="settings_app_lock_unavailable">Set a screen lock on this phone first.</string>
+    <string name="settings_lock_timeout">Lock</string>
+    <string name="settings_lock_at_once">Immediately</string>
+    <plurals name="settings_lock_after">
+        <item quantity="one">After %d minute</item>
+        <item quantity="other">After %d minutes</item>
+    </plurals>
+    <string name="settings_hide_in_recents">Hide in Recents</string>
+    <string name="settings_hide_in_recents_text">Recent apps show no preview of Plico.</string>
+    <string name="settings_hide_in_recents_locked">Always on while the app lock is on.</string>
+    <string name="settings_block_screenshots">Block screenshots</string>
+    <string name="settings_block_screenshots_text">Screenshots and screen recordings of Plico are blocked.</string>
+    <string name="settings_incognito_keyboard">Incognito keyboard</string>
+    <string name="settings_incognito_keyboard_text">Ask the keyboard not to learn from what you type.</string>
+
+    <!-- Mail -->
+    <string name="settings_mail">Mail</string>
+    <string name="settings_swipe_right">Swipe right</string>
+    <string name="settings_swipe_left">Swipe left</string>
+    <string name="settings_swipe_archive">Archive</string>
+    <string name="settings_swipe_delete">Delete</string>
+    <string name="settings_swipe_read">Read or unread</string>
+    <string name="settings_swipe_star">Star</string>
+    <string name="settings_swipe_none">None</string>
+    <string name="settings_undo_send">Undo send</string>
+    <plurals name="settings_seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+
+    <!-- Push and battery -->
+    <string name="settings_push">Push and battery</string>
+    <string name="settings_push_on">Push</string>
+    <string name="settings_push_state_no_accounts">Off. Add an account first.</string>
+    <string name="settings_push_state_paused">Paused. Plico gets new mail only while it is open.</string>
+    <string name="settings_push_state_stopped">Stopped from the task manager. Turn on to start it again.</string>
+    <string name="settings_push_state_restricted">Off. The battery usage of Plico is Restricted.</string>
+    <string name="settings_push_state_no_network">Waiting for a network.</string>
+    <string name="settings_push_state_not_running">Not running.</string>
+    <string name="settings_push_state_running">On. New mail arrives when the server gets it.</string>
+    <string name="settings_check_restricted">Push off: battery usage is Restricted</string>
+    <string name="settings_check_restricted_text">In app info, set the battery usage to Unrestricted or Optimized.</string>
+    <string name="settings_check_notifications">Notifications</string>
+    <string name="settings_check_notifications_ok">Allowed.</string>
+    <string name="settings_check_notifications_off">Notifications are off</string>
+    <string name="settings_check_notifications_off_text">Plico cannot tell you about new mail.</string>
+    <string name="settings_check_battery">Battery optimization</string>
+    <string name="settings_check_battery_ok">Plico can run in the background without limits.</string>
+    <string name="settings_check_battery_off">Battery optimization is on</string>
+    <string name="settings_check_battery_off_text">Android can delay new mail. Let Plico run in the background.</string>
+    <string name="settings_check_alarms">Alarms</string>
+    <string name="settings_check_alarms_ok">Plico can check for mail on time.</string>
+    <string name="settings_check_alarms_off">Alarms are not allowed</string>
+    <string name="settings_check_alarms_off_text">Checks for new mail can come late.</string>
+    <string name="settings_check_may_stop">Push stops if Android closes the app</string>
+    <string name="settings_check_may_stop_text">Allow the battery exemption or alarms to prevent this.</string>
+
+    <!-- Account: header -->
+    <string name="settings_auth_password">Signs in with the account password</string>
+    <string name="settings_auth_app_password">Signs in with an app password</string>
+    <string name="settings_auth_browser">Signs in with Google in the browser</string>
+    <string name="settings_auth_device">Signs in with the Google account on this phone</string>
+
+    <!-- Account: general -->
+    <string name="settings_profile">General</string>
+    <string name="settings_label">Account name</string>
+    <string name="settings_label_text">Plico shows this name in the menu and in notifications.</string>
+    <string name="settings_label_empty">Enter a name.</string>
+    <string name="settings_sender_name">Your name</string>
+    <string name="settings_sender_name_none">Not set</string>
+    <string name="settings_sender_name_text">Recipients see this name next to your address.</string>
+    <string name="settings_color">Colour</string>
+    <string-array name="settings_color_names">
+        <item>Indigo</item>
+        <item>Teal</item>
+        <item>Orange</item>
+        <item>Red</item>
+        <item>Green</item>
+        <item>Violet</item>
+        <item>Blue</item>
+        <item>Amber</item>
+    </string-array>
+    <string name="settings_signature">Signature</string>
+    <string name="settings_signature_none">None</string>
+    <!-- The quoted text is the standard signature separator (RFC 3676), not a dash. -->
+    <string name="settings_signature_text" tools:ignore="TypographyDashes">Plico adds the signature below your messages, after a line with \"-- \".</string>
+
+    <!-- Account: From addresses -->
+    <string name="settings_identities">Send from</string>
+    <string name="settings_identity_add">Add address</string>
+    <string name="settings_identity_address">Address</string>
+    <string name="settings_identity_name">Name</string>
+    <string name="settings_identity_remove">Remove %1$s</string>
+    <string name="settings_identity_invalid">Enter a valid email address.</string>
+    <string name="settings_identity_own">This is the address of the account.</string>
+    <string name="settings_identity_exists">This address is in the list already.</string>
+    <string name="settings_identities_gmail">Set up each address in Gmail first: Settings → Accounts → Send mail as.</string>
+    <string name="settings_identities_riseup">Riseup sends only from your address and your aliases. Make aliases on account.riseup.net.</string>
+
+    <!-- Account: offline -->
+    <string name="settings_offline">Offline</string>
+    <string name="settings_body_days">Message text offline</string>
+    <string name="settings_body_all">All mail</string>
+    <string name="settings_body_all_text">Uses more storage.</string>
+    <plurals name="settings_body_days">
+        <item quantity="one">Last %d day</item>
+        <item quantity="other">Last %d days</item>
+    </plurals>
+
+    <!-- Account: new mail -->
+    <string name="settings_new_mail">New mail</string>
+    <string name="settings_push_mode">Push mode</string>
+    <string name="settings_push_mode_instant">Instant</string>
+    <string name="settings_push_mode_instant_text">Keeps a connection open. New mail arrives in seconds.</string>
+    <string name="settings_push_mode_wifi">Instant on Wi-Fi</string>
+    <string name="settings_push_mode_wifi_text">Instant on Wi-Fi and while charging. Checks at an interval on mobile data.</string>
+    <string name="settings_push_mode_poll">Check at an interval</string>
+    <string name="settings_push_mode_poll_text">Checks for new mail at an interval. Uses the least battery.</string>
+    <string name="settings_poll_interval">Check interval</string>
+    <plurals name="settings_every_minutes">
+        <item quantity="one">Every %d minute</item>
+        <item quantity="other">Every %d minutes</item>
+    </plurals>
+    <string name="settings_keepalive">Server keepalive</string>
+    <string name="settings_keepalive_none">The server sent no keepalive yet. Plico checks the connection itself.</string>
+    <plurals name="settings_keepalive_minutes">
+        <item quantity="one">Every %d minute (measured)</item>
+        <item quantity="other">Every %d minutes (measured)</item>
+    </plurals>
+    <plurals name="settings_keepalive_seconds">
+        <item quantity="one">Every %d second (measured)</item>
+        <item quantity="other">Every %d seconds (measured)</item>
+    </plurals>
+    <plurals name="settings_wakes">
+        <item quantity="one">About %d wake a day from server keepalives</item>
+        <item quantity="other">About %d wakes a day from server keepalives</item>
+    </plurals>
+    <plurals name="settings_wakes_wifi">
+        <item quantity="one">On Wi-Fi: about %d wake a day from server keepalives</item>
+        <item quantity="other">On Wi-Fi: about %d wakes a day from server keepalives</item>
+    </plurals>
+    <plurals name="settings_polls">
+        <item quantity="one">%d check a day</item>
+        <item quantity="other">%d checks a day</item>
+    </plurals>
+    <plurals name="settings_polls_mobile">
+        <item quantity="one">On mobile data: %d check a day</item>
+        <item quantity="other">On mobile data: %d checks a day</item>
+    </plurals>
+    <string name="settings_keepalive_hint">To use less battery, select Instant on Wi-Fi or Check at an interval.</string>
+
+    <!-- Account: Gmail categories -->
+    <string name="settings_categories">Gmail categories that notify</string>
+    <string name="settings_category_primary">Primary</string>
+    <string name="settings_category_social">Social</string>
+    <string name="settings_category_promotions">Promotions</string>
+    <string name="settings_category_updates">Updates</string>
+    <string name="settings_category_forums">Forums</string>
+
+    <!-- Account: Riseup -->
+    <string name="settings_folders">Folders</string>
+    <string name="settings_archive_folder">Archive folder</string>
+    <string name="settings_archive_auto">Automatic</string>
+    <string name="settings_archive_auto_text">The archive folder of the server. Plico makes one when you archive for the first time.</string>
+    <string name="settings_storage">Storage</string>
+    <string name="settings_quota">Mailbox size</string>
+    <string name="settings_quota_unknown">Not known yet.</string>
+    <string name="settings_quota_used">About %1$s of %2$s used</string>
+    <string name="settings_quota_note">Riseup updates this number only when new mail arrives.</string>
+    <string name="settings_riseup_web">On account.riseup.net</string>
+    <string name="settings_riseup_filters">Filters</string>
+    <string name="settings_riseup_filters_text">Sort incoming mail on the server.</string>
+    <string name="settings_riseup_vacation">Vacation reply</string>
+    <string name="settings_riseup_vacation_text">Send an automatic reply while you are away.</string>
+    <string name="settings_riseup_aliases">Aliases</string>
+    <string name="settings_riseup_aliases_text">More addresses for this account.</string>
+    <string name="settings_riseup_spam">Spam settings</string>
+    <string name="settings_riseup_spam_text">Spam filter and allow list.</string>
+
+    <!-- Account: Gmail notes -->
+    <string name="settings_gmail_notes">Gmail</string>
+    <string name="settings_gmail_send_as">Other From addresses</string>
+    <string name="settings_gmail_send_as_text">From January 2027, Gmail stops sending from addresses that are not Google addresses. New ones can fail already now.</string>
+    <string name="settings_gmail_ip">Your IP address</string>
+    <string name="settings_gmail_ip_text">Gmail adds your public IP address to each message that you send. A VPN hides it.</string>
+
+    <!-- Account: sign-in and removal -->
+    <string name="settings_sign_in_group">Sign-in</string>
+    <string name="settings_sign_in">Sign in</string>
+    <string name="settings_sign_in_again">Sign in again</string>
+    <string name="settings_sign_in_again_text">Change the password or give access again.</string>
+    <string name="settings_remove_account">Remove account</string>
+    <string name="settings_remove_title">Remove %1$s?</string>
+    <string name="settings_remove_text">Plico deletes the mail, drafts and settings of this account from this phone. Drafts that you did not send are lost. The mail on the server stays.</string>
+    <string name="settings_remove">Remove</string>
+
+    <!-- About -->
+    <string name="settings_about_version">Version %1$s (%2$d)</string>
+    <string name="settings_about_tagline">A private email app for Riseup and Gmail.</string>
+    <string name="settings_about_privacy">Privacy</string>
+    <string name="settings_about_no_tracking">No tracking</string>
+    <string name="settings_about_no_tracking_text">No analytics, no crash reports and no ads.</string>
+    <string name="settings_about_storage">Data on this phone</string>
+    <string name="settings_about_storage_text">Mail stays in the encrypted app storage of Android. A key in the Android Keystore encrypts passwords and tokens. Nothing is backed up.</string>
+    <string name="settings_about_connections">Connections</string>
+    <string name="settings_about_riseup">Riseup mail</string>
+    <string name="settings_about_gmail">Gmail</string>
+    <string name="settings_about_google_sign_in">Google sign-in, only when you use it</string>
+    <string name="settings_about_remote">Remote content</string>
+    <string name="settings_about_remote_text">Images from the web and unsubscribe requests, only after you tap.</string>
+    <string name="settings_about_browser">Links</string>
+    <string name="settings_about_browser_text">Links and web settings open in your browser.</string>
+    <string name="settings_about_security">Security</string>
+    <string name="settings_about_tls">Encrypted connections</string>
+    <string name="settings_about_tls_text">TLS 1.2 or 1.3 with the certificates that Android trusts. No connection without encryption.</string>
+    <string name="settings_about_ct">Certificate Transparency</string>
+    <string name="settings_about_ct_on">On. Android makes sure that each server certificate is in a public log.</string>
+    <string name="settings_about_ct_off">Not available. Android checks Certificate Transparency from Android 16.</string>
+    <string name="settings_about_licences">Licences</string>
+    <string name="settings_licence_kotlin" translatable="false">Kotlin, kotlinx.coroutines</string>
+    <string name="settings_licence_androidx" translatable="false">AndroidX, Jetpack Compose</string>
+    <string name="settings_licence_jsoup" translatable="false">jsoup</string>
+    <string name="settings_licence_symbols" translatable="false">Material Symbols</string>
+    <string name="settings_licence_psl" translatable="false">Public Suffix List (Mozilla)</string>
+    <string name="settings_licence_apache" translatable="false">Apache License 2.0</string>
+    <string name="settings_licence_mit" translatable="false">MIT License</string>
+    <string name="settings_licence_mpl" translatable="false">Mozilla Public License 2.0</string>
+</resources>

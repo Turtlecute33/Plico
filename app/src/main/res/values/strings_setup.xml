@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_back">Back</string>
+    <string name="setup_cancel">Cancel</string>
+    <string name="setup_done">Done</string>
+    <string name="setup_open_in_browser">%1$s (opens in your browser)</string>
+    <string name="setup_copy">Copy %1$s</string>
+
+    <!-- Welcome -->
+    <string name="setup_welcome_promise">Your mail goes only between this phone and your mail provider. No tracking, no ads.</string>
+    <string name="setup_add_riseup">Add Riseup account</string>
+    <string name="setup_add_gmail">Add Gmail account</string>
+
+    <!-- Fields -->
+    <string name="setup_field_address">Email address</string>
+    <string name="setup_field_password">Password</string>
+    <string name="setup_field_app_password">App password</string>
+    <string name="setup_app_password_hint">16 letters. Spaces are not important.</string>
+    <string name="setup_show_password">Show password</string>
+    <string name="setup_hide_password">Hide password</string>
+    <string name="setup_sign_in">Sign in</string>
+    <string name="setup_error_required">Fill in this field.</string>
+    <string name="setup_error_address">Enter a full email address, for example name@example.org.</string>
+    <string name="setup_error_not_riseup">Enter your address at riseup.net. You cannot sign in with an alias.</string>
+
+    <!-- Riseup -->
+    <string name="setup_riseup_title">Riseup account</string>
+    <string name="setup_riseup_text">Sign in with your Riseup address and password. Plico connects only to mail.riseup.net.</string>
+    <string name="setup_riseup_placeholder">name@riseup.net</string>
+
+    <!-- Gmail -->
+    <string name="setup_gmail_title">Gmail account</string>
+    <string name="setup_gmail_text">Select how Plico signs in to Gmail.</string>
+    <string name="setup_method_device">Google account on this phone</string>
+    <string name="setup_method_device_text">Uses a Google account that is already on this phone.</string>
+    <string name="setup_method_device_action">Choose account</string>
+    <string name="setup_method_browser">Sign in with browser</string>
+    <string name="setup_method_browser_text">Opens the Google sign-in page in your browser. Google can refuse this method for new OAuth clients. If this occurs, use an app password.</string>
+    <string name="setup_method_browser_action">Open browser</string>
+    <string name="setup_method_password">App password</string>
+    <string name="setup_method_password_text">With an app password, Plico signs in without your Google password.</string>
+    <string name="setup_app_password_step1">Turn on 2-Step Verification for your Google account.</string>
+    <string name="setup_app_password_step2">Create an app password for Plico.</string>
+    <string name="setup_app_password_step3">Enter your Gmail address and the app password below.</string>
+    <string name="setup_app_password_link">Create app password</string>
+    <string name="setup_own_client">Use your own Google OAuth client</string>
+    <string name="setup_own_client_text">Shows the two Google sign-in methods. Plico has no client of its own.</string>
+
+    <!-- Own OAuth client -->
+    <string name="setup_client_title">Your Google OAuth client</string>
+    <string name="setup_client_text">Google lets an app use the Google sign-in only through an OAuth client. With your own client, your sign-in goes only between this phone and Google.</string>
+    <string name="setup_client_step1">In the Google Cloud console, create a project.</string>
+    <string name="setup_client_step2">Set up the OAuth consent screen. Select the user type External and the status In production. As the support email, use an address that is not personal: Google shows it on the sign-in page.</string>
+    <string name="setup_client_step3">Create an OAuth client of the type Android with this package name and SHA-1 fingerprint:</string>
+    <string name="setup_client_step4">Copy the client ID into the field below.</string>
+    <string name="setup_client_console">Open Google Cloud console</string>
+    <string name="setup_client_package">Package name</string>
+    <string name="setup_client_sha1">SHA-1 fingerprint</string>
+    <string name="setup_client_note">The client works only for this build of Plico, with the same package name and signing key.</string>
+    <string name="setup_field_client_id">Client ID</string>
+    <string name="setup_client_id_hint">Ends with .apps.googleusercontent.com</string>
+    <string name="setup_error_client_id">This is not an OAuth client ID. A client ID ends with .apps.googleusercontent.com.</string>
+    <string name="setup_client_save">Save</string>
+
+    <!-- Work in progress -->
+    <string name="setup_busy_testing">Testing the connection…</string>
+    <string name="setup_busy_browser">Sign in to Google with your browser</string>
+    <string name="setup_busy_browser_text">Plico continues when the browser comes back to it.</string>
+    <string name="setup_busy_device">Waiting for Google…</string>
+
+    <!-- Errors -->
+    <string name="setup_error_wrong_password">Riseup did not accept the address or the password. Make sure that both are correct.</string>
+    <string name="setup_error_app_password_required">Gmail needs an app password, not your Google password. Create an app password and enter it here.</string>
+    <string name="setup_error_app_password_refused">Gmail did not accept the app password. Make sure that 2-Step Verification is on and that you copied the full app password.</string>
+    <string name="setup_error_sign_in_refused">Google did not accept the sign-in. %1$s</string>
+    <string name="setup_error_sign_in_refused_plain">Google did not accept the sign-in. Try again, or use an app password.</string>
+    <string name="setup_error_setup">The account needs a change in its settings before Plico can use it.</string>
+    <string name="setup_error_network">Plico cannot connect to the server. Make sure that the phone is online, then try again.</string>
+    <string name="setup_error_tls">The secure connection failed because the server certificate is not valid. A network that examines connections, for example at a hotel or at work, can cause this. Try again on a different network.</string>
+    <string name="setup_error_throttled">The server has too many connections now. Wait some minutes, then try again.</string>
+    <string name="setup_error_server">The server refused the sign-in: %1$s</string>
+    <string name="setup_error_server_plain">The server refused the sign-in.</string>
+    <string name="setup_error_already_added">This account is already in Plico.</string>
+    <string name="setup_error_wrong_account">You signed in as %1$s. Sign in as %2$s.</string>
+    <string name="setup_error_save_failed">Plico could not save the account. Try again.</string>
+
+    <!-- Options -->
+    <string name="setup_options_title">Almost done</string>
+    <string name="setup_signed_in_as">Signed in as %1$s</string>
+    <string name="setup_field_label">Account name</string>
+    <string name="setup_label_hint">Shown in Plico and in notifications.</string>
+    <string name="setup_field_sender_name">Your name</string>
+    <string name="setup_sender_name_hint">Recipients see this name. You can leave it empty.</string>
+    <string name="setup_offline">Keep all mail offline</string>
+    <string name="setup_offline_on">Plico downloads all messages. This can use much storage and data.</string>
+    <string name="setup_offline_off">Plico keeps the messages of the last 30 days on this phone. It downloads older messages when you open them.</string>
+    <string name="setup_gmail_ip_note">Gmail writes the public IP address of this phone into each message that you send. Recipients can see it. To hide it, use a VPN.</string>
+    <string name="setup_add_account">Add account</string>
+
+    <!-- Permissions -->
+    <string name="setup_permissions_title">Notifications and battery</string>
+    <string name="setup_permissions_text">Plico keeps a connection to your mail server to show new mail immediately. For this, Android needs your permission.</string>
+    <string name="setup_permission_notifications">Notifications</string>
+    <string name="setup_permission_notifications_text">Shows a notification when new mail arrives.</string>
+    <string name="setup_permission_battery">Background use</string>
+    <string name="setup_permission_battery_text">Lets Plico keep its connection while the phone sleeps. Plico wakes the phone only for new mail and for short connection checks.</string>
+    <string name="setup_permission_alarms">Alarms</string>
+    <string name="setup_permission_alarms_text">Without background use, Plico needs exact alarms to check for mail at the correct time.</string>
+    <string name="setup_permission_allow">Allow</string>
+    <string name="setup_permission_settings">Settings</string>
+    <string name="setup_permission_granted">Allowed</string>
+
+    <!-- Sign in again -->
+    <string name="setup_reauth_title">Sign in again</string>
+    <string name="setup_reauth_password">Enter the current password for %1$s.</string>
+    <string name="setup_reauth_app_password">Create a new app password for %1$s and enter it here. Google cancels app passwords when you change your Google password.</string>
+    <string name="setup_reauth_browser">Sign in to Google again as %1$s.</string>
+    <string name="setup_reauth_device">Choose the Google account %1$s again.</string>
+    <string name="setup_reauth_no_client">This sign-in method needs your Google OAuth client ID.</string>
+    <string name="setup_reauth_done">Signed in again as %1$s</string>
+</resources>

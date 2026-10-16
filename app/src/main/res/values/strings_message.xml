@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of app.plico.ui.message: the message screen, link sheet, attachments and headers. -->
+<resources>
+    <!-- Top bar and menu -->
+    <string name="message_back">Back</string>
+    <string name="message_archive">Archive</string>
+    <string name="message_delete">Delete</string>
+    <string name="message_delete_forever">Delete forever</string>
+    <string name="message_mark_unread">Mark as unread</string>
+    <string name="message_more">More options</string>
+    <string name="message_move">Move to…</string>
+    <string name="message_labels">Labels…</string>
+    <string name="message_spam">Report spam</string>
+    <string name="message_not_spam">Not spam</string>
+    <string name="message_star">Add star</string>
+    <string name="message_unstar">Remove star</string>
+    <string name="message_important">Mark as important</string>
+    <string name="message_not_important">Mark as not important</string>
+    <string name="message_unsubscribe">Unsubscribe</string>
+    <string name="message_original_colours">Show original colours</string>
+    <string name="message_dark_colours">Show dark colours</string>
+    <string name="message_view_headers">View headers</string>
+
+    <!-- Header -->
+    <string name="message_no_subject">(No subject)</string>
+    <string name="message_no_sender">(No sender)</string>
+    <string name="message_me">me</string>
+    <string name="message_to_summary">to %1$s</string>
+    <plurals name="message_and_more">
+        <item quantity="one">%1$s and %2$d more</item>
+        <item quantity="other">%1$s and %2$d more</item>
+    </plurals>
+    <string name="message_field_to">To</string>
+    <string name="message_field_cc">Cc</string>
+    <string name="message_field_bcc">Bcc</string>
+    <string name="message_field_reply_to">Reply to</string>
+    <string name="message_field_date">Date</string>
+    <string name="message_show_details">Show details</string>
+    <string name="message_hide_details">Hide details</string>
+    <string name="message_gone">This message is not available any more.</string>
+    <string name="message_loading">Loading</string>
+
+    <!-- Remote content -->
+    <string name="message_images_blocked">Images blocked</string>
+    <string name="message_images_shown">Images shown</string>
+    <plurals name="message_trackers_removed">
+        <item quantity="one">%d tracker removed</item>
+        <item quantity="other">%d trackers removed</item>
+    </plurals>
+    <string name="message_show_images">Show</string>
+    <string name="message_always_from_sender">Always show images from this sender</string>
+
+    <!-- Body -->
+    <string name="message_render_failed">This message could not be shown. This is its text.</string>
+    <string name="message_retry">Try again</string>
+    <string name="message_sign_in">Sign in</string>
+    <string name="message_error_network">Plico cannot connect to the server.</string>
+    <string name="message_error_sign_in">Sign in again to load this message.</string>
+    <string name="message_error_tls">The secure connection to the server failed.</string>
+    <string name="message_error_busy">The server is busy. Try again later.</string>
+    <string name="message_error_server">The server refused the request.</string>
+    <string name="message_error_too_large">The message is too large.</string>
+    <string name="message_error_setup">The account has a problem. Look at its settings.</string>
+    <string name="message_error_generic">The message could not be loaded.</string>
+
+    <!-- Attachments -->
+    <plurals name="message_attachments">
+        <item quantity="one">%d attachment</item>
+        <item quantity="other">%d attachments</item>
+    </plurals>
+    <string name="message_attachment">Attachment</string>
+    <string name="message_save">Save</string>
+    <string name="message_open_file_title">Open this file?</string>
+    <string name="message_open_anyway">Open anyway</string>
+    <string name="message_no_app_file">No app on this phone can open this file.</string>
+    <string name="message_saved">File saved.</string>
+    <string name="message_save_failed">The file could not be saved.</string>
+
+    <!-- Bottom actions -->
+    <string name="message_reply">Reply</string>
+    <string name="message_reply_all">Reply all</string>
+    <string name="message_forward">Forward</string>
+    <string name="message_edit_draft">Edit</string>
+
+    <!-- Results -->
+    <string name="message_archived">Archived</string>
+    <string name="message_deleted">Moved to Trash</string>
+    <string name="message_moved">Moved</string>
+    <string name="message_spam_done">Moved to Spam</string>
+    <string name="message_not_spam_done">Moved to Inbox</string>
+    <string name="message_action_failed">The action failed.</string>
+    <string name="message_delete_forever_title">Delete forever?</string>
+    <string name="message_delete_forever_text">Plico deletes this message from the server. You cannot undo this.</string>
+    <string name="message_unsubscribe_title">Unsubscribe?</string>
+    <string name="message_unsubscribe_text">Plico asks the server of the sender to remove your address from this list.</string>
+    <string name="message_unsubscribed">Unsubscribe request sent.</string>
+    <string name="message_unsubscribe_failed">The unsubscribe request failed.</string>
+
+    <!-- Headers -->
+    <string name="message_headers_title">Message headers</string>
+    <string name="message_headers_sender_date">Date from the sender: %1$s</string>
+    <string name="message_close">Close</string>
+
+    <!-- Link sheet -->
+    <string name="message_link_open">Open</string>
+    <string name="message_link_copy">Copy</string>
+    <string name="message_link_open_original">Open original</string>
+    <string name="message_link_unicode">Unicode form: %1$s</string>
+    <string name="message_link_unsupported">Plico does not open this type of link.</string>
+    <string name="message_link_no_app">No app on this phone can open this link.</string>
+</resources>

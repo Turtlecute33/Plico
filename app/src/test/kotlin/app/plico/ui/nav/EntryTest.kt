@@ -35,6 +35,13 @@ class EntryTest {
     }
 
     @Test
+    fun aliasOpensSignInAgain() {
+        assertEquals(Entry.Reauth(3), entry(Intent.ACTION_VIEW, "plico:reauth/3", MessageLink.ALIAS))
+        assertNull(entry(Intent.ACTION_VIEW, "plico:reauth/3", main))
+        assertNull(entry(Intent.ACTION_VIEW, "plico:reauth/0", MessageLink.ALIAS))
+    }
+
+    @Test
     fun aliasWithBadDataDoesNothing() {
         assertNull(entry(Intent.ACTION_VIEW, "plico:message/x", MessageLink.ALIAS))
         assertNull(entry(Intent.ACTION_SEND, null, MessageLink.ALIAS))

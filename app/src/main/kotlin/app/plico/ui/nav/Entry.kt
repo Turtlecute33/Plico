@@ -2,6 +2,7 @@ package app.plico.ui.nav
 
 import android.content.Intent
 import app.plico.account.GoogleOAuth
+import app.plico.notify.ReauthLink
 
 /**
  * What an intent that starts MainActivity may do (DESIGN §11.6, privacy PS15). Other apps can only open
@@ -10,6 +11,9 @@ import app.plico.account.GoogleOAuth
 sealed interface Entry {
     /** Notification tap through [MessageLink.ALIAS]. */
     data class OpenMessage(val messageId: Long) : Entry
+
+    /** "Sign-in needed" notification tap through the same alias ([ReauthLink]). */
+    data class Reauth(val accountId: Long) : Entry
 
     /** SEND, SEND_MULTIPLE, SENDTO mailto or VIEW mailto from another app. */
     data object Compose : Entry
@@ -28,7 +32,9 @@ sealed interface Entry {
             // Recents relaunches the task's first intent: a share or a tap that was handled already.
             if (flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
             // Only MainActivity and the alias can receive this intent; other apps cannot target the alias.
-            if (className?.endsWith(".OpenMessage") == true) return MessageLink.parse(data)?.let(::OpenMessage)
+            if (className?.endsWith(".OpenMessage") == true) {
+                return MessageLink.parse(data)?.let(::OpenMessage) ?: ReauthLink.parse(data)?.let(::Reauth)
+            }
             val mailto = data?.startsWith("mailto:", ignoreCase = true) == true
             return when (action) {
                 Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> Compose

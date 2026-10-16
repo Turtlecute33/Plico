@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of app.plico.sync ops: refused changes, failed sends, drafts and attachments. -->
+<resources>
+    <!-- %1$s: the server's reply. -->
+    <string name="ops_error_refused">The server refused the change. Plico undid it. %1$s</string>
+    <string name="ops_error_folder_changed">The folder changed on the server. Plico undid the change.</string>
+    <string name="ops_error_gmail_move">Gmail cannot move this message out of All Mail. Use labels.</string>
+    <!-- %1$s: a size, e.g. 25 MB. -->
+    <string name="ops_error_too_large">The message is too large. The limit is %1$s.</string>
+    <!-- %1$s: the server's reply. -->
+    <string name="ops_error_draft_not_saved">Plico could not save the draft on the server. %1$s</string>
+    <!-- %1$s: the server's reply. -->
+    <string name="ops_error_sent_not_saved">The message was sent, but Plico could not put a copy in Sent. %1$s</string>
+
+    <!-- %1$s: one or more email addresses. -->
+    <string name="ops_error_send_rejected">The server refused these addresses: %1$s</string>
+    <!-- %1$s: the server's reply. -->
+    <string name="ops_error_send_refused">The server refused the message. %1$s</string>
+    <!-- %1$s: the last error. -->
+    <string name="ops_error_send_gave_up">Plico could not send the message. %1$s</string>
+    <string name="ops_error_invalid_address">An address is not correct.</string>
+    <string name="ops_error_no_recipient">Add a recipient.</string>
+    <string name="ops_error_attachment_missing">An attachment is missing. Remove it and attach the file again.</string>
+
+    <string name="ops_error_no_account">Add an account first.</string>
+    <string name="ops_error_message_gone">This message is not available now.</string>
+    <string name="ops_error_offline">Plico cannot get this message from the server. Try again later.</string>
+    <string name="ops_error_folder_name">Type a folder name.</string>
+    <string name="ops_error_draft_locked">Plico is sending this draft. You cannot change it now.</string>
+    <string name="ops_error_file_not_allowed">Plico cannot attach this file.</string>
+    <string name="ops_error_file_unreadable">Plico cannot read this file.</string>
+</resources>

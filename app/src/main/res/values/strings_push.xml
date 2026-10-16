@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification channels (DESIGN.md §9) -->
+    <string name="push_channel_service">Push service</string>
+    <string name="push_channel_service_description">Shows that Plico keeps the connection for new mail.</string>
+    <string name="push_channel_alerts">Alerts</string>
+    <string name="push_channel_alerts_description">Sign-in and connection problems.</string>
+    <string name="push_channel_mail_description">New mail of this account.</string>
+
+    <!-- Text of the push service notification. Never an address. -->
+    <string name="push_service_connected">Connected</string>
+    <string name="push_service_waiting">Waiting for network</string>
+    <string name="push_service_late">Push may be late</string>
+
+    <!-- New mail -->
+    <plurals name="push_new_messages">
+        <item quantity="one">%d new message</item>
+        <item quantity="other">%d new messages</item>
+    </plurals>
+    <string name="push_new_message">New message</string>
+    <!-- Older new mail that has no line in the summary. -->
+    <plurals name="push_more">
+        <item quantity="one">+%d more</item>
+        <item quantity="other">+%d more</item>
+    </plurals>
+    <string name="push_no_subject">(no subject)</string>
+    <string name="push_no_sender">(no sender)</string>
+    <string name="push_action_archive">Archive</string>
+    <string name="push_action_delete">Delete</string>
+    <string name="push_action_mark_read">Mark read</string>
+
+    <!-- Alerts. %s is the account label, never an address. -->
+    <string name="push_signin_title">Sign-in needed</string>
+    <string name="push_signin_text">%s: sign in again to get new mail.</string>
+    <string name="push_tls_title">Secure connection failed</string>
+    <string name="push_tls_text">The secure connection to %s failed. Plico keeps trying.</string>
+    <string name="push_setup_title">Account needs attention</string>
+    <string name="push_setup_text">%s: open Plico to fix the account settings.</string>
+    <string name="push_problem_title">Problem with an account</string>
+    <string name="push_problem_text">%s: open Plico to see the problem.</string>
+    <string name="push_stopped_title">Push stopped</string>
+    <string name="push_stopped_text">Plico does not check for new mail now.</string>
+    <string name="push_action_resume">Resume</string>
+
+    <!-- Push state in the app (banner, Push &amp; battery) -->
+    <string name="push_health_paused">Push is paused</string>
+    <string name="push_health_stopped">Push stopped</string>
+    <string name="push_health_restricted">Push off: battery usage is Restricted</string>
+    <string name="push_health_notifications_off">Notifications are off for Plico</string>
+    <string name="push_health_no_network">Waiting for network</string>
+    <string name="push_health_unreliable">Push stops if Android closes the app</string>
+    <string name="push_health_ok">Push is on</string>
+</resources>

@@ -76,11 +76,16 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         app.appLock.onForeground()
         super.onStart()
+        // DESIGN §8.2/§8.3: grants are read again, push starts, and the visible UI is a coalescing point.
+        app.push.onAppVisible(true)
     }
 
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) app.appLock.onBackground()
+        if (!isChangingConfigurations) {
+            app.appLock.onBackground()
+            app.push.onAppVisible(false)
+        }
     }
 
     private fun applyWindowPrivacy() {
@@ -124,11 +129,12 @@ private fun Navigator.open(app: PlicoApp, entry: Entry, intent: Intent, fresh: B
         snapshotFlow { backStack.isNotEmpty() }.first { it }
         when (entry) {
             is Entry.OpenMessage -> go(Route.Message(entry.messageId))
+            is Entry.Reauth -> go(Route.Reauth(entry.accountId))
             Entry.Compose -> {
                 val draftId = ComposeIntents.draftFromIntent(app, intent) ?: return@launch
                 if (fresh) reset(Route.Compose(draftId)) else go(Route.Compose(draftId))
             }
-            Entry.OAuthDone -> OAuthResume.onResult(app)
+            Entry.OAuthDone -> OAuthResume.onResult(app)?.let(::go)
         }
     }
 }

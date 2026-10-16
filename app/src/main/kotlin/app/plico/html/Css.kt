@@ -15,7 +15,7 @@ package app.plico.html
 internal object Css {
     private val comment = Regex("""/\*[\s\S]*?(?:\*/|\z)""")
     private val banned = Regex(
-        """@import[^;{}]*;?|@font-face\s*\{[^}]*}?|expression|behavior|-moz-binding|javascript:|vbscript:""",
+        """@import[^;{}]*;?|@font-face\s*\{[^}]*\}?|expression|behavior|-moz-binding|javascript:|vbscript:""",
         RegexOption.IGNORE_CASE,
     )
     private val function = Regex(

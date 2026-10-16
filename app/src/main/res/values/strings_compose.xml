@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of app.plico.ui.compose: the compose screen and drafts from other apps. -->
+<resources>
+    <string name="compose_back">Back</string>
+    <string name="compose_send">Send</string>
+    <string name="compose_attach">Attach</string>
+    <string name="compose_attach_photos">Photos and videos</string>
+    <string name="compose_attach_files">Files</string>
+    <string name="compose_more">More options</string>
+
+    <string name="compose_from">From</string>
+    <string name="compose_to">To</string>
+    <string name="compose_cc">Cc</string>
+    <string name="compose_bcc">Bcc</string>
+    <string name="compose_cc_bcc">Cc/Bcc</string>
+    <string name="compose_show_cc_bcc">Add Cc and Bcc</string>
+    <string name="compose_subject">Subject</string>
+    <string name="compose_body">Message</string>
+
+    <string name="compose_recipient_invalid">Not a valid address</string>
+    <string name="compose_recipient_edit">Edit</string>
+    <string name="compose_recipient_remove">Remove</string>
+
+    <string name="compose_attachment_adding">Adding file…</string>
+    <string name="compose_attachment_remove">Remove %1$s</string>
+    <string name="compose_attachment_original">Original quality</string>
+    <string name="compose_attachment_metadata_kept">metadata kept</string>
+    <string name="compose_attachment_note">Photos are made smaller, and their location and camera data are removed. Other files and photos in original quality keep their metadata.</string>
+    <!-- 1: estimated size, 2: Riseup or Gmail, 3: the server limit -->
+    <string name="compose_too_large">This message is about %1$s after encoding. %2$s accepts at most %3$s. Remove files to send it.</string>
+
+    <!-- 1: the reason from the server or the app -->
+    <string name="compose_failed">Not sent: %1$s</string>
+    <string name="compose_sending">Sending…</string>
+    <string name="compose_undo">Undo</string>
+    <string name="compose_undo_too_late">Too late to undo. The message is being sent.</string>
+    <string name="compose_draft_saved">Draft saved</string>
+
+    <string name="compose_no_recipient">Add a recipient.</string>
+    <string name="compose_invalid_recipients">Correct the addresses that are marked in red.</string>
+    <string name="compose_wait_attachments">Wait until all files are added.</string>
+    <string name="compose_send_too_large">The message is too large. Remove files to send it.</string>
+    <string name="compose_not_sendable">This message cannot be sent. Check the recipients and the size of the files.</string>
+    <string name="compose_attach_failed">The file could not be attached.</string>
+    <string name="compose_no_picker">No app on this phone can choose files.</string>
+
+    <string name="compose_discard">Discard</string>
+    <string name="compose_discard_title">Discard this draft?</string>
+    <string name="compose_discard_text">The draft is deleted from this phone and from the server.</string>
+    <string name="compose_gone">This draft is no longer available.</string>
+
+    <plurals name="compose_share_failed">
+        <item quantity="one">%d file could not be attached.</item>
+        <item quantity="other">%d files could not be attached.</item>
+    </plurals>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the sealed envelope of the launcher icon, cropped to 24 dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="56"
+    android:viewportHeight="56">
+    <group
+        android:translateX="-26"
+        android:translateY="-26">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M36,37H72A6,6 0 0,1 78,43V65A6,6 0 0,1 72,71H36A6,6 0 0,1 30,65V43A6,6 0 0,1 36,37ZM34,41L47.69,50.58A9,9 0 0,1 60.31,50.58L74,41L74,45L62.19,53.27A9,9 0 1,1 45.81,53.27L34,45Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M47.5,57A6.5,6.5 0 1,0 60.5,57A6.5,6.5 0 1,0 47.5,57Z" />
+    </group>
+</vector>

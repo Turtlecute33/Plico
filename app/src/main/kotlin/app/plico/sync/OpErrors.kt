@@ -1,0 +1,65 @@
+package app.plico.sync
+
+import app.plico.account.MailError
+import app.plico.mail.imap.ImapBadException
+import app.plico.mail.imap.ImapNoException
+import java.io.IOException
+
+/** How the op runner treats a failure (DESIGN.md §7.4, protocol PS14). */
+internal enum class Failure {
+    /** Try again later with backoff, for at most 24 h. */
+    TRANSIENT,
+
+    /** Drop the op and undo its local change. */
+    PERMANENT,
+
+    /** The target mailbox is missing: create it once and retry. */
+    TRYCREATE,
+}
+
+/** A refusal decided by the app (size limit, a Gmail rule); [message] is the text for the user. */
+internal class OpRefused(message: String) : Exception(message)
+
+/** The SELECT returned another UIDVALIDITY than the folder row: the stored UIDs mean nothing any more. */
+internal class UidValidityChanged : IOException("UIDVALIDITY changed")
+
+internal object OpErrors {
+    private val TRANSIENT_CODES = setOf("UNAVAILABLE", "INUSE", "SERVERBUG", "THROTTLED")
+    private val BACKOFF_MS = longArrayOf(5_000, 30_000, 120_000, 600_000, 3_600_000)
+
+    /** An op that still fails after this time (from its creation) is dropped. */
+    const val GIVE_UP_MS = 24 * 3_600_000L
+
+    /** A send that failed this many times becomes failed (DESIGN.md §7.5). */
+    const val MAX_SEND_ATTEMPTS = 6
+
+    fun classify(t: Throwable): Failure = when (t) {
+        is ImapNoException -> when (t.code?.name) {
+            "TRYCREATE" -> Failure.TRYCREATE
+            in TRANSIENT_CODES -> Failure.TRANSIENT
+            else -> Failure.PERMANENT
+        }
+        is ImapBadException, is OpRefused -> Failure.PERMANENT
+        is MailError.Server, is MailError.TooLarge, is MailError.Setup -> Failure.PERMANENT
+        is MailError -> Failure.TRANSIENT
+        // BYE, protocol errors, timeouts and resets: the connection is gone, the op is not wrong.
+        is IOException -> Failure.TRANSIENT
+        else -> Failure.PERMANENT
+    }
+
+    /**
+     * True when [t] ends the connection (or the session must handle it), so the work cycle stops after the
+     * op is rescheduled. A tagged NO or BAD refuses one command and keeps the connection.
+     */
+    fun endsConnection(t: Throwable): Boolean = when (t) {
+        is ImapNoException, is ImapBadException, is UidValidityChanged -> false
+        is IOException, is MailError -> true
+        else -> false
+    }
+
+    /** Delay before the next try, after [attempts] failed tries (>= 1): 5 s, 30 s, 2 min, 10 min, then 1 h. */
+    fun backoffMs(attempts: Int): Long = BACKOFF_MS[(attempts - 1).coerceIn(0, BACKOFF_MS.lastIndex)]
+
+    /** The server's text for a refusal, else a short name of the problem. */
+    fun text(t: Throwable): String = t.message?.trim()?.takeIf { it.isNotEmpty() } ?: t.javaClass.simpleName
+}

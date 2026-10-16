@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Top bar and search -->
+    <string name="mailbox_search_hint">Search mail</string>
+    <string name="mailbox_open_menu">Open menu</string>
+    <string name="mailbox_close_search">Close search</string>
+    <string name="mailbox_clear_search">Clear search</string>
+    <string name="mailbox_account_settings">Account settings</string>
+    <string name="mailbox_more_options">More options</string>
+    <string name="mailbox_search_start">Search subjects, people and text of the mail on this phone.</string>
+    <string name="mailbox_search_empty">No messages found</string>
+    <string name="mailbox_search_empty_text">Search on the server to find older mail.</string>
+    <string name="mailbox_search_server">Search on server</string>
+    <string name="mailbox_searching_server">Searching on server…</string>
+    <string name="mailbox_search_server_none">The server found no more messages.</string>
+    <plurals name="mailbox_search_server_done">
+        <item quantity="one">The server found %d message.</item>
+        <item quantity="other">The server found %d messages.</item>
+    </plurals>
+    <string name="mailbox_try_again">Try again</string>
+
+    <!-- Drawer -->
+    <string name="mailbox_starred">Starred</string>
+    <string name="mailbox_folder_inbox">Inbox</string>
+    <string name="mailbox_folder_sent">Sent</string>
+    <string name="mailbox_folder_drafts">Drafts</string>
+    <string name="mailbox_folder_archive">Archive</string>
+    <string name="mailbox_folder_all">All mail</string>
+    <string name="mailbox_folder_important">Important</string>
+    <string name="mailbox_folder_spam">Spam</string>
+    <string name="mailbox_folder_trash">Trash</string>
+    <string name="mailbox_more">More</string>
+    <string name="mailbox_less">Less</string>
+    <string name="mailbox_folder_options">Folder options</string>
+    <string name="mailbox_notify_new_mail">Notify for new mail</string>
+    <plurals name="mailbox_unread_count">
+        <item quantity="one">%d unread</item>
+        <item quantity="other">%d unread</item>
+    </plurals>
+
+    <!-- Message rows -->
+    <string name="mailbox_no_subject">(no subject)</string>
+    <string name="mailbox_no_sender">(no sender)</string>
+    <string name="mailbox_draft">Draft</string>
+    <string name="mailbox_unread">Unread</string>
+    <string name="mailbox_has_attachments">Has attachments</string>
+    <string name="mailbox_open">Open</string>
+    <string name="mailbox_select">Select</string>
+    <string name="mailbox_deselect">Deselect</string>
+
+    <!-- Actions -->
+    <string name="mailbox_action_archive">Archive</string>
+    <string name="mailbox_action_delete">Delete</string>
+    <string name="mailbox_action_delete_forever">Delete forever</string>
+    <string name="mailbox_action_mark_read">Mark as read</string>
+    <string name="mailbox_action_mark_unread">Mark as unread</string>
+    <string name="mailbox_action_star">Star</string>
+    <string name="mailbox_action_unstar">Remove star</string>
+    <string name="mailbox_action_spam">Report spam</string>
+    <string name="mailbox_action_not_spam">Not spam</string>
+    <string name="mailbox_action_move">Move to…</string>
+    <string name="mailbox_action_labels">Labels…</string>
+    <string name="mailbox_action_select_all">Select all</string>
+    <string name="mailbox_action_clear_selection">Clear selection</string>
+    <string name="mailbox_action_empty_trash">Empty Trash</string>
+    <string name="mailbox_action_empty_spam">Empty Spam</string>
+    <plurals name="mailbox_selected_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
+
+    <!-- Results of actions -->
+    <string name="mailbox_undo">Undo</string>
+    <plurals name="mailbox_done_archived">
+        <item quantity="one">%d message archived</item>
+        <item quantity="other">%d messages archived</item>
+    </plurals>
+    <plurals name="mailbox_done_deleted">
+        <item quantity="one">%d message moved to Trash</item>
+        <item quantity="other">%d messages moved to Trash</item>
+    </plurals>
+    <plurals name="mailbox_done_deleted_forever">
+        <item quantity="one">%d message deleted forever</item>
+        <item quantity="other">%d messages deleted forever</item>
+    </plurals>
+    <plurals name="mailbox_done_spam">
+        <item quantity="one">%d message moved to Spam</item>
+        <item quantity="other">%d messages moved to Spam</item>
+    </plurals>
+    <plurals name="mailbox_done_not_spam">
+        <item quantity="one">%d message moved to Inbox</item>
+        <item quantity="other">%d messages moved to Inbox</item>
+    </plurals>
+    <plurals name="mailbox_done_moved">
+        <item quantity="one">%d message moved</item>
+        <item quantity="other">%d messages moved</item>
+    </plurals>
+
+    <!-- Confirmations -->
+    <plurals name="mailbox_delete_forever_title">
+        <item quantity="one">Delete %d message forever?</item>
+        <item quantity="other">Delete %d messages forever?</item>
+    </plurals>
+    <string name="mailbox_cannot_undo">You cannot undo this.</string>
+    <string name="mailbox_empty_trash_title">Empty Trash?</string>
+    <string name="mailbox_empty_spam_title">Empty Spam?</string>
+    <string name="mailbox_empty_text">Plico deletes all messages in this folder forever, also on the server.</string>
+    <string name="mailbox_empty_confirm">Empty</string>
+    <string name="mailbox_send_again_title">Send again?</string>
+    <string name="mailbox_send_again">Send again</string>
+
+    <!-- Banners -->
+    <string name="mailbox_banner_sign_in">Sign-in needed for %1$s</string>
+    <string name="mailbox_sign_in">Sign in</string>
+    <string name="mailbox_banner_tls">The secure connection to %1$s failed. Plico tries again later.</string>
+    <string name="mailbox_banner_setup">%1$s: %2$s</string>
+    <string name="mailbox_banner_setup_default">%1$s needs attention. Open the account settings.</string>
+    <string name="mailbox_account">Account</string>
+    <string name="mailbox_banner_guard">Many messages in %1$s are gone on the server. Plico stopped the sync of this folder.</string>
+    <string name="mailbox_resync">Resync</string>
+    <string name="mailbox_banner_push_paused">Push is paused. New mail does not come in.</string>
+    <string name="mailbox_banner_push_stopped">Push stopped. New mail does not come in.</string>
+    <string name="mailbox_resume">Resume</string>
+    <string name="mailbox_banner_push_restricted">Push is off: battery use for Plico is Restricted.</string>
+    <string name="mailbox_banner_push_late">New mail can be late. Android can stop Plico.</string>
+    <string name="mailbox_fix">Fix</string>
+    <string name="mailbox_banner_gmail_ip">Gmail writes your public IP address into the mail that you send.</string>
+    <string name="mailbox_ok">OK</string>
+
+    <!-- Empty lists -->
+    <string name="mailbox_empty_inbox">Your inbox is empty</string>
+    <string name="mailbox_empty_starred">No starred messages</string>
+    <string name="mailbox_empty_drafts">No drafts</string>
+    <string name="mailbox_empty_trash">Trash is empty</string>
+    <string name="mailbox_empty_spam">No spam</string>
+    <string name="mailbox_empty_folder">No messages</string>
+    <string name="mailbox_empty_pull">Pull down to check for new mail.</string>
+
+    <!-- Local drafts -->
+    <string name="mailbox_draft_to">To: %1$s</string>
+    <string name="mailbox_draft_no_recipients">(no recipients)</string>
+    <string name="mailbox_draft_queued">Queued</string>
+    <string name="mailbox_draft_sending">Sending…</string>
+    <string name="mailbox_draft_failed">Not sent</string>
+    <string name="mailbox_retry_send">Retry</string>
+
+    <!-- Folder picker -->
+    <string name="mailbox_move_to">Move to</string>
+    <string name="mailbox_labels">Labels</string>
+    <string name="mailbox_apply">Apply</string>
+    <string name="mailbox_new_folder">New folder…</string>
+    <string name="mailbox_new_label">New label…</string>
+    <string name="mailbox_new_folder_title">New folder</string>
+    <string name="mailbox_new_label_title">New label</string>
+    <string name="mailbox_folder_name">Name</string>
+    <string name="mailbox_create">Create</string>
+    <string name="mailbox_no_targets">No other folders</string>
+
+    <!-- Errors -->
+    <string name="mailbox_error_sign_in">Sign-in needed. Sign in again in the account settings.</string>
+    <string name="mailbox_error_tls">The secure connection to the server failed.</string>
+    <string name="mailbox_error_network">No connection to the mail server.</string>
+    <string name="mailbox_error_busy">The server is busy. Try again later.</string>
+    <string name="mailbox_error_server">The server refused: %1$s</string>
+    <string name="mailbox_error_too_large">The message is too large.</string>
+    <string name="mailbox_error_detail">%1$s</string>
+    <string name="mailbox_error_failed">That did not work. Try again.</string>
+</resources>
