@@ -13,8 +13,13 @@ import app.plico.data.OpDao
 import app.plico.data.Prefs
 import app.plico.data.TrustDao
 import app.plico.data.Vault
+import app.plico.notify.Notifier
+import app.plico.push.Power
+import app.plico.push.PushEngine
 import app.plico.push.policy.KeyValueStore
 import app.plico.push.policy.LearnedIntervals
+import app.plico.sync.MailActions
+import app.plico.sync.Sessions
 import app.plico.ui.lock.AppLock
 import kotlin.concurrent.thread
 
@@ -31,6 +36,16 @@ class PlicoApp : Application() {
     val drafts by lazy { DraftDao(db) }
     val contacts by lazy { ContactDao(db) }
     val trustedSenders by lazy { TrustDao(db) }
+
+    val power by lazy { Power(this) }
+    val notifier by lazy { Notifier(this) }
+
+    /** Foreground service, alarm, network watcher; the host of every session. */
+    val push by lazy { PushEngine(this) }
+    val sessions by lazy { Sessions(this) }
+
+    /** The UI's single entry point for changes. */
+    val mail by lazy { MailActions(this) }
 
     /** The UI lock; notifications also read it to hide their content. */
     val appLock by lazy { AppLock(prefs) }

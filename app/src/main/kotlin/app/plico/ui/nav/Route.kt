@@ -9,6 +9,9 @@ import app.plico.data.MailView
 /** Screens. The back stack lives in [Navigator] (a ViewModel); it is not saved across process death. */
 sealed interface Route {
     data object Setup : Route
+
+    /** Sign in again to an existing account (Settings, "Sign-in needed" notification). */
+    data class Reauth(val accountId: Long) : Route
     data class Mailbox(val view: MailView) : Route
     data class Message(val id: Long) : Route
     data class Compose(val draftId: Long) : Route

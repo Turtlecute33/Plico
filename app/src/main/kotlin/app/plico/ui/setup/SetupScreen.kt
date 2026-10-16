@@ -19,3 +19,7 @@ fun SetupScreen(nav: Navigator) {
         modifier = Modifier.fillMaxSize().safeDrawingPadding(),
     )
 }
+
+/** Sign in again to account [accountId] with its provider's methods. Placeholder until the setup screens exist. */
+@Composable
+fun ReauthScreen(accountId: Long, nav: Navigator) = SetupScreen(nav)

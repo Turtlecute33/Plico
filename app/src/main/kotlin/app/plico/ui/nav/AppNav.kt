@@ -28,6 +28,7 @@ import app.plico.ui.message.MessageScreen
 import app.plico.ui.settings.AboutScreen
 import app.plico.ui.settings.AccountSettingsScreen
 import app.plico.ui.settings.SettingsScreen
+import app.plico.ui.setup.ReauthScreen
 import app.plico.ui.setup.SetupScreen
 
 /**
@@ -57,6 +58,7 @@ fun AppNav(nav: Navigator, modifier: Modifier = Modifier) {
         predictivePopTransitionSpec = { backward() },
         entryProvider = entryProvider {
             entry<Route.Setup> { SetupScreen(nav) }
+            entry<Route.Reauth> { ReauthScreen(it.accountId, nav) }
             entry<Route.Mailbox> { MailboxScreen(it.view, nav) }
             entry<Route.Message> { MessageScreen(it.id, nav) }
             entry<Route.Compose> { ComposeScreen(it.draftId, nav) }
