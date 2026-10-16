@@ -1,6 +1,5 @@
 package app.plico.account
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.net.Uri
@@ -44,7 +43,6 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
      * Opens Google's consent page in the default browser. [email] is the login hint; the user can still pick
      * another account, so the result's email comes from the id_token. Throws [MailError.Setup] without a client ID.
      */
-    @SuppressLint("UseKtx") // androidx.core is for FileProvider only (DESIGN.md §2).
     fun start(activity: Activity, email: String) {
         val clientId = clientId()
         val verifier = randomToken()

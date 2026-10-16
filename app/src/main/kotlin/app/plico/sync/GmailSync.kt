@@ -67,7 +67,9 @@ internal class GmailSync(
      * new mail itself. Else SELECT INBOX: a UIDNEXT above the last one plus this cycle's new inbox mail means
      * mail came after the All Mail fetch, so the fast path runs again, and the check repeats (at most
      * [MAX_RERUNS] times). Only a SELECT that passed the check is stored, because IDLE never reports mail that
-     * was already there at the SELECT. Returns true when the fast path ran.
+     * was already there at the SELECT. Returns true when the fast path ran; the loop then runs one more cycle,
+     * which checks again: the publish SELECTs All Mail for the category filter, and after [MAX_RERUNS] the
+     * SELECT that failed the check is still current.
      */
     fun missedMail(report: SyncReport): Boolean {
         if (env.selection.current(FolderRules.INBOX) != null) return false
@@ -77,8 +79,10 @@ internal class GmailSync(
             val uidNext = env.selection.select(FolderRules.INBOX).uidNext
             if (!UidNextCheck.missedMail(uidNext, expected)) {
                 env.folders.setSyncState(view.id, uidNext = uidNext)
-                return pass > 0
+                if (pass == 0) return false
+                break
             }
+            // Mail still comes in: the old value stays, so the next cycle checks again.
             if (pass == MAX_RERUNS) break
             val before = report.newInbox
             fastPath(report)
@@ -87,7 +91,7 @@ internal class GmailSync(
             // web gives INBOX a new UID, but All Mail none), so this SELECT is the new base.
             expected = if (fetched > 0) expected + fetched else uidNext
         }
-        // Mail still comes in: the old value stays, so the next cycle checks again.
+        env.onNewMail()
         return true
     }
 

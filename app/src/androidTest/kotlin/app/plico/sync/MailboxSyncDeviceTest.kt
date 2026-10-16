@@ -275,6 +275,54 @@ class MailboxSyncDeviceTest : DbFixture() {
     }
 
     @Test
+    fun theUidNextCheckComparesAnInboxThatWasSelectedAgain() {
+        server.box("Sent", "\\Sent")
+        inbox.addAll(2)
+        start()
+        sync.fullSweep(SyncReport())
+        sync.syncFolder(folder(FolderRole.SENT), SyncReport())
+        inbox.add(subject = "While Sent was selected")
+        // The flags step SELECTs INBOX again without a new-UID fetch; that SELECT already counts the new mail.
+        sync.idleMailboxFlags(fullFlags = false, SyncReport())
+        assertEquals(0, serverNewMail)
+        assertTrue(sync.missedMail(SyncReport()))
+        assertEquals(listOf("While Sent was selected"), sync.claimNew().map { messages.get(it)!!.subject })
+        assertFalse(sync.missedMail(SyncReport()))
+    }
+
+    @Test
+    fun newUidValidityKeepsTheOpForItsRowsInOtherFolders() {
+        server.box("Work").addAll(2)
+        inbox.addAll(3)
+        val f = start()
+        sync.fullSweep(SyncReport())
+        val inInbox = row(f, 1)!!.id
+        val inWork = row(folder("Work"), 1)!!.id
+        messages.setHidden(listOf(inInbox, inWork), true)
+        val op = ops.insert(NewOp(accountId, OpKind.MOVE, listOf(inInbox, inWork), runAt = Long.MAX_VALUE))
+        inbox.uidValidity = 2
+
+        push()
+        assertEquals(listOf(op), ops.byAccount(accountId).map { it.id }, "the op still moves the Work row")
+        assertTrue(messages.get(inWork)!!.hidden)
+        assertNull(messages.get(inInbox), "the stale INBOX row is gone")
+    }
+
+    @Test
+    fun newUidValidityDropsAnEmptyTrash() {
+        val trash = server.box("Trash", "\\Trash")
+        trash.addAll(3)
+        start()
+        sync.fullSweep(SyncReport())
+        ops.insert(OpArg.Expunge(folder(FolderRole.TRASH).id, upTo = 3).toNewOp(accountId, Long.MAX_VALUE))
+        trash.uidValidity = 5
+
+        sync.fullSweep(SyncReport())
+        assertEquals(5, folder(FolderRole.TRASH).uidValidity)
+        assertTrue(ops.byAccount(accountId).isEmpty(), "UIDs 1..3 of the new numbering must not be expunged")
+    }
+
+    @Test
     fun unsolicitedFlagUpdatesAreNoNewRows() {
         inbox.addAll(250)
         // A flag change of an old message during the first-sync fetch (DESIGN §4.3).

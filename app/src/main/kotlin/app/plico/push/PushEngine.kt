@@ -152,6 +152,8 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
 
     override fun network(): NetState? = watcher.network()
 
+    override fun currentNetwork(): NetState? = watcher.snapshot()
+
     override fun wakeHolder(tag: String): WakeHolder = app.power.holder(tag)
 
     /** Arms the alarm on the caller's thread, so that it is armed before the caller's wake lock ends (push PB4). */

@@ -79,13 +79,14 @@ class DraftOpDaoTest : DbFixture() {
         drafts.queue(queued, 0)
 
         val text = context.getString(app.plico.R.string.data_error_may_have_been_sent)
-        assertEquals(1, drafts.failInterrupted(text))
+        // The caller alerts per account (DESIGN §7.5), so it gets the drafts with their accounts.
+        assertEquals(listOf(sending to acc), drafts.failInterrupted(text))
         drafts.get(sending)!!.let {
             assertEquals(DraftState.UNCERTAIN, it.state)
             assertEquals(text, it.error)
         }
         assertEquals(DraftState.QUEUED, drafts.get(queued)!!.state)
-        assertEquals(0, drafts.failInterrupted(text))
+        assertEquals(emptyList(), drafts.failInterrupted(text))
         // Retry is allowed (the UI asks first).
         assertTrue(drafts.queue(sending, 0))
     }

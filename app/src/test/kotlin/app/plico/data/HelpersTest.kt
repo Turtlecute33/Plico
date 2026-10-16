@@ -39,6 +39,8 @@ class HelpersTest {
         val list = listOf(
             DraftAttachment("photo.jpg", "Photo \"1\".jpg", "image/jpeg", 1234),
             DraftAttachment("2-photo.jpg", "../evil\u0000.jpg", "image/jpeg", 3_000_000_000),
+            // The "metadata kept" note of an image that goes out as it is (DESIGN §10) survives a reopen.
+            DraftAttachment("anim.gif", "anim.gif", "image/gif", 99, metadataKept = true),
         )
         assertEquals(list, DraftDao.decodeAttachments(DraftDao.encodeAttachments(list)))
         assertEquals("[]", DraftDao.encodeAttachments(emptyList()))

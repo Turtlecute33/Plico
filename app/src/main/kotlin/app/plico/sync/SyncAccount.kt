@@ -79,12 +79,15 @@ internal class SyncAccount(val env: SyncEnv) {
         return mailbox.backfillStep(folder, report)
     }
 
-    /** The UIDNEXT check before IDLE (§7.1 step 6). True when the fast path ran again. */
+    /**
+     * The UIDNEXT check before IDLE (§7.1 step 6). True when the fast path ran again. A step of this cycle may
+     * have SELECTed INBOX again without a new-UID fetch, so a SELECT that is still current is compared too:
+     * IDLE never reports mail that this SELECT already counted. EXISTS reports the mail that comes after it.
+     */
     fun missedMail(report: SyncReport): Boolean {
         if (gmail != null) return gmail.missedMail(report)
         val inbox = inbox() ?: return false
-        if (env.selection.current(inbox.path) != null) return false
-        val sel = env.selection.select(inbox.path)
+        val sel = env.selection.current(inbox.path) ?: env.selection.select(inbox.path)
         if (!UidNextCheck.missedMail(sel.uidNext, inbox.uidNext)) return false
         mailbox.newMail(inbox, report, sel)
         return true

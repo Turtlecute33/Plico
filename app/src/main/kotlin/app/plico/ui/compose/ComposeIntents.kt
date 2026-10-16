@@ -73,6 +73,12 @@ object ComposeIntents {
     internal fun isEmpty(prefill: DraftPrefill): Boolean = prefill == DraftPrefill()
 
     /**
+     * True for a mailto link (SENDTO, VIEW): its draft opens fresh, so that leaving it without an edit deletes it
+     * (DESIGN §13). A shared draft (SEND, SEND_MULTIPLE) stays local until the user edits it.
+     */
+    internal fun isMailto(action: String?): Boolean = action == Intent.ACTION_SENDTO || action == Intent.ACTION_VIEW
+
+    /**
      * SEND and SEND_MULTIPLE: extras and streams. SENDTO: the mailto URI plus the text extras (the documented
      * way to prefill). VIEW: the mailto URI only. Null for anything else or a URI that is not mailto.
      */

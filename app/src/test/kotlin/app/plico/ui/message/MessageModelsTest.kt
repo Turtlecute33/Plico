@@ -156,7 +156,19 @@ class MessageModelsTest {
         val trash = placementOf(3, listOf(folder(3, FolderRole.TRASH)), gmail = false)
         assertFalse(trash.canArchive)
         assertTrue(trash.deletesForever)
-        assertTrue(placementOf(4, listOf(folder(4, FolderRole.SENT)), gmail = false).isOwnFolder)
+    }
+
+    @Test
+    fun onlyTheFolderMakesAMessageTheUsersOwn() {
+        // A forged "From: <own address>" lands in INBOX or Spam: it gets every sender check.
+        assertFalse(sentByUser(listOf(folder(1, FolderRole.INBOX))))
+        assertFalse(sentByUser(listOf(folder(2, FolderRole.JUNK))))
+        assertTrue(sentByUser(listOf(folder(4, FolderRole.SENT))))
+        assertTrue(sentByUser(listOf(folder(5, FolderRole.DRAFTS))))
+        // Gmail: All Mail with the Sent label view.
+        val all = folder(1, FolderRole.ALL)
+        assertTrue(sentByUser(listOf(all, folder(10, FolderRole.SENT, FolderKind.LABEL))))
+        assertFalse(sentByUser(listOf(all, folder(11, FolderRole.INBOX, FolderKind.LABEL))))
     }
 
     // ---- Remote content

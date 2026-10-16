@@ -10,6 +10,7 @@ import app.plico.data.FolderRole
 import app.plico.data.MessageRef
 import app.plico.data.NewFolder
 import app.plico.data.Op
+import app.plico.data.OpKind
 import app.plico.data.ServerFlags
 import app.plico.mail.imap.Command
 import app.plico.mail.imap.ImapNoException
@@ -98,11 +99,20 @@ object Ops {
         return minOf(advertised ?: Long.MAX_VALUE, providerLimit)
     }
 
-    /** True while one of the op's mailboxes is frozen by the mass-delete guard (DESIGN §7.2 step 6). */
+    /**
+     * True while one of the op's mailboxes is frozen by the mass-delete guard (DESIGN §7.2 step 6), and while an
+     * Empty Trash/Spam has a restore out of that folder queued before it (MailActions.emptyFolder): a restore
+     * that must retry would else lose its message to the expunge.
+     */
     private fun waits(store: OpStore, op: Op): Boolean {
         val folderIds = store.messages.refs(op.messageIds).mapTo(HashSet()) { it.folderId }
-        (OpArg.decode(op.kind, op.arg) as? OpArg.Expunge)?.folderId?.let(folderIds::add)
-        return folderIds.any { store.folders.get(it)?.guard == true }
+        val emptied = (OpArg.decode(op.kind, op.arg) as? OpArg.Expunge)?.folderId
+        emptied?.let(folderIds::add)
+        if (folderIds.any { store.folders.get(it)?.guard == true }) return true
+        return emptied != null && store.ops.byAccount(op.accountId).any { earlier ->
+            earlier.id < op.id && earlier.kind == OpKind.MOVE &&
+                store.messages.refs(earlier.messageIds).any { it.folderId == emptied }
+        }
     }
 
     private fun runOne(ctx: OpContext, op: Op) {

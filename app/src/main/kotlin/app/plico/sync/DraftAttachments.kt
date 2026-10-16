@@ -44,18 +44,10 @@ internal object DraftAttachments {
             val image = type?.startsWith("image/") == true
             val output = if (image && !originalQuality) ImageRules.output(type, head) else null
             val shown = if (image) ImageRules.fileName(name, type, output, draft.attachments.map { it.name }) else name
-            var file = raw
-            var mime = type ?: OCTET_STREAM
-            if (output != null) {
-                val encoded = store.files.newOutboxFile(draftId, shown).also(created::add)
-                // An image that the platform cannot decode is sent as it is.
-                if (ImageEncoder.encode(raw, encoded, output)) {
-                    file = encoded
-                    mime = output.mime
-                }
-            }
+            val file = if (output == null) raw else cleaned(store, draftId, raw, shown, output).also(created::add)
+            val mime = output?.mime ?: type ?: OCTET_STREAM
             if (file.length() > limit) throw tooLarge(store, limit)
-            val attachment = DraftAttachment(file.name, shown, mime, file.length())
+            val attachment = DraftAttachment(file.name, shown, mime, file.length(), image && output == null)
             if (!store.updateDraft(draftId) { it.copy(attachments = it.attachments + attachment) }) {
                 throw ActionError(store.text(R.string.ops_error_draft_locked))
             }
@@ -64,6 +56,17 @@ internal object DraftAttachments {
         } finally {
             created.forEach(File::delete)
         }
+    }
+
+    /**
+     * [raw] re-encoded as [output] into a new outbox file [name], without metadata. An image that the platform
+     * cannot re-encode is refused: sent as it is, it would keep its location and camera data (privacy PS17).
+     */
+    internal fun cleaned(store: OpStore, draftId: Long, raw: File, name: String, output: ImageRules.Output): File {
+        val file = store.files.newOutboxFile(draftId, name)
+        if (ImageEncoder.encode(raw, file, output)) return file
+        file.delete()
+        throw ActionError(store.text(R.string.ops_error_image_not_cleaned))
     }
 
     private fun displayName(resolver: ContentResolver, uri: Uri): String? = try {

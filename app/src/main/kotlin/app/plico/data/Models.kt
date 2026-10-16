@@ -245,8 +245,17 @@ object DraftState {
     fun failed(state: Int): Boolean = state == FAILED || state == UNCERTAIN
 }
 
-/** A draft attachment; [file] is a safe name inside filesDir/outbox/<draftId>/. */
-data class DraftAttachment(val file: String, val name: String, val mime: String, val size: Long)
+/**
+ * A draft attachment; [file] is a safe name inside filesDir/outbox/<draftId>/. [metadataKept]: an image that
+ * goes out as it is, with its metadata (DESIGN §10: GIF, animations, other types, "Original quality").
+ */
+data class DraftAttachment(
+    val file: String,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val metadataKept: Boolean = false,
+)
 
 data class Draft(
     val id: Long,

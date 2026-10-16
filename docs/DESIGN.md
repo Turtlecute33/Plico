@@ -72,7 +72,8 @@ The code stays pure Kotlin with no Android imports (`apis AF13`).
   app.plico.push         PushService, PushEngine, KeepalivePolicy, Scheduler, AlarmReceiver,
                          NetworkWatcher, Power, StartReceiver
   app.plico.notify       Notifier, ActionReceiver
-  app.plico.html         HtmlSanitizer, LinkCleaner, Idn, Psl, SenderCheck, RemoteFetcher
+  app.plico.html         HtmlSanitizer, LinkCleaner, Idn, Psl, SenderCheck, RemoteFetcher, Mailto,
+                         ListUnsubscribe
   app.plico.ui           theme, nav, setup, mailbox, message, compose, settings, components
 ```
 One process. The foreground service and the UI share the singletons in `PlicoApp`.
@@ -146,6 +147,7 @@ class ImapConnection(private val stream: MailStream, private val log: (String) -
     fun idle(hooks: IdleHooks, onEvent: (IdleEvent) -> Unit)
     fun done()                                             // thread-safe; see rules
     fun startCompression()
+    val isOpen: Boolean                                    // false after close() or an error that closed it
     override fun close()
 }
 interface IdleHooks {
@@ -167,10 +169,13 @@ IDLE rules (`push PB1`, `protocol PS21`):
   without `"`/`\`/CR/LF, else literal), `list()`, `raw()`. Literals use `{n+}` with LITERAL+,
   `{n+}` for n ≤ 4096 with LITERAL-, else a synchronizing literal: flush, wait for `+`; a tagged
   response instead of `+` ends the command (`protocol PS14`).
-- The log callback never sees credentials: AUTHENTICATE lines and SASL responses → `<redacted>`.
+- The log callback gets only tags, command verbs, statuses and response-code names; never arguments, so no
+  credentials, mailbox names or addresses.
 - Fail closed: an error before the tagged response (or `close()`) marks the connection broken and closes
-  it; later calls throw `IOException("Connection closed")`. `done()` never throws and never waits for a
-  command write (separate IDLE lock).
+  it; later calls throw `IOException("Connection closed")`, and `isOpen` is false. Errors that close it: read
+  error or timeout, a reader limit, a protocol error, an exception from a callback or hook. A tagged NO or BAD
+  ends the command and keeps the connection. `done()` never throws and never waits for a command write
+  (separate IDLE lock).
 - Read timeout 60 s during commands; 0 during IDLE from `+` until the tagged OK (the app's 20 s refresh
   watchdog closes the socket if the OK never comes).
 - EXISTS from SELECT/EXAMINE also reaches `onUnsolicited`; unsolicited FETCH responses with a UID during
@@ -192,6 +197,7 @@ class ImapClient(val conn: ImapConnection) : Closeable {
     fun compress()                                             // when COMPRESS=DEFLATE
     fun list(): List<MailboxInfo>                              // LIST "" "*" RETURN (SPECIAL-USE)
     fun status(mailbox: String): MailboxStatus                 // MESSAGES UIDNEXT UIDVALIDITY (+ HIGHESTMODSEQ when CONDSTORE)
+    fun listStatus(): Map<String, MailboxStatus>               // LIST "" "*" RETURN (STATUS (…)) (LIST-STATUS); incomplete entries left out
     val selected: String?
     fun select(mailbox: String): SelectResult
     fun examine(mailbox: String): SelectResult
@@ -243,6 +249,8 @@ data class DisplayParts(val html: List<MimePart>, val plain: List<MimePart>,
                         val inline: List<MimePart>, val attachments: List<MimePart>)
 ```
 - Sections: non-multipart top level = `"1"`; children `1..n`; nested `1.2.3`.
+- `parseBodyStructure` never throws: missing or NIL fields take RFC 2045 defaults; a multipart nested deeper
+  than 100 levels keeps no children.
 - `displayParts` (`protocol PS19`): `multipart/alternative` → the richest supported child
   (html > plain). `multipart/related` → its root (first child) plus cid images as `inline`.
   `multipart/mixed` (and related without an HTML root) → every inline text part in order (inline =
@@ -256,7 +264,8 @@ class HeaderBlock(val fields: List<Pair<String, String>>) { operator fun get(nam
     companion object { fun parse(bytes: ByteArray): HeaderBlock } }   // unfold; raw 8-bit: UTF-8 else ISO-8859-1
 object EncodedWords { fun decode(value: String): String; fun encode(value: String): String }
 data class Address(val name: String?, val email: String) { fun format(): String }
-object Addresses { fun parseList(value: String): List<Address>; fun format(list: List<Address>): String; fun isValidAddrSpec(s: String): Boolean /* = AddrSpec.isValid */ }
+object Addresses { fun parseList(value: String): List<Address>; fun format(list: List<Address>, encode: Boolean = true): String
+    fun isValidAddrSpec(s: String): Boolean /* = AddrSpec.isValid */ }
 data class ContentTypeValue(val type: String, val subtype: String, val params: Map<String, String>)
 object ContentType { fun parse(value: String): ContentTypeValue }    // RFC 2231 continuations + charset
 object Dates { fun parse(value: String): Long?; fun formatUtc(epochMs: Long): String }
@@ -268,6 +277,9 @@ object HeaderSafety { fun clean(value: String): String; fun messageIds(value: St
   unknown → UTF-8, invalid UTF-8 → windows-1252).
 - `HeaderSafety.clean` (`privacy PS3`): C0 controls and DEL → space, trims. Every outgoing header
   value passes it. `messageIds` keeps only tokens matching `<[^\s<>]+@[^\s<>]+>`.
+- `Addresses.format`: names pass `HeaderSafety.clean` and are quoted when they hold specials. `encode = true`
+  (headers): RFC 2047 for non-ASCII names. `encode = false`: names stay as they are; this is the stored
+  `*_list` form that `parseList` reads back, and the UI form.
 - `AddrSpec.isValid`: strict; no CR, LF, `<`, `>`, unquoted space, controls; RFC 5321 length limits.
 
 ### 4.7 `smtp.SmtpClient`
@@ -288,12 +300,16 @@ class SmtpException(val code: Int, val enhanced: String?, message: String, val s
 class SmtpRecipientException(val rejected: Map<String, String>) : java.io.IOException()
 ```
 - EHLO argument is always `[127.0.0.1]`. No CHUNKING, DSN or PIPELINING.
-- `send`: every address must pass `isValidAddrSpec` before any byte is written. `MAIL FROM:<..> SIZE=n`
-  (+ `SMTPUTF8` when needed). Each `RCPT TO`: 5xx, or 4xx with an address error code (4.1.x, e.g. Riseup
-  `450 4.1.2` for a mistyped domain) → `RSET`, no DATA, `SmtpRecipientException` (`protocol PS15`); other 4xx →
-  `RSET`, transient `SmtpException(RCPT)`; 421 → transient at once. A refused DATA → `RSET`. `DATA`, dot-stuffing, `CRLF.CRLF`. The reply to the
-  final dot uses a 10-min read timeout; a timeout there throws `SmtpUncertainException` ("may have been sent").
-- Logging redacts `AUTH` lines and 334 exchanges (`privacy PS18`).
+- `send`: at least one recipient; every address must pass `isValidAddrSpec` before any byte is written, else
+  `IllegalArgumentException` (its text names no address). `MAIL FROM:<..>`, plus `SIZE=n` when SIZE is
+  advertised and `SMTPUTF8` when needed. All `RCPT TO` lines are sent, then: any 5xx, or 4xx with an address error code
+  (4.1.x, e.g. Riseup `450 4.1.2` for a mistyped domain) → `RSET`, no DATA, `SmtpRecipientException` with every
+  refused address (`protocol PS15`); else another 4xx → `RSET`, transient `SmtpException(RCPT)` with the first
+  such reply; 421 → transient at once, without `RSET`. A refused DATA → `RSET` (not after 421). `DATA`,
+  dot-stuffing, `CRLF.CRLF`. The reply to the final dot uses a 10-min read timeout; any I/O error there throws
+  `SmtpUncertainException` ("may have been sent").
+- Replies: one code per reply, lines ≤ 8 KB, ≤ 200 lines, else `ProtocolException`.
+- Logging (`privacy PS18`): only command verbs and reply codes; never arguments, 334 payloads or the answers.
 
 ## 5. Data (`data`)
 
@@ -377,8 +393,16 @@ Rules:
 - Unread counts are computed (`GROUP BY folder_id` over `seen = 0 AND hidden = 0`), never stored (`simplicity EM10`).
 - Upserts use `INSERT … ON CONFLICT DO UPDATE` or `INSERT OR IGNORE`; never `REPLACE` (cascade) (`protocol PS10`).
 - FTS rows: `INSERT OR REPLACE INTO message_fts(rowid, …)`.
-- Account removal: cascade, delete `outbox/` and `att/` dirs of the account, `deleteNotificationChannel`,
-  `INSERT INTO message_fts(message_fts) VALUES('optimize')`, `PRAGMA wal_checkpoint(TRUNCATE)` (`privacy PS8`).
+- Account removal: stop the session, revoke the OAuth grant, cascade, delete `outbox/` and `att/` dirs of the
+  account, `INSERT INTO message_fts(message_fts) VALUES('optimize')`, `PRAGMA wal_checkpoint(TRUNCATE)`
+  (`privacy PS8`); contacts and trusted senders go with the last account. Its notifications are cancelled; the
+  push engine deletes the channels of accounts that are gone (`removeStaleChannels`).
+- `DraftState`: `EDITING` 0, `QUEUED` 1, `SENDING` 2, `FAILED` 3, `SENT` 4, `UNCERTAIN` 5 (failed, but may have
+  been sent: no reply to the final dot, or the process died while sending). FAILED and UNCERTAIN are both
+  "failed" (Edit, Retry); the UI checks the state, never the error text.
+- Only `data` writes SQL. The DAOs (`AccountDao FolderDao MessageDao DraftDao OpDao ContactDao TrustDao`) also
+  hold the rules that more than one area needs, e.g. `FolderDao.abilities(account)` (Delete/Spam, §7.3) for the
+  list, the message screen and the notification actions.
 
 `Vault`: AES-256-GCM key `plico.vault.v1` in AndroidKeyStore (StrongBox if available, else TEE),
 no user-auth or unlocked-device binding. Ciphertext = 12-byte IV + GCM output.
@@ -386,12 +410,15 @@ no user-auth or unlocked-device binding. Ciphertext = 12-byte IV + GCM output.
 `Prefs` (no secrets): swipe actions, undo-send seconds, remote-content default, confirm links, dark
 email, app lock + timeout, hide in recents, block screenshots, incognito keyboard, hide notification
 content, Google OAuth client ID, push paused flag, learned keepalive intervals (≤ 16 keys, LRU),
-pending OAuth `{state, verifier, email, createdAt}` (single use, 10 min).
+pending OAuth `{state, verifier, email, createdAt}` (single use, 10 min; a stale entry is dropped at process
+start, on the main thread), the Gmail folder-size note per account (deleted with the account). `Prefs`
+implements `KeyValueStore` (`get`/`put` of raw strings) for the components that own their format.
 
 `Files` (`privacy PS1`): one helper for every on-disk name: `<base>/<ownerId>/<itemId>` or
 `<base>/<ownerId>/<safeName>`; `safeName` replaces `/ \ :` NUL, C0/C1 and bidi controls
 (U+202A–202E, U+2066–2069) with `_`, strips leading dots, max 100 chars, fallback `attachment`;
 `canonicalPath` must start with `base.canonicalPath + "/"`. The original name lives only in the DB.
+`outboxDraftIds()` lists the outbox dirs, so that process start deletes the ones without a draft row.
 
 Contacts are learned from sent recipients and from senders the user replied to. No contacts permission.
 
@@ -462,10 +489,14 @@ One per account. It owns at most one `ImapClient` and one worker coroutine (the 
 
 ```kotlin
 class AccountSession(...) {
-    fun kick(reason: Reason)                              // never writes to a socket on the caller's thread
-    suspend fun <T> request(block: suspend LoopScope.() -> T): T   // UI work: queued, run by the loop, awaited
+    var mode: Mode                                        // IDLE, POLL or OFF; set by the push engine
+    val status: StateFlow<Status>                         // Offline, Connecting, Syncing, Idle, Waiting, Problem, NoNetwork
+    fun kick(reason: Reason = Reason.WORK)                // never writes to a socket on the caller's thread
+    fun onWake(now: Long)                                 // engine wake (§8.3): synchronous, no I/O
+    fun onNetworkEvent(event: NetworkRules.Event, network: NetState?)
+    suspend fun <T> request(closeOnCancel: Boolean = false, block: suspend SyncContext.() -> T): T   // UI work: queued, run by the loop, awaited
     fun nextDueAt(): Long?                                // earliest of keepalive, OAuth expiry, backoff, poll, op run_at, send_at
-    val connectedNetwork: android.net.Network?
+    fun signedIn()                                        // the user fixed the sign-in
     fun close()
 }
 ```
@@ -530,8 +561,8 @@ class AccountSession(...) {
   for APPEND and draft deletion), found by SPECIAL-USE, never by name.
 - **Missing mailboxes** (`protocol PS13`): no `\All` → `account.state = 3` "Turn on Show in IMAP for All
   Mail (Gmail settings → Labels)", no sync. No `\Trash` or `\Junk` → same hint, Delete/Spam off for
-  that account, sync continues. EXISTS of All Mail exactly 1000/2000/5000/10000 → one note about
-  Gmail's IMAP folder size limit.
+  that account (`FolderDao.abilities`), sync continues. EXISTS of All Mail exactly 1000/2000/5000/10000 → one
+  note about Gmail's IMAP folder size limit.
 - Label views (kind 1): `\Inbox` (inbox), `\Sent` (sent), `\Draft` and `\Drafts` (drafts),
   `\Important` (important), and every LIST entry that is not `\Noselect`, has no SPECIAL-USE attribute
   and is not named INBOX (`simplicity EM23`). An `X-GM-LABELS` value without a view row creates a
@@ -573,15 +604,17 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 - Before APPEND, check the size against APPENDLIMIT / the provider limit.
 
 ### 7.5 Sending (`Sender`) — the draft table is the only outbox
-- Send: `state = 1`, `send_at = now + undo seconds` (Prefs, default 5; 0 = off). Due sends: `state = 2`
+- Send: `state = 1`, `send_at = now + undo seconds` (Prefs, default 5; 0 = off); the Undo snackbar closes 1 s
+  before `send_at`, and an Undo after the send started says "Too late to undo". Due sends: `state = 2`
   → build MIME (§10) → write `outbox/<id>/message.eml` → SMTP. On the final 250, in one transaction:
   `state = 4`, queue `append` (Riseup Sent copy with Bcc, `\Seen`), `delete_draft` (if `on_server`),
   `flags +\Answered` (source message), update contacts (`protocol PS1`). When no op references the draft
   any more, delete the row and its outbox dir.
 - Errors: `SmtpRecipientException` → `state = 3` with the rejected address(es). 5xx → `state = 3` with the
-  server text. Transient (connect, 4xx at MAIL/DATA, IOException before the final dot) → backoff, max 6
-  attempts or 24 h, then `state = 3`. `SmtpUncertainException` → `state = 5` "May have been sent — check
-  Sent before you retry". At start-up every `state = 2` row becomes `state = 3` with that text.
+  server text. Transient (connect, 4xx at MAIL/RCPT/DATA except RCPT 4.1.x, IOException before the final
+  dot) → backoff, max 6 attempts or 24 h, then `state = 3`. `SmtpUncertainException` → `state = 5` "May have been sent — check
+  Sent before you retry". At process start (`Sender.onProcessStart`, before the first send) every `state = 2`
+  row becomes `state = 5` with that text, and `state = 4` rows that no op needs any more are deleted.
 - Drafts view shows failed drafts (states 3 and 5) with Edit and Retry; Retry of a state-5 draft asks first.
   A failed send shows a mailbox banner "N messages not sent · View" and, while the app is not on screen, one
   `alerts` notification "Message not sent" per account (no content). At process start, outbox dirs without
@@ -601,8 +634,9 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 ### 7.7 Search
 Local first: FTS4 over subject, people, body. "Search on server": Gmail `X-GM-RAW` in All Mail;
 Riseup `UID SEARCH TEXT` in the open folder only (INBOX in the unified view). `CHARSET UTF-8` for
-non-ASCII. Hits not yet local are fetched (headers, `notified = 1`); the list shows the local hits plus
-the server hits (at most 1,000). The UI shows "Searching on
+non-ASCII. Hits not yet local are fetched, newest first, at most 200 per search (headers, and the bodies of
+25 for the local index); they do not notify, except new mail at or above the folder's UIDNEXT (§9 rule). The
+list shows the local hits plus the server hits (at most 1,000). The UI shows "Searching on
 server…" with Cancel; Cancel closes the socket (normal reconnect) (`simplicity EM15`).
 
 ### 7.8 Attachments
@@ -654,7 +688,9 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   (exported=false): acquire the `alarm` wake lock (10 s; the engine releases it after the sessions got the wake
   and the next alarm is armed; the timeout covers a service start), skip if paused, call
   `engine.onWake(ALARM)` if the engine runs, else `startForegroundService` in try/catch; `reschedule()` in
-  `finally`.
+  `finally`. `reschedule()` arms on the caller's thread, so the alarm is set before the caller's wake lock
+  ends. `AccountSession.onWake(now)` runs on the engine's thread and does no I/O (it sets flags, renews the
+  session lock and kicks), so a session holds its own lock before the `alarm` lock ends.
 - **Coalescing** (`push PB13`): `engine.onWake(source)` runs on every wake: alarm, any server byte
   (`afterRead`), network callback, app visible. It kicks every session whose refresh or poll is due before
   `now + W` (refresh: W = max(3 min, interval / 3); poll: interval / 3). An early refresh never counts
@@ -676,8 +712,10 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   - Client mode (`push PB11`): refresh due = `idleStart + interval`. Start 9 min (Gmail), 15 min (others).
     After 3 refreshes in a row that found the socket alive (not early), +2 min (max 28). Failure = a
     refresh that found the socket dead, or a server BYE/close at IDLE age ≥ 5 min without a network change
-    (then also cap the interval at age − 1 min). On failure: −2 min (min 5) and **lock**. A locked interval
-    never grows; each later failure lowers it again. Unlock on a new network key or after 24 h.
+    (then also cap the interval at age − 1 min). A failure counts only when the next IDLE runs on the same
+    `Network` with no network event between (a socket that died with its network is no failure). On
+    failure: −2 min (min 5) and **lock**. A locked interval never grows; each later failure lowers it again.
+    Unlock on a new network key or after 24 h.
   - Refresh = DONE → tagged OK (20 s) → IDLE → `+`. Timeout → close → reconnect.
   - Network key (`push PB19`): `cellular` for every mobile network; `wifi:` + short SHA-256 of the DNS
     servers; `other`. ≤ 16 keys, LRU. No SSID, no location permission.
@@ -726,9 +764,10 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
 - Privacy (`privacy PS11`): `VISIBILITY_PRIVATE` with a public version "N new messages" (+ the label only
   when the user set one); public versions never contain an address. "Hide content" (or app lock on) →
   content-free everywhere. `setAllowSystemGeneratedContextualActions(false)`.
-- Actions: Archive, Delete (`setAuthenticationRequired(true)`), Mark read → `ActionReceiver`
-  (exported=false; explicit intents; `FLAG_IMMUTABLE`) → `goAsync()` → local change + op (`run_at = now`) +
-  kick; if the engine is not running, start `PushService` (allowed from a notification action).
+- Actions: Archive, Delete (`setAuthenticationRequired(true)`; only when the account can delete, §7.3), Mark
+  read → `ActionReceiver` (exported=false; explicit intents; `FLAG_IMMUTABLE`) → `goAsync()` → local change +
+  op (`run_at = now`) + kick; if the engine is not running, start `PushService` (allowed from a notification
+  action).
 - PendingIntents are unique per message: `Intent.setIdentifier("msg:<id>:<action>")` (`apis AF6`). Taps
   target the non-exported `activity-alias .OpenMessage` with data `plico:message/<id>` (`privacy PS15`);
   `MainActivity` is `singleTop`, handles `onNewIntent`, and reads internal routes only from the alias.
@@ -755,8 +794,9 @@ class MessageBuilder(val from: Address, val to: List<Address>, val cc: List<Addr
   `Content-Disposition: attachment; filename*=utf-8''…` when non-ASCII, else a quoted filename with `"` and
   `\` escaped.
 - Images (`privacy PS17`, `apis AF14`), from every source (pickers and share): JPEG/HEIC/HEIF → JPEG q≈90,
-  longest side ≤ 2560 px (ImageDecoder applies orientation); PNG → PNG; static WebP → WebP lossless; GIF and
-  animated WebP unchanged with a "metadata kept" note. Names with camera/screenshot date stamps become
+  longest side ≤ 2560 px (ImageDecoder applies orientation); PNG → PNG; static WebP → WebP lossless; GIF,
+  animations and other image types unchanged with a "metadata kept" note. An image that cannot be re-encoded
+  is not attached (it would keep its location data). Names with camera/screenshot date stamps become
   `image-N.<ext>`. "Original quality" per item.
 
 ## 11. Reading mail safely (`html`)
@@ -821,6 +861,9 @@ The app never declares `ACCESS_LOCAL_NETWORK`.
 - "Always show remote content from this sender" and one-click unsubscribe POST: Gmail only when `auth = 1`
   and the message is not in Junk. Riseup: per-sender trust is From-only; the toggle says "A sender can be
   faked"; no one-click POST (link sheet instead).
+- `ListUnsubscribe` is the one parser of `List-Unsubscribe` for the UI and the POST: the URIs in angle
+  brackets, else the comma-separated values; the first https (else http) page and the first mailto with an
+  address. One-click needs an https URI and `List-Unsubscribe-Post`; the POST re-checks the trust rule.
 
 ### 11.5 Attachments
 - Path from `Files` (never the sender's name). Open: `FileProvider` (exported=false,
@@ -908,7 +951,8 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   Gmail notes (Send-as Jan 2027, IP in headers), sign in again, remove). Gmail sign-in (OAuth client ID +
   guide). Notifications (hide content). Privacy & security (remote content default, confirm links, dark email,
   app lock + timeout, hide in recents, block screenshots, incognito keyboard). Mail (swipe actions, undo send
-  seconds). Push & battery (§8.2). About (version, licence, what the app connects to, CT note).
+  seconds). Push & battery (§8.2). About (version, licences: Plico GPL-3.0 and the bundled code, what the app
+  connects to, CT note).
 
 ## 14. Errors
 `:mail` throws `IOException` subclasses: `ImapNoException(code, text)`, `ImapBadException`,

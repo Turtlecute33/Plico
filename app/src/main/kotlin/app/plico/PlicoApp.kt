@@ -60,6 +60,8 @@ class PlicoApp : Application() {
         GoogleOAuth.dropStale(prefs)
         notifier.watchSendFailures()
         thread(name = "start-cleanup") {
+            // DESIGN §9: shown notifications follow "Hide content" and the app lock also while push is paused.
+            notifier.start()
             // DESIGN §7.5: interrupted sends become failed before the first send of this process.
             Sender.onProcessStart(this)
             // DESIGN §11.5: cached attachment files older than 1 h are deleted at start.

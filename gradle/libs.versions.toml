@@ -10,7 +10,7 @@ activity = "1.13.0"
 webkit = "1.17.1"
 jsoup = "1.23.2"
 junit = "4.13.2"
-json = "20240303"
+json = "20260814"
 test-runner = "1.7.0"
 
 [libraries]

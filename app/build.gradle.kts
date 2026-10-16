@@ -84,6 +84,8 @@ android {
     lint {
         abortOnError = true
         checkDependencies = true
+        // arm64-v8a only on purpose: Plico targets phones, not ChromeOS.
+        disable += "ChromeOsAbiSupport"
     }
 }
 

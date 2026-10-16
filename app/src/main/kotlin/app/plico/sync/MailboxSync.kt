@@ -108,11 +108,16 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
         return env.folders.get(folder.id)
     }
 
-    /** Ops on stale UIDs must never run (protocol PS11); their hidden rows show again. */
+    /**
+     * Ops on stale UIDs must never run (protocol PS11): an op with rows only in [folder] goes, and its hidden rows
+     * show again, and so does an Empty Trash/Spam of it. An op that also has rows in other folders stays for
+     * them (as in MailActions.resyncFolder): the resync deletes this folder's rows, or the guard makes it wait.
+     */
     private fun dropOps(folder: Folder) {
         for (op in env.ops.byAccount(env.accountId)) {
-            val rows = env.messages.refs(op.messageIds).filter { it.folderId == folder.id }
-            if (rows.isEmpty()) continue
+            val rows = env.messages.refs(op.messageIds)
+            val empties = (OpArg.decode(op.kind, op.arg) as? OpArg.Expunge)?.folderId == folder.id
+            if (!empties && (rows.isEmpty() || rows.any { it.folderId != folder.id })) continue
             env.ops.delete(op.id)
             env.messages.setHidden(rows.map { it.id }, false)
         }

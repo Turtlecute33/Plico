@@ -1,5 +1,6 @@
 package app.plico.ui.compose
 
+import android.content.Intent
 import app.plico.mail.mime.Address
 import app.plico.sync.DraftPrefill
 import kotlin.test.Test
@@ -112,5 +113,15 @@ class ComposeIntentsTest {
         assertEquals("\"Doe, Jane\" <jane@example.com>", p.to)
         val jane = Recipient.Valid(Address("Doe, Jane", "jane@example.com"))
         assertEquals(listOf<Recipient>(jane), Recipients.parse(p.to))
+    }
+
+    @Test
+    fun aMailtoDraftIsFreshAndASharedOneIsKept() {
+        // DESIGN §13: a mailto draft left without an edit is deleted, so a web page cannot leave one behind.
+        assertTrue(ComposeIntents.isMailto(Intent.ACTION_SENDTO))
+        assertTrue(ComposeIntents.isMailto(Intent.ACTION_VIEW))
+        assertFalse(ComposeIntents.isMailto(Intent.ACTION_SEND))
+        assertFalse(ComposeIntents.isMailto(Intent.ACTION_SEND_MULTIPLE))
+        assertFalse(ComposeIntents.isMailto(null))
     }
 }

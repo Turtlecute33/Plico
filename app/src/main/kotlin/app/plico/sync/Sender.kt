@@ -28,30 +28,39 @@ object Sender {
     private val checked: MutableSet<Db> = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
 
     /**
-     * At process start: drafts left in SENDING become FAILED "may have been sent", sent drafts whose cleanup
+     * At process start: drafts left in SENDING become UNCERTAIN ("may have been sent"), sent drafts whose cleanup
      * did not run are deleted, and so are outbox dirs without a draft (a process that died after the draft was
      * deleted). Runs once per process; call it off the main thread.
      */
     fun onProcessStart(app: PlicoApp) {
         val store = OpStore.of(app)
-        failInterrupted(store)
+        // "Message not sent" is posted here, not through Ops.failures: that flow keeps nothing, and at process
+        // start its collector may not run yet.
+        failInterrupted(store).map { it.second }.distinct().forEach(app.notifier::sendFailed)
         // Draft ids are never used again (AUTOINCREMENT), and a draft row exists before its dir.
         store.files.outboxDraftIds().filter { store.drafts.get(it) == null }.forEach(store.files::deleteOutbox)
     }
 
-    /** The start-up rule; [run] calls it before its first claim, so no send of this process is touched. */
-    internal fun failInterrupted(store: OpStore) = synchronized(checked) {
-        if (!checked.add(store.db)) return@synchronized
-        store.drafts.failInterrupted(store.text(R.string.data_error_may_have_been_sent))
+    /**
+     * The start-up rule; [run] calls it before its first claim, so no send of this process is touched. Returns
+     * the drafts it failed, as (draft id, account id), once per process: the caller tells the user.
+     */
+    internal fun failInterrupted(store: OpStore): List<Pair<Long, Long>> = synchronized(checked) {
+        if (!checked.add(store.db)) return@synchronized emptyList()
+        val failed = store.drafts.failInterrupted(store.text(R.string.data_error_may_have_been_sent))
         // A process that died between the sent transaction and its cleanup left the row: its Message-ID would
         // hide the sent message from every list (protocol PS7).
         store.drafts.sentIds().forEach { cleanup(store, it) }
+        failed
     }
 
     /** Sends every due draft of the account (DESIGN §7.5). */
     internal suspend fun run(ctx: OpContext) {
         val store = ctx.store
-        failInterrupted(store)
+        // Only when this runs before onProcessStart: the failures are reported as every failed send is.
+        for ((id, accountId) in failInterrupted(store)) {
+            Ops.report(accountId, store.text(R.string.data_error_may_have_been_sent), id)
+        }
         for (due in store.drafts.dueSends(ctx.account.id, store.now())) {
             if (!store.drafts.markSending(due.id)) continue
             send(ctx, store.drafts.get(due.id) ?: continue)

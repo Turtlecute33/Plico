@@ -110,7 +110,13 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         set(value) {
             if (field == value) return
             field = value
-            if (value == Mode.POLL) requestPoll(elapsed()) else wake()
+            if (value == Mode.POLL) {
+                requestPoll(elapsed())
+            } else {
+                // A failed poll waits for its retry only in POLL mode.
+                synchronized(lock) { poll = false }
+                wake()
+            }
             host.reschedule()
         }
 
@@ -138,6 +144,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     @Volatile private var authStopped = false
     @Volatile private var relist = false
     @Volatile private var networkChangedDuringIdle = false
+    @Volatile private var lingering = false
 
     /** Earliest op run_at or send_at, as elapsedRealtime; null when none can run. */
     @Volatile private var workDueAt: Long? = null
@@ -147,7 +154,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     // Loop-only state.
     private var lastListAt: Long? = null
     private var lastSweepAt: Long? = null
-    private var lastWorkRunAt = 0L
+    private var idleNetwork: Long? = null
     private var soonTimer: Job? = null
     private var problemReported = false
     private var savedCadence: Int? = null
@@ -200,12 +207,15 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         }
         val pollDue = Coalescing.timing(now, lastPollAt + pollMs, pollMs, Coalescing.Kind.POLL)
         if (mode == Mode.POLL && pollDue != Coalescing.Timing.LATER) requestPoll(now)
-        if (backoff.isDue(now) || workDueAt?.let { it <= now } == true) wake()
+        // A loop that an error ended starts again: push must not stop until the next kick.
+        if (backoff.isDue(now) || workDueAt?.let { it <= now } == true || (mode == Mode.IDLE && loop == null)) wake()
     }
 
     fun onNetworkEvent(event: NetworkRules.Event, network: NetState?) {
         if (closed) return
         if (idleRun != null) networkChangedDuringIdle = true
+        // A connection that ended just before this event (a socket that died with its network) is no NAT timeout.
+        policy?.onNetworkChanged()
         if (network != null) backoff.onNetworkChanged(network.handle)
         val c = connection
         val wants = mode == Mode.IDLE || synchronized(lock) { poll } || backoff.retryAt != null || requests.isNotEmpty()
@@ -228,8 +238,10 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         val pollAt = if (mode == Mode.POLL && !synchronized(lock) { poll }) lastPollAt + pollMs else null
         val p = policy
         // Between two IDLEs (a cycle runs) the policy has no due time; an alarm must stay armed all the same, so
-        // that a CPU that sleeps before the next IDLE arms it wakes up again (push PB4).
-        val keepalive = p?.nextDueAt() ?: p?.takeIf { mode == Mode.IDLE && connection != null }?.let { now + it.intervalMs }
+        // that a CPU that sleeps before the next IDLE arms it wakes up again (push PB4). The same alarm starts a
+        // loop again that an error ended (onWake).
+        val restart = mode == Mode.IDLE && !closed && (connection != null || loop == null)
+        val keepalive = p?.nextDueAt() ?: if (restart) now + (p?.intervalMs ?: DEFAULT_POLL_MS) else null
         // Past times are left out: the wake that is due now handles them, and an alarm in the past would repeat.
         return DueTimes.min(
             listOf(keepalive, backoff.retryAt, pollAt, workDueAt).map { it?.takeIf { t -> t > now } },
@@ -279,6 +291,13 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     }
 
     internal fun progress(timeoutMs: Long = PROGRESS_MS) = wakeLock.renew(timeoutMs)
+
+    /** The app went to the background: a linger after work ends now, with the CPU awake (push PB4). */
+    internal fun onHidden() {
+        if (!lingering) return
+        wakeLock.renew()
+        signal.trySend(Unit)
+    }
 
     /** The server announced new mail outside a SELECT: the loop runs the fast path again before IDLE. */
     internal fun onServerNewMail() {
@@ -338,7 +357,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     /**
      * The loop. It ends when the session closes, the account is gone, or an error escapes (e.g. the database
-     * fails while an error is recorded); the next kick or wake then starts it again.
+     * fails while an error is recorded); the next kick starts it again, and in IDLE mode also the next wake
+     * (nextDueAt keeps an alarm for it).
      */
     private suspend fun run() {
         try {
@@ -357,6 +377,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             policy?.onIdleEnded()
             wakeLock.release()
             synchronized(lock) { loop = null }
+            host.reschedule()
         }
     }
 
@@ -408,7 +429,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                     MailError.Network(IOException("Waiting to retry"))
                 } else if (backoff.onAttempt(byUser)) {
                     try {
-                        connect(account, network)
+                        // The socket goes out on the default network of now; the debounced one may be gone already.
+                        connect(account, host.currentNetwork() ?: network)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Throwable) {
@@ -475,7 +497,6 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                 sync.fastPath(report)
                 publish(sync, report)
             }
-            lastWorkRunAt = elapsed()
             Ops.run(c.ctx)
             Sender.run(c.ctx)
         }
@@ -494,7 +515,11 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             if (plan.backfill && !workPending.get()) sync.backfillStep(report)
             if (mode == Mode.IDLE && sync.missedMail(report)) publish(sync, report)
         }
-        if (trigger.poll) backoff.markHealthy()
+        if (trigger.poll) {
+            // Only a poll that ran to its end is done: a failed one stays wanted, so the backoff retries it.
+            synchronized(lock) { poll = false }
+            backoff.markHealthy()
+        }
         refreshWorkDue()
         // Work that became due during the cycle (an undo window that ended, the follow-ups of a send) runs now.
         if (workDueAt?.let { it <= elapsed() } == true) workPending.set(true)
@@ -519,7 +544,6 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             c.fresh = false
             changed = false
             userRefresh = false
-            poll = false
             immediate = false
             check = null
         }
@@ -559,16 +583,29 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         }
     }
 
-    /** After a cycle without new work: IDLE, or stay connected for a while and log out. */
+    /**
+     * After a cycle without new work: IDLE, or log out; while the UI is visible, stay connected for 2 min first.
+     * The linger ends when the app goes to the background ([onHidden]). Its wait holds no wake lock and its
+     * clock stops while the CPU sleeps: when it ends much later, the socket may be dead, and LOGOUT would wait
+     * for the socket timeout, so the socket is only closed.
+     */
     private suspend fun after(c: Connection) {
         if (mode == Mode.IDLE) {
             idle(c)
             return
         }
         _status.value = Status.Idle
-        val linger = if (app.sessions.appVisible) LINGER_MS else 0L
-        if (linger > 0 && withTimeoutOrNull(linger) { awaitWork() } != null) return
-        logout(c)
+        lingering = true
+        val start = elapsed()
+        val kicked = try {
+            app.sessions.appVisible && withTimeoutOrNull(LINGER_MS) { awaitWork { !app.sessions.appVisible } } == true
+        } finally {
+            lingering = false
+        }
+        wakeLock.renew()
+        val slept = elapsed() - start > LINGER_MS + SECOND_MS
+        if (kicked && !slept) return
+        logout(c, polite = !slept)
     }
 
     /** One IDLE on INBOX. Returns after DONE and the tagged OK; a broken connection throws. */
@@ -618,6 +655,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     private fun onIdleStarted(c: Connection) {
         val now = elapsed()
+        // A failure of the last IDLE counts only when this one runs on the same network (KeepalivePolicy).
+        if (c.network != idleNetwork) policy?.onNetworkChanged()
+        idleNetwork = c.network
         policy?.onIdleStarted(now, c.networkKey, c.credentials.expiresAt)
         backoff.onIdle(now)
         _status.value = Status.Idle
@@ -700,31 +740,32 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         }
         p?.onIdleEnded()
         val error = MailErrors.classify(e, host.network()?.validated ?: false)
+        // The database write comes last: when it fails, the alert and the retry are already done.
         when (error) {
             is MailError.AuthRequired -> {
                 authStopped = true
                 backoff.onFailure(now, Backoff.Kind.AUTH)
-                app.accounts.setState(accountId, AccountState.SIGN_IN_NEEDED, error.message)
                 reportProblem(error)
                 failRequests(error)
                 _status.value = Status.Problem(error)
+                app.accounts.setState(accountId, AccountState.SIGN_IN_NEEDED, error.message)
             }
             is MailError.Tls -> {
-                app.accounts.setState(accountId, AccountState.TLS_PROBLEM, null)
                 // Every failure goes to the engine: it alerts after 1 h or on a second network (push PB9).
                 problemReported = true
                 host.onAccountProblem(accountId, error)
                 retry(error, Backoff.Kind.TLS, now)
                 _status.value = Status.Problem(error)
+                app.accounts.setState(accountId, AccountState.TLS_PROBLEM, null)
             }
             is MailError.Setup -> {
                 relist = true
-                if (app.accounts.get(accountId)?.state != AccountState.SETUP_PROBLEM) {
-                    app.accounts.setState(accountId, AccountState.SETUP_PROBLEM, error.message)
-                }
                 reportProblem(error)
                 retry(error, Backoff.Kind.THROTTLED, now)
                 _status.value = Status.Problem(error)
+                if (app.accounts.get(accountId)?.state != AccountState.SETUP_PROBLEM) {
+                    app.accounts.setState(accountId, AccountState.SETUP_PROBLEM, error.message)
+                }
             }
             is MailError.Throttled -> retry(error, Backoff.Kind.THROTTLED, now)
             else -> retry(error, Backoff.Kind.NETWORK, now)
@@ -765,11 +806,12 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         host.onAccountProblem(accountId, null)
     }
 
-    private fun logout(c: Connection) {
+    /** LOGOUT, or without [polite] only the close of the socket. */
+    private fun logout(c: Connection, polite: Boolean = true) {
         connection = null
         c.closedBy = Close.SHUTDOWN
         try {
-            c.client.logout()
+            if (polite) c.client.logout() else c.client.close()
         } catch (_: IOException) {
             // The connection is gone either way.
         }
@@ -783,20 +825,25 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         closer.launch { c.client.close() }
     }
 
-    /** Waits for a kick; the wake lock is free unless a short timer runs. */
-    private suspend fun awaitWork() {
-        if (timers.get() == 0) wakeLock.release()
-        while (!workPending.get()) signal.receive()
+    /** Waits for a kick (true), or until [stop] at a signal; the wake lock is free unless a short timer runs. */
+    private suspend fun awaitWork(stop: () -> Boolean = { false }): Boolean {
+        while (!workPending.get()) {
+            if (stop()) return false
+            if (timers.get() == 0) wakeLock.release()
+            signal.receive()
+        }
+        return true
     }
 
-    /** Op run_at and draft send_at (epoch ms) as elapsedRealtime. Times that the last run could not use are dropped. */
+    /**
+     * Op run_at and draft send_at (epoch ms) as elapsedRealtime. A past time stays: work that a failed cycle did
+     * not run must make the next connection. An op that cannot run (its folder is guarded) is not counted
+     * (Ops.nextRunAt), and a cycle that ends runs or reschedules every due op and send, so nothing loops.
+     */
     private fun refreshWorkDue() {
         val wall = System.currentTimeMillis()
-        val now = elapsed()
-        val due = DueTimes.min(Ops.nextRunAt(store, accountId), app.drafts.nextSendAt(accountId))
-            ?.let { now + (it - wall) }
-        // An op that was due at the last run but did not run (e.g. its folder is guarded) must not loop.
-        workDueAt = due?.takeIf { lastWorkRunAt == 0L || it > lastWorkRunAt }
+        workDueAt = DueTimes.min(Ops.nextRunAt(store, accountId), app.drafts.nextSendAt(accountId))
+            ?.let { elapsed() + (it - wall) }
     }
 
     /** Work due within a minute waits here under the wake lock; later work waits for the alarm (push PB7). */

@@ -14,14 +14,16 @@ import app.plico.push.policy.Coalescing.Timing.LATER
  *   in a row that find the socket alive switch to client mode and start a new measurement.
  * - Client mode: refresh at `idleStart + interval`. The interval is learned per network key in [learned]:
  *   +2 min after 3 alive refreshes in a row that were not early (max 28), −2 min (min 5) and locked on a failure.
- *   A locked interval never grows. Each network key has its own lock, which ends after 24 h.
+ *   A locked interval never grows. Each network key has its own lock, which ends after 24 h. A failure counts
+ *   only at the next IDLE on the same network: a socket that died with its network (Wi-Fi gone, airplane mode)
+ *   says nothing about the NAT timeout, and the network event comes only after the 2 s debounce.
  * - OAuth/device sessions: the session expiry is a due time, and a refresh less than 5 min before it becomes a
  *   reconnect.
  *
  * The session calls [onIdleStarted] at each IDLE `+`, [onKeepalive] for each keepalive, [onIdleEnded] when it
  * leaves IDLE itself (DONE, or it closes the socket), [onServerClosed] when the server ends the connection during
- * IDLE, [decide] at every wake, and [onChecked] with the result of each check that [decide] or [onKeepalive]
- * asked for.
+ * IDLE, [decide] at every wake, [onChecked] with the result of each check that [decide] or [onKeepalive]
+ * asked for, and [onNetworkChanged] for every network event and for a connection on another network.
  */
 class KeepalivePolicy(
     /** First client interval in minutes: `Providers.Spec.idleStartMinutes` (9 for Gmail, 15 for others). */
@@ -53,6 +55,7 @@ class KeepalivePolicy(
     }
 
     private var networkKey: String? = null
+    private var pendingFailure: PendingFailure? = null
     private var idleStart: Long? = null
     private var expiresAt: Long? = null
     private var lastKeepalive: Long? = null
@@ -74,6 +77,8 @@ class KeepalivePolicy(
     /** IDLE `+` received. [expiresAt] = `Credentials.expiresAt` of this connection. */
     @Synchronized
     fun onIdleStarted(now: Long, networkKey: String, expiresAt: Long?) {
+        pendingFailure?.let { if (it.key == networkKey) fail(it.at, it.capMs) }
+        pendingFailure = null
         if (networkKey != this.networkKey) {
             this.networkKey = networkKey
             aliveStreak = 0
@@ -85,6 +90,12 @@ class KeepalivePolicy(
     @Synchronized
     fun onIdleEnded() {
         idleStart = null
+    }
+
+    /** The network changed or lost its connectivity: a failure that is not counted yet does not count. */
+    @Synchronized
+    fun onNetworkChanged() {
+        pendingFailure = null
     }
 
     /** A server keepalive arrived. Returns [Action.RE_IDLE] when the session should re-IDLE now. */
@@ -108,7 +119,7 @@ class KeepalivePolicy(
     /**
      * The server sent BYE or closed the socket during IDLE. Not for closes the app caused, nor for the BYE that
      * ends an expired OAuth session. In client mode, a close at IDLE age ≥ 5 min without a network change is a
-     * failure, and the interval is also capped at age − 1 min.
+     * failure, and the interval is also capped at age − 1 min (counted at the next IDLE on this network).
      */
     @Synchronized
     fun onServerClosed(now: Long, networkChanged: Boolean) {
@@ -116,16 +127,19 @@ class KeepalivePolicy(
         idleStart = null
         val age = now - start
         if (!networkChanged && age >= SERVER_CLOSE_MIN_AGE_MS && mode(interval()) == Mode.CLIENT) {
-            fail(now, capMs = age - MINUTE_MS)
+            failLater(now, capMs = age - MINUTE_MS)
         }
     }
 
-    /** Result of a check the session ran for [action]: [alive] = the tagged OK came within 20 s. */
+    /**
+     * Result of a check the session ran for [action]: [alive] = the tagged OK came within 20 s. A dead refresh
+     * counts at the next IDLE on this network.
+     */
     @Synchronized
     fun onChecked(action: Action, now: Long, alive: Boolean) {
         when (action) {
-            Action.REFRESH -> if (alive) grow(now) else fail(now)
-            Action.EARLY_REFRESH -> if (!alive) fail(now)
+            Action.REFRESH -> if (alive) grow(now) else failLater(now)
+            Action.EARLY_REFRESH -> if (!alive) failLater(now)
             Action.DEAD_PEER_CHECK -> when {
                 !alive -> aliveDeadPeerChecks = 0
                 ++aliveDeadPeerChecks >= LEAVE_SERVER_AFTER -> {
@@ -196,13 +210,21 @@ class KeepalivePolicy(
         if (minutes < MAX_MINUTES) learned[key] = LearnedInterval(minOf(minutes + STEP_MINUTES, MAX_MINUTES))
     }
 
-    private fun fail(now: Long, capMs: Long? = null) {
+    private fun failLater(now: Long, capMs: Long? = null) {
+        aliveStreak = 0
+        pendingFailure = networkKey?.let { PendingFailure(it, now, capMs) }
+    }
+
+    private fun fail(now: Long, capMs: Long?) {
         aliveStreak = 0
         val key = key() ?: return
         var minutes = minutes() - STEP_MINUTES
         if (capMs != null) minutes = minOf(minutes, (capMs / MINUTE_MS).toInt())
         learned[key] = LearnedInterval(maxOf(minutes, MIN_MINUTES), lockedAt = now)
     }
+
+    /** A failure on network [key] at [at], counted at the next IDLE on that network. */
+    private class PendingFailure(val key: String, val at: Long, val capMs: Long?)
 
     private companion object {
         const val MIN_MINUTES = 5

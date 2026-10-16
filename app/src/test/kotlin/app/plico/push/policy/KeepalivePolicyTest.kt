@@ -209,7 +209,51 @@ class KeepalivePolicyTest {
         clock = 7 * MIN
         assertEquals(Action.EARLY_REFRESH, policy.decide(clock))
         policy.onChecked(Action.EARLY_REFRESH, clock, alive = false)
-        assertEquals(LearnedInterval(7, lockedAt = clock), learned["gmail|wifi:a"])
+        val failedAt = clock
+        clock += 5 * SEC
+        policy.idle("wifi:a")
+        assertEquals(LearnedInterval(7, lockedAt = failedAt), learned["gmail|wifi:a"])
+    }
+
+    @Test
+    fun aCloseCountsOnlyAtTheNextIdleOnTheSameNetwork() {
+        val policy = gmail()
+        policy.idle("wifi:a")
+        clock = 8 * MIN
+        policy.onServerClosed(clock, networkChanged = false)
+        assertNull(learned["gmail|wifi:a"], "the network event may still come (2 s debounce)")
+        clock += 5 * SEC
+        policy.idle("wifi:a")
+        assertEquals(LearnedInterval(7, lockedAt = 8 * MIN), learned["gmail|wifi:a"])
+    }
+
+    @Test
+    fun aSocketThatDiedWithItsNetworkIsNoFailure() {
+        val policy = gmail()
+        // Wi-Fi drops: the socket fails at once, before the debounced network event.
+        policy.idle("wifi:a")
+        clock = 8 * MIN
+        policy.onServerClosed(clock, networkChanged = false)
+        clock += 2 * SEC
+        policy.onNetworkChanged()
+        clock += 5 * SEC
+        policy.idle("wifi:a")
+        assertNull(learned["gmail|wifi:a"])
+
+        // The next IDLE runs on another network.
+        clock += 8 * MIN
+        policy.onServerClosed(clock, networkChanged = false)
+        policy.idle("cellular")
+        assertNull(learned["gmail|wifi:a"])
+
+        // A refresh that dies with its network.
+        clock = assertNotNull(policy.nextDueAt())
+        policy.onIdleEnded()
+        policy.onChecked(Action.REFRESH, clock, alive = false)
+        policy.onNetworkChanged()
+        policy.idle("cellular")
+        assertNull(learned["gmail|cellular"])
+        assertEquals(9 * MIN, policy.intervalMs)
     }
 
     @Test

@@ -132,7 +132,8 @@ private fun Navigator.open(app: PlicoApp, entry: Entry, intent: Intent, fresh: B
             is Entry.Reauth -> go(Route.Reauth(entry.accountId))
             Entry.Compose -> {
                 val draftId = ComposeIntents.draftFromIntent(app, intent) ?: return@launch
-                if (fresh) reset(Route.Compose(draftId)) else go(Route.Compose(draftId))
+                val route = Route.Compose(draftId, fresh = ComposeIntents.isMailto(intent.action))
+                if (fresh) reset(route) else go(route)
             }
             Entry.OAuthDone -> OAuthResume.onResult(app)?.let(::go)
         }

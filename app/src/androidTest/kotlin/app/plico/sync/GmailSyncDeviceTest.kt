@@ -26,6 +26,9 @@ class GmailSyncDeviceTest : DbFixture() {
     private val all: SyncFakeServer.Box
     private val notes = MemoryNotes()
 
+    /** Calls of SyncEnv.onNewMail: the loop runs one more cycle before IDLE. */
+    private var moreCycles = 0
+
     init {
         server.box("[Gmail]", "\\Noselect")
         all = server.box("[Gmail]/All Mail", "\\All")
@@ -48,6 +51,7 @@ class GmailSyncDeviceTest : DbFixture() {
                 resources = context.resources,
                 notes = notes,
                 protectedIds = { ops.referencedMessageIds(accountId) },
+                onNewMail = { moreCycles++ },
             ),
         )
     }
@@ -147,6 +151,41 @@ class GmailSyncDeviceTest : DbFixture() {
         assertTrue(sync.missedMail(report))
         assertEquals(setOf("Second", "Third"), sync.claimNew().map { messages.get(it)!!.subject }.toSet())
         assertEquals(inbox.uidNext, view("\\Inbox").uidNext)
+    }
+
+    @Test
+    fun aRerunOfTheFastPathAsksForOneMoreCycleBeforeIdle() {
+        deliver("Old")
+        start()
+        assertFalse(sync.missedMail(SyncReport()))
+        assertEquals(0, moreCycles, "the check passed: IDLE may start on this SELECT")
+
+        deliver("First")
+        val report = SyncReport()
+        sync.fastPath(report)
+        deliver("Second") // after the All Mail fetch
+        assertTrue(sync.missedMail(report))
+        // The publish SELECTs All Mail for the category filter, and IDLE would SELECT INBOX again unchecked.
+        assertEquals(1, moreCycles)
+    }
+
+    @Test
+    fun mailThatKeepsComingIsCheckedAgainInTheNextCycle() {
+        deliver("Old")
+        start()
+        sync.missedMail(SyncReport())
+        // Every SELECT INBOX of the check finds one more message; the last one is not fetched.
+        server.onCommand = { if (it == "SELECT \"INBOX\"") deliver("Burst") }
+        val report = SyncReport()
+        sync.fastPath(report)
+        assertTrue(sync.missedMail(report))
+        assertEquals(1, moreCycles, "the SELECT that failed the check must not be the one of IDLE")
+        server.onCommand = null
+        assertEquals(2, sync.claimNew().size)
+
+        // The next cycle fetches it.
+        sync.fastPath(SyncReport())
+        assertEquals(listOf("Burst"), sync.claimNew().map { messages.get(it)!!.subject })
     }
 
     @Test

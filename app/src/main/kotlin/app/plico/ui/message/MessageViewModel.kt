@@ -12,7 +12,6 @@ import app.plico.data.Attachment
 import app.plico.data.Body
 import app.plico.data.Files
 import app.plico.data.Folder
-import app.plico.data.FolderRole
 import app.plico.data.Message
 import app.plico.data.MessageDetail
 import app.plico.html.AttachmentCheck
@@ -193,8 +192,9 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
             val first = detail.first() ?: return@launch
             if (!first.message.seen) change { mail.markSeen(ids, true) }
             if (first.body == null) loadBody()
-            if (fixed.await()?.ownMessage == false) {
-                warnings.value = withContext(Dispatchers.IO) { senderWarnings(first.message) }
+            val f = fixed.await()
+            if (f?.ownMessage == false) {
+                warnings.value = withContext(Dispatchers.IO) { senderWarnings(first.message, f.own) }
             }
         }
     }
@@ -480,7 +480,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         val account: Account,
         val fromEmail: String,
         val own: Set<String>,
-        /** Sent by the user (own address, Sent or Drafts): no sender checks. */
+        /** In Sent or Drafts ([sentByUser]): no sender checks. */
         val ownMessage: Boolean,
         val canDelete: Boolean,
         val canSpam: Boolean,
@@ -491,14 +491,15 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         val account = app.accounts.get(m.accountId) ?: return null
         val own = (listOf(account.email) + app.accounts.identities(account.id).map { it.email })
             .mapTo(HashSet()) { it.lowercase() }
-        val role = d.folders.firstOrNull { it.id == m.folderId }?.role
-        val ownMessage = m.fromEmail.lowercase() in own || role == FolderRole.SENT || role == FolderRole.DRAFTS
         val abilities = app.folders.abilities(account)
-        return Fixed(account, m.fromEmail, own, ownMessage, abilities.canDelete, abilities.canSpam)
+        return Fixed(account, m.fromEmail, own, sentByUser(d.folders), abilities.canDelete, abilities.canSpam)
     }
 
-    private suspend fun senderWarnings(m: Message): List<SenderWarning> =
-        SenderCheck(psl.await()).check(m.fromName, m.fromEmail, m.replyTo, m.auth, isFirstContact(m))
+    /** A From with an own address is never a first contact (a copy to self); the other checks still run. */
+    private suspend fun senderWarnings(m: Message, own: Set<String>): List<SenderWarning> {
+        val firstContact = m.fromEmail.lowercase() !in own && isFirstContact(m)
+        return SenderCheck(psl.await()).check(m.fromName, m.fromEmail, m.replyTo, m.auth, firstContact)
+    }
 
     /** No contact entry and no earlier message from this address in the local database (DESIGN §11.4). */
     private fun isFirstContact(m: Message): Boolean = m.fromEmail.isNotBlank() &&

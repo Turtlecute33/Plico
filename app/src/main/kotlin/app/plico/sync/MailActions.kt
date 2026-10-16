@@ -218,7 +218,8 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val uids = store.messages.uids(folder.id)
         val upTo = uids.lastOrNull() ?: return
         store.db.tx(Tables.MESSAGE, Tables.OP) {
-            // A restore out of this folder that waits for its undo window runs first (ops run in id order).
+            // A restore out of this folder that waits for its undo window runs first (ops run in id order), and
+            // the expunge waits while it retries (Ops.waits).
             val restores = store.ops.byAccount(folder.accountId).filter { op ->
                 op.kind == OpKind.MOVE && store.messages.refs(op.messageIds).any { it.folderId == folder.id }
             }
@@ -617,7 +618,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
     private fun archive(ids: List<Long>, runAt: Long): Undo? = undoable(ids) {
         if (account.isGmail) {
             val inbox = label(FolderRole.INBOX) ?: return@undoable emptyList()
-            val inInbox = members(inbox.id, messages.map { it.id })
+            val inInbox = store.messages.memberIds(inbox.id, messages.map { it.id })
             val rows = messages.filter { role(it) == FolderRole.ALL && it.id in inInbox }
             listOfNotNull(relabel(account, rows, emptyList(), listOf(inbox), runAt))
         } else {
@@ -668,7 +669,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
     private fun relabel(account: Account, messages: List<Message>, add: List<Folder>, remove: List<Folder>, runAt: Long): Change? {
         if (messages.isEmpty() || add.isEmpty() && remove.isEmpty()) return null
         val ids = messages.map { it.id }
-        val before = (add + remove).associate { it.id to members(it.id, ids) }
+        val before = (add + remove).associate { it.id to store.messages.memberIds(it.id, ids) }
         add.forEach { store.messages.addToFolder(ids, it.id) }
         remove.forEach { store.messages.removeFromFolder(ids, it.id) }
         val arg = OpArg.Labels(add.map { it.path }, remove.map { it.path })
@@ -684,9 +685,6 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     private fun queue(accountId: Long, ids: List<Long>, arg: OpArg, runAt: Long): Long =
         store.ops.insert(arg.toNewOp(accountId, runAt, ids))
-
-    /** The ids among [ids] that are in label view [folderId]. */
-    private fun members(folderId: Long, ids: List<Long>): Set<Long> = store.messages.memberIds(folderId, ids)
 
     private fun isTrashOrJunk(folder: Folder) = folder.role == FolderRole.TRASH || folder.role == FolderRole.JUNK
 
@@ -715,8 +713,8 @@ class MailActions internal constructor(private val store: OpStore, private val h
             replyTo = Addresses.parseList(message.replyTo),
             to = Addresses.parseList(message.toList),
             cc = Addresses.parseList(message.ccList),
-            fromSelf = message.fromEmail.lowercase(Locale.ROOT) in own(account, identities) ||
-                detail.folders.any { it.role == FolderRole.SENT },
+            // DESIGN §13 "from Sent": the folder decides, never the From header, which the sender chooses.
+            fromSelf = detail.folders.any { it.role == FolderRole.SENT },
         )
         return Triple(account, identities, source)
     }

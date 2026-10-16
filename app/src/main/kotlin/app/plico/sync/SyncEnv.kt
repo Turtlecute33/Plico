@@ -32,8 +32,11 @@ internal class SyncEnv(
     val knownMessages: MutableMap<Long, Long> = ConcurrentHashMap(),
     /** Renews the wake lock; called after every batch. */
     val progress: () -> Unit = {},
-    /** The server announced new mail outside a SELECT (the loop runs the fast path again). */
-    onNewMail: () -> Unit = {},
+    /**
+     * The server announced new mail outside a SELECT, or IDLE could miss mail: the loop runs the fast path
+     * again before IDLE.
+     */
+    val onNewMail: () -> Unit = {},
     /** Wall-clock time. */
     val clock: () -> Long = System::currentTimeMillis,
 ) {

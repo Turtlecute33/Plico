@@ -166,8 +166,8 @@ internal class NetworkWatcher(
 
     private fun build(): NetState? = if (blocked) null else stateOf(network, link, dns, charging)
 
-    // activeNetwork is null while the default network is blocked for this app.
-    private fun snapshot(): NetState? {
+    /** A direct reading, without the debounce. activeNetwork is null while the default network is blocked. */
+    fun snapshot(): NetState? {
         val n = connectivity.activeNetwork
         return stateOf(
             n,

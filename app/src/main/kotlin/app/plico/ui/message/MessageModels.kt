@@ -120,13 +120,17 @@ data class Placement(
     /** Delete in Trash or Spam removes the message for good (after a confirmation). */
     val deletesForever: Boolean get() = inJunk || inTrash
 
-    /** The user's own message (Sent, Drafts): no sender checks. */
-    val isOwnFolder: Boolean get() = sourceRole == FolderRole.SENT || sourceRole == FolderRole.DRAFTS
-
     /** Gmail: archive removes `\Inbox`, so only inbox messages. Riseup: anything outside Archive, Trash and Spam. */
     val canArchive: Boolean
         get() = if (gmail) inInbox else sourceRole != FolderRole.ARCHIVE && !inTrash && !inJunk
 }
+
+/**
+ * The user's own message, which gets no sender checks: it is in Sent or Drafts (Gmail: it has that label).
+ * Never decided by From: the sender chooses that header, so a forged "From: <own address>" is checked.
+ */
+fun sentByUser(folders: List<Folder>): Boolean =
+    folders.any { it.role == FolderRole.SENT || it.role == FolderRole.DRAFTS }
 
 /** [folders] = the source mailbox and the label views of the message ([app.plico.data.MessageDetail.folders]). */
 fun placementOf(sourceFolderId: Long, folders: List<Folder>, gmail: Boolean): Placement {

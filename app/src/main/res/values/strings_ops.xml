@@ -32,4 +32,5 @@
     <string name="ops_error_draft_locked">Plico is sending this draft. You cannot change it now.</string>
     <string name="ops_error_file_not_allowed">Plico cannot attach this file.</string>
     <string name="ops_error_file_unreadable">Plico cannot read this file.</string>
+    <string name="ops_error_image_not_cleaned">Plico cannot remove the location and camera data from this image, so it did not attach it.</string>
 </resources>

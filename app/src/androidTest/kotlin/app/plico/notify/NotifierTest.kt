@@ -3,9 +3,11 @@ package app.plico.notify
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
+import android.os.Bundle
 import android.service.notification.StatusBarNotification
 import androidx.test.platform.app.InstrumentationRegistry
 import app.plico.PlicoApp
+import app.plico.R
 import app.plico.data.Account
 import app.plico.data.AccountState
 import app.plico.data.AuthKind
@@ -96,6 +98,28 @@ class NotifierTest {
         assertEquals(Notification.GROUP_ALERT_SUMMARY, n.groupAlertBehavior)
         notifier.clearPushStopped()
         awaitGone { it.notification.channelId == Notifier.ALERTS_CHANNEL && it.tag == null }
+    }
+
+    @Test
+    fun contentOfAnEarlierProcessGoesWhenContentIsHidden() {
+        val before = app.prefs.hideNotificationContent
+        app.prefs.hideNotificationContent = true
+        try {
+            notifier.ensureChannels(listOf(account(9003, "")))
+            // A child with content that an earlier process posted before "Hide content" was turned on.
+            val child = Notification.Builder(app, Notifier.mailChannel(9003))
+                .setSmallIcon(R.drawable.push_ic_notification)
+                .setContentTitle("Ann")
+                .setContentText("A subject")
+                .addExtras(Bundle().apply { putLong(Notifier.EXTRA_ACCOUNT, 9003) })
+                .build()
+            nm.notify(Texts.childTag(77), Notifier.CHILD_ID, child)
+            awaitPosted { it.tag == Texts.childTag(77) }
+            notifier.start()
+            awaitGone { it.tag == Texts.childTag(77) }
+        } finally {
+            app.prefs.hideNotificationContent = before
+        }
     }
 
     // The system lists a new notification after a short delay.

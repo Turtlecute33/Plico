@@ -94,8 +94,9 @@ fun AboutScreen(nav: Navigator) {
     }
 }
 
-/** The bundled third-party code and data (DESIGN §2) with their licences. */
+/** Plico's own licence (the LICENSE file), then the bundled third-party code and data (DESIGN §2). */
 private val LICENCES = listOf(
+    R.string.app_name to R.string.settings_licence_gpl,
     R.string.settings_licence_kotlin to R.string.settings_licence_apache,
     R.string.settings_licence_androidx to R.string.settings_licence_apache,
     R.string.settings_licence_jsoup to R.string.settings_licence_mit,

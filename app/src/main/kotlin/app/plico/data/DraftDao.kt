@@ -115,10 +115,14 @@ class DraftDao(private val db: Db) {
     /**
      * Start-up rule (DESIGN.md §7.5): a draft still in state sending was interrupted and may have been sent,
      * so it becomes [DraftState.UNCERTAIN] with [error] (R.string.data_error_may_have_been_sent). Call once per
-     * process before the first send. Returns the number of drafts changed.
+     * process before the first send. Returns the drafts changed, as (draft id, account id).
      */
-    fun failInterrupted(error: String): Int = db.tx(Tables.DRAFT) {
+    fun failInterrupted(error: String): List<Pair<Long, Long>> = db.tx(Tables.DRAFT) {
+        val interrupted = list("SELECT id, account_id FROM draft WHERE state = ?", DraftState.SENDING) {
+            it.getLong(0) to it.getLong(1)
+        }
         write("UPDATE draft SET state = ?, error = ? WHERE state = ?", DraftState.UNCERTAIN, error, DraftState.SENDING)
+        interrupted
     }
 
     /** Ids of the drafts in state sent: their follow-up ops are pending, or their cleanup did not run. */
@@ -154,16 +158,22 @@ class DraftDao(private val db: Db) {
         private const val COLS = "id, account_id, message_id, from_email, to_list, cc_list, bcc_list, subject, body, " +
             "in_reply_to, refs, source_message, attachments, on_server, state, send_at, attempts, error, updated"
 
-        /** `draft.attachments` column format: JSON `[{file,name,mime,size}]`. */
+        /** `draft.attachments` column format: JSON `[{file,name,mime,size[,metadataKept]}]`. */
         fun encodeAttachments(list: List<DraftAttachment>): String = JSONArray(
-            list.map { JSONObject().put("file", it.file).put("name", it.name).put("mime", it.mime).put("size", it.size) },
+            list.map {
+                JSONObject().put("file", it.file).put("name", it.name).put("mime", it.mime).put("size", it.size)
+                    .apply { if (it.metadataKept) put("metadataKept", true) }
+            },
         ).toString()
 
         fun decodeAttachments(text: String): List<DraftAttachment> {
             val array = JSONArray(text)
             return List(array.length()) { i ->
                 val o = array.getJSONObject(i)
-                DraftAttachment(o.getString("file"), o.getString("name"), o.getString("mime"), o.getLong("size"))
+                DraftAttachment(
+                    o.getString("file"), o.getString("name"), o.getString("mime"), o.getLong("size"),
+                    o.optBoolean("metadataKept"),
+                )
             }
         }
 

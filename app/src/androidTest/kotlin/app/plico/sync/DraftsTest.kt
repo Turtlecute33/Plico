@@ -1,11 +1,13 @@
 package app.plico.sync
 
+import app.plico.R
 import app.plico.data.FolderRole
 import app.plico.data.NewDraft
 import app.plico.data.OpKind
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -200,5 +202,16 @@ class DraftsTest : OpFixture() {
         // The message that goes out has the new Message-ID.
         val built = DraftMime.builder(store, accounts.get(riseup)!!, draft, strict = true, date = 0).build(includeBcc = false)
         assertTrue("Message-ID: ${draft.messageId}\r\n" in built.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun aPhotoThatCannotBeCleanedIsNotAttached() {
+        val id = newDraft()
+        val raw = store.files.newOutboxFile(id, "camera.jpg")
+        raw.writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2, 3))
+        // Sent as it is, it would keep its location and camera data (privacy PS17).
+        val error = assertFailsWith<ActionError> { DraftAttachments.cleaned(store, id, raw, "image-1.jpg", ImageRules.Output.JPEG) }
+        assertEquals(context.getString(R.string.ops_error_image_not_cleaned), error.message)
+        assertEquals(listOf("camera.jpg"), store.files.outboxDir(id).list()?.toList())
     }
 }

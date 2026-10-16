@@ -22,8 +22,11 @@ interface WakeHolder {
 
 /** What the push engine provides to every [AccountSession] (DESIGN.md §7.1, §8.3). */
 interface SessionHost {
-    /** The current default network, or null when there is none. */
+    /** The current default network, or null when there is none. Debounced: changes show 2 s late. */
     fun network(): NetState?
+
+    /** A direct reading of the default network, without the debounce: the network of a new connection. */
+    fun currentNetwork(): NetState?
 
     /** One wake-lock holder per session; [tag] never contains an address. */
     fun wakeHolder(tag: String): WakeHolder

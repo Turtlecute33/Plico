@@ -190,10 +190,16 @@ class SenderTest : OpFixture() {
         val id = drafts.create(NewDraft(riseup, "user@riseup.net", toList = "bob@example.org"))
         drafts.queue(id, 0)
         drafts.markSending(id)
-        send(session(riseup, FakeImap()))
+        val ctx = session(riseup, FakeImap())
+        val failure = runBlocking {
+            val first = async(start = CoroutineStart.UNDISPATCHED) { Ops.failures.first { it.draftId == id } }
+            Sender.run(ctx)
+            first.await()
+        }
         val draft = drafts.get(id)!!
         assertEquals(DraftState.UNCERTAIN, draft.state)
         assertEquals(context.getString(R.string.data_error_may_have_been_sent), draft.error)
+        assertEquals(riseup, failure.accountId, "the failure names the draft, for the \"Message not sent\" alert")
     }
 
     @Test

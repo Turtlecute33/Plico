@@ -47,7 +47,7 @@ internal fun AttachmentSection(vm: ComposeViewModel, modifier: Modifier = Modifi
                 name = a.name,
                 icon = if (a.mime.startsWith("image/")) Icons.Image else Icons.Attach,
                 detail = fileSize(a.size) +
-                    if (vm.isOriginal(a)) " · " + stringResource(R.string.compose_attachment_metadata_kept) else "",
+                    if (a.metadataKept) " · " + stringResource(R.string.compose_attachment_metadata_kept) else "",
                 busy = busy,
                 onRemove = if (vm.editing && !busy) ({ vm.removeAttachment(a) }) else null,
             ) {

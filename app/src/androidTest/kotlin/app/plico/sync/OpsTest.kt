@@ -98,6 +98,24 @@ class OpsTest : OpFixture() {
     }
 
     @Test
+    fun emptyTrashWaitsWhileTheRestoreRetries() {
+        val trash = mailbox(riseup, "Trash", FolderRole.TRASH)
+        row(2, trash)
+        val restored = row(5, trash)
+        actions.moveTo(listOf(restored), inbox, MailView.InFolder(trash))
+        actions.emptyFolder(trash)
+        later()
+        val imap = FakeImap()
+            .select("Trash")
+            .expect("UID MOVE 5 \"INBOX\"", "NO [UNAVAILABLE] Try later")
+        run(session(riseup, imap))
+        imap.finish()
+        assertNotNull(messages.get(restored), "the expunge did not run before the restore")
+        assertEquals(2, ops.byAccount(riseup).size)
+        assertEquals(clock + 5_000, Ops.nextRunAt(store, riseup), "the restore's retry; the expunge waits for it")
+    }
+
+    @Test
     fun resyncDropsTheChangesThatWaitForTheFolder() {
         val id = row()
         actions.markSeen(listOf(id), true)

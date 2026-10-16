@@ -1,6 +1,6 @@
 package app.plico.push.policy
 
-/** Minimal string storage. The app backs it with `Prefs.getString` / `Prefs.putString`. */
+/** Minimal string storage. `Prefs` implements it; tests use a map. */
 interface KeyValueStore {
     fun get(key: String): String?
     fun put(key: String, value: String?)

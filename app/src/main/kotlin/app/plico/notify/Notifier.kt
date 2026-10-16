@@ -64,6 +64,9 @@ class Notifier(private val app: PlicoApp) {
     @Volatile
     private var sharedChannelsReady = false
 
+    /** Keeps the CPU awake while a batched update waits for its turn. */
+    private val wakeLock by lazy { app.power.holder("notify") }
+
     private val openApp: PendingIntent by lazy {
         activity(
             Intent(app, MainActivity::class.java)
@@ -155,12 +158,15 @@ class Notifier(private val app: PlicoApp) {
      */
     fun watchSendFailures() {
         scope.launch {
-            app.mail.failures.collect { failure ->
-                if (failure.draftId == null || app.push.appVisible) return@collect
-                val account = app.accounts.get(failure.accountId) ?: return@collect
-                postAlert(UNSENT_PREFIX + account.id, account, R.string.push_unsent_title, R.string.push_unsent_text, openApp)
-            }
+            app.mail.failures.collect { failure -> if (failure.draftId != null) sendFailed(failure.accountId) }
         }
+    }
+
+    /** "Message not sent" for the account while the app is not on screen (DESIGN §7.5). Blocking (database). */
+    fun sendFailed(accountId: Long) {
+        if (app.push.appVisible) return
+        val account = app.accounts.get(accountId) ?: return
+        postAlert(UNSENT_PREFIX + account.id, account, R.string.push_unsent_title, R.string.push_unsent_text, openApp)
     }
 
     /** The foreground-service notification with a privacy-neutral [text]. */
@@ -213,6 +219,8 @@ class Notifier(private val app: PlicoApp) {
         started = true
         hidden = hideContent()
         restoreLocked()
+        // Notifications of an earlier process may show content that is hidden now (DESIGN §9): post them again.
+        if (hidden) book.accounts().forEach { schedule(it, rerender = true) }
         scope.launch {
             app.db.changes.collect { tables ->
                 if (Tables.MESSAGE in tables || Tables.MESSAGE_FOLDER in tables) {
@@ -239,7 +247,12 @@ class Notifier(private val app: PlicoApp) {
             while (true) {
                 val last = synchronized(lock) { lastUpdate[accountId] ?: 0 }
                 val wait = last + UPDATE_GAP_MS - SystemClock.elapsedRealtime()
-                if (wait > 0) delay(wait)
+                if (wait > 0) {
+                    // A session in IDLE holds no lock, and delay stops while the CPU sleeps. Every wait is at most
+                    // 1 s, so a later renew of this shared lock always covers an earlier wait; it ends by timeout.
+                    wakeLock.renew(wait + UPDATE_GAP_MS)
+                    delay(wait)
+                }
                 val again = synchronized(lock) {
                     dirty.remove(accountId) ?: run {
                         jobs.remove(accountId)
@@ -539,7 +552,7 @@ class Notifier(private val app: PlicoApp) {
         const val SERVICE_ID = 1
         private const val PUSH_STOPPED_ID = 2
         private const val SUMMARY_ID = 3
-        private const val CHILD_ID = 4
+        internal const val CHILD_ID = 4
         private const val ALERT_ID = 5
 
         internal const val SERVICE_CHANNEL = "service"
@@ -551,7 +564,7 @@ class Notifier(private val app: PlicoApp) {
         private const val UNSENT_PREFIX = "unsent:"
         private const val LOG_TAG = "Plico"
 
-        private const val EXTRA_ACCOUNT = "app.plico.account"
+        internal const val EXTRA_ACCOUNT = "app.plico.account"
         private const val EXTRA_IDS = "app.plico.ids"
         private const val EXTRA_DATES = "app.plico.dates"
         private const val EXTRA_DATE = "app.plico.date"
