@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of app.plico.html: link sheet, sender and attachment warnings. -->
+<resources>
+    <string name="html_link_other_domain">The link text shows a different website.</string>
+    <string name="html_link_ip_host">This link goes to a numeric IP address, not to a website name.</string>
+    <string name="html_link_mixed_script">The website name mixes letters from different alphabets.</string>
+    <string name="html_link_lookalike">The website name has letters that look like Latin letters but are not.</string>
+
+    <string name="html_sender_auth_failed">Gmail could not verify the sender. This message can be fake.</string>
+    <string name="html_sender_name_address">The sender name contains a different email address.</string>
+    <string name="html_sender_name_domain">The sender name shows a different domain than the address.</string>
+    <string name="html_sender_reply_to">Replies go to a different domain.</string>
+    <string name="html_sender_first_contact">First message from this address.</string>
+    <string name="html_sender_trust_fakeable">A sender can be faked.</string>
+
+    <string name="html_attachment_type_mismatch">The file content does not agree with the file type.</string>
+    <string name="html_attachment_dangerous_type">This file is a web page or an app. It can show a fake sign-in page or install software.</string>
+    <string name="html_attachment_dangerous_extension">This type of file can show a fake sign-in page or install software.</string>
+    <string name="html_attachment_double_extension">The file name has two extensions. The first one can be fake.</string>
+    <string name="html_attachment_hidden_characters">The file name has hidden characters that change the direction of the text.</string>
+</resources>

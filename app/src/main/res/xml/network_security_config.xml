@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext off and system CAs only are the defaults at target 37. CT needs the opt-in on Android 16. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <certificateTransparency enabled="true" />
+    </base-config>
+</network-security-config>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="account_error_no_client_id">Enter your Google OAuth client ID first (Settings → Gmail sign-in).</string>
+    <string name="account_error_no_browser">Install a web browser to sign in with Google.</string>
+    <string name="account_error_no_secret">The saved sign-in data is not available. Sign in again.</string>
+    <string name="account_error_oauth_expired">The sign-in took too long. Try again.</string>
+    <string name="account_error_oauth_denied">You did not give access in the browser. Try again, or use an app password.</string>
+    <string name="account_error_oauth_failed">Google sign-in failed (%1$s). Try again, or use an app password.</string>
+    <string name="account_error_oauth_scope">Plico did not get access to Gmail. Sign in again and allow access to Gmail.</string>
+    <string name="account_error_oauth_incomplete">The answer from Google was not complete. Try again.</string>
+    <string name="account_error_oauth_grant">Google stopped the access of Plico to this account. Sign in again.</string>
+    <string name="account_error_oauth_client">Google does not accept your OAuth client ID. Make sure that it is an Android client for the package name and signing SHA-1 of this app.</string>
+    <string name="account_error_device_unregistered">Google does not know this app. In your Google Cloud project, add an Android OAuth client for the package name and signing SHA-1 of this app. Or use an app password.</string>
+    <string name="account_error_device_consent">Google must get your permission again. Sign in again.</string>
+    <string name="account_error_device_sign_in">Plico cannot use the Google account on this phone. Choose the account again, or use an app password.</string>
+    <string name="account_gmail_all_mail_hidden">Gmail does not show All Mail to IMAP. In Gmail on the web, go to Settings → Labels and turn on \"Show in IMAP\" for All Mail.</string>
+    <string name="account_note_gmail_trash_hidden">Gmail does not show Trash to IMAP, so Delete is off. To turn it on, go to Gmail Settings → Labels and turn on \"Show in IMAP\" for Trash.</string>
+    <string name="account_note_gmail_spam_hidden">Gmail does not show Spam to IMAP, so Spam is off. To turn it on, go to Gmail Settings → Labels and turn on \"Show in IMAP\" for Spam.</string>
+</resources>

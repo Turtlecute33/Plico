@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Day/night platform theme: WebView takes prefers-color-scheme and darkening from isLightTheme.
+         The window and splash use the dynamic surface colour, so the first Compose frame does not flash. -->
+    <style name="Theme.Plico" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/system_surface_light</item>
+    </style>
+</resources>

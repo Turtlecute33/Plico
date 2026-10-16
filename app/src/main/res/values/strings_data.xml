@@ -1,0 +1,4 @@
+<resources>
+    <!-- Error of a draft whose send was interrupted, or whose final SMTP reply never came (DESIGN.md §7.5). -->
+    <string name="data_error_may_have_been_sent">May have been sent. Check Sent before you retry.</string>
+</resources>
