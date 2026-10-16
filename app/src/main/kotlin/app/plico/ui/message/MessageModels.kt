@@ -10,6 +10,7 @@ import app.plico.data.MailView
 import app.plico.html.Idn
 import app.plico.html.Link
 import app.plico.html.LinkWarning
+import app.plico.html.ListUnsubscribe
 import app.plico.html.Mailto
 import app.plico.html.SenderTrust
 import app.plico.html.SenderWarning
@@ -18,6 +19,7 @@ import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderBlock
 import app.plico.sync.DraftPrefill
 import app.plico.ui.components.BannerKind
+import app.plico.ui.components.ErrorText
 import java.io.IOException
 
 // Pure rules of the message screen (DESIGN §11, §13 Message). No Android types, so JVM tests cover them.
@@ -198,24 +200,16 @@ sealed interface Unsubscribe {
     data class Web(val url: String) : Unsubscribe
 }
 
-private val bracketed = Regex("<([^<>]*)>")
-private const val HTTPS = "https://"
-
 /**
  * The unsubscribe method from `List-Unsubscribe` ([header]) and `List-Unsubscribe-Post` ([post]). One-click
  * needs an https URI and [SenderTrust.oneClickUnsubscribe]; else a mailto URI, else a web page.
  */
 fun unsubscribeOf(header: String?, post: Boolean, trust: SenderTrust): Unsubscribe? {
-    if (header.isNullOrBlank()) return null
-    val uris = bracketed.findAll(header).map { it.groupValues[1].trim() }.toList()
-        .ifEmpty { header.split(',').map(String::trim) }
-        .filter { it.isNotEmpty() }
-    val web = uris.firstOrNull { uri -> listOf(HTTPS, "http://").any { uri.startsWith(it, ignoreCase = true) } }
-    val mail = uris.firstNotNullOfOrNull { uri -> Mailto.parse(uri)?.takeIf { it.to.isNotEmpty() } }
+    val methods = ListUnsubscribe.parse(header) ?: return null
     return when {
-        post && trust.oneClickUnsubscribe && web?.startsWith(HTTPS, ignoreCase = true) == true -> Unsubscribe.OneClick
-        mail != null -> Unsubscribe.Mail(mail)
-        web != null -> Unsubscribe.Web(web)
+        post && trust.oneClickUnsubscribe && methods.oneClick != null -> Unsubscribe.OneClick
+        methods.mail != null -> Unsubscribe.Mail(methods.mail)
+        methods.web != null -> Unsubscribe.Web(methods.web)
         else -> null
     }
 }
@@ -280,16 +274,13 @@ fun linkSheet(link: Link.Web): LinkSheet {
     )
 }
 
-/** User text for a failed load or action; [detail] is the server's text, [signIn] offers "Sign in". */
-data class ErrorText(@StringRes val text: Int, val detail: String? = null, val signIn: Boolean = false)
-
+/** User text for a failed load or action; [ErrorText.signIn] offers "Sign in". */
 fun errorText(error: Throwable): ErrorText = when (error) {
     is MailError.AuthRequired -> ErrorText(R.string.message_error_sign_in, signIn = true)
-    is MailError.Tls -> ErrorText(R.string.message_error_tls)
+    is MailError.Tls -> ErrorText(R.string.ui_error_tls)
     is MailError.Network, is IOException -> ErrorText(R.string.message_error_network)
-    is MailError.Throttled -> ErrorText(R.string.message_error_busy)
+    is MailError.Throttled -> ErrorText(R.string.ui_error_busy)
     is MailError.Server -> ErrorText(R.string.message_error_server, error.message)
-    is MailError.TooLarge -> ErrorText(R.string.message_error_too_large)
     is MailError.Setup -> ErrorText(R.string.message_error_setup, error.message)
     else -> ErrorText(R.string.message_error_generic)
 }

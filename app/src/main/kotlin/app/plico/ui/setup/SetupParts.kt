@@ -64,6 +64,7 @@ import app.plico.R
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.Icons
+import app.plico.ui.components.SystemPages
 import kotlinx.coroutines.launch
 
 private const val MAX_ADDRESS = 254
@@ -206,7 +207,7 @@ internal fun PasswordField(
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
                 Icon(
-                    imageVector = if (visible) SetupIcons.VisibilityOff else SetupIcons.Visibility,
+                    imageVector = if (visible) Icons.VisibilityOff else Icons.Visibility,
                     contentDescription = stringResource(
                         if (visible) R.string.setup_hide_password else R.string.setup_show_password,
                     ),
@@ -239,7 +240,7 @@ internal fun LinkButton(text: String, url: String) {
     val context = LocalContext.current
     val description = stringResource(R.string.setup_open_in_browser, text)
     TextButton(
-        onClick = { openLink(context, url) },
+        onClick = { SystemPages.browser(context, url) },
         contentPadding = ButtonDefaults.TextButtonWithIconContentPadding,
         modifier = Modifier.semantics { contentDescription = description },
     ) {

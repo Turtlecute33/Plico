@@ -20,16 +20,6 @@ interface WakeHolder {
     fun release()
 }
 
-/** Runs [block] under [holder], at most [maxMs]; releases in finally. */
-suspend fun <T> WakeHolder.hold(maxMs: Long = 10 * 60_000L, block: suspend () -> T): T {
-    renew()
-    return try {
-        kotlinx.coroutines.withTimeout(maxMs) { block() }
-    } finally {
-        release()
-    }
-}
-
 /** What the push engine provides to every [AccountSession] (DESIGN.md §7.1, §8.3). */
 interface SessionHost {
     /** The current default network, or null when there is none. */

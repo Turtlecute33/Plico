@@ -66,6 +66,17 @@ class DraftDao(private val db: Db) {
         ) > 0
     }
 
+    /**
+     * A new Message-ID (a From of another domain); the old one is not on the server any more. False when the
+     * draft is gone, sending or sent.
+     */
+    fun setMessageId(id: Long, messageId: String): Boolean = db.tx(Tables.DRAFT) {
+        write(
+            "UPDATE draft SET message_id = ?, on_server = 0 WHERE id = ? AND state NOT IN (${DraftState.SENDING}, ${DraftState.SENT})",
+            messageId, id,
+        ) > 0
+    }
+
     /** Records whether a revision is APPENDed to the server's drafts mailbox. */
     fun setOnServer(id: Long, onServer: Boolean): Unit = db.tx(Tables.DRAFT) {
         write("UPDATE draft SET on_server = ? WHERE id = ?", onServer, id)
@@ -73,7 +84,7 @@ class DraftDao(private val db: Db) {
 
     /** Send: editing or failed -> queued, sent at [sendAt] (now + undo seconds). */
     fun queue(id: Long, sendAt: Long): Boolean = transition(
-        id, listOf(DraftState.EDITING, DraftState.FAILED), DraftState.QUEUED,
+        id, listOf(DraftState.EDITING, DraftState.FAILED, DraftState.UNCERTAIN), DraftState.QUEUED,
         "send_at = ?, attempts = 0, error = NULL", sendAt,
     )
 
@@ -89,9 +100,13 @@ class DraftDao(private val db: Db) {
         "attempts = ?, send_at = ?, error = ?", attempts, sendAt, error,
     )
 
-    /** Queued or sending -> failed, with the reason the Drafts view shows. */
-    fun markFailed(id: Long, error: String): Boolean = transition(
-        id, listOf(DraftState.QUEUED, DraftState.SENDING), DraftState.FAILED, "error = ?", error,
+    /**
+     * Queued or sending -> failed, with the reason the Drafts view shows. [uncertain]: it may have been sent
+     * ([DraftState.UNCERTAIN]; Retry asks first).
+     */
+    fun markFailed(id: Long, error: String, uncertain: Boolean = false): Boolean = transition(
+        id, listOf(DraftState.QUEUED, DraftState.SENDING),
+        if (uncertain) DraftState.UNCERTAIN else DraftState.FAILED, "error = ?", error,
     )
 
     /** Sending -> sent: the server accepted it; follow-up ops are pending. */
@@ -99,12 +114,15 @@ class DraftDao(private val db: Db) {
 
     /**
      * Start-up rule (DESIGN.md §7.5): a draft still in state sending was interrupted and may have been sent,
-     * so it becomes failed with [error] (R.string.data_error_may_have_been_sent). Call once per process
-     * before the first send. Returns the number of drafts changed.
+     * so it becomes [DraftState.UNCERTAIN] with [error] (R.string.data_error_may_have_been_sent). Call once per
+     * process before the first send. Returns the number of drafts changed.
      */
     fun failInterrupted(error: String): Int = db.tx(Tables.DRAFT) {
-        write("UPDATE draft SET state = ?, error = ? WHERE state = ?", DraftState.FAILED, error, DraftState.SENDING)
+        write("UPDATE draft SET state = ?, error = ? WHERE state = ?", DraftState.UNCERTAIN, error, DraftState.SENDING)
     }
+
+    /** Ids of the drafts in state sent: their follow-up ops are pending, or their cleanup did not run. */
+    fun sentIds(): List<Long> = db.sql.list("SELECT id FROM draft WHERE state = ?", DraftState.SENT) { it.getLong(0) }
 
     /** Queued drafts of the account with send_at <= [now], oldest first. */
     fun dueSends(accountId: Long, now: Long): List<Draft> = db.sql.list(

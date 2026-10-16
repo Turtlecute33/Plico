@@ -51,11 +51,15 @@ internal object DraftMime {
     /** The SMTP envelope recipients of [draft]. */
     fun recipients(draft: Draft): List<String> = addresses(draft).map { it.email }
 
-    /** Encoded size estimate: raw size × 1.37 (base64), as the compose warning computes it. */
-    fun estimatedSize(draft: Draft): Long {
-        val raw = OVERHEAD + draft.body.toByteArray(Charsets.UTF_8).size + draft.attachments.sumOf { it.size }
-        return raw * 137 / 100
-    }
+    /**
+     * Size on the wire of a message with [rawBytes] of subject, body and attachment files: (raw + headers) × 1.37
+     * (base64). The one estimate of the compose warning and of Send (DESIGN §13).
+     */
+    fun estimatedSize(rawBytes: Long): Long = (OVERHEAD + rawBytes) * 137 / 100
+
+    /** Subject, body and attachment bytes of [draft], for [estimatedSize]. */
+    fun rawSize(draft: Draft): Long = listOf(draft.subject, draft.body).sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() } +
+        draft.attachments.sumOf { it.size }
 
     /** The display name for [email]: its identity's name, else the account's sender name. */
     fun senderName(store: OpStore, account: Account, email: String): String? {

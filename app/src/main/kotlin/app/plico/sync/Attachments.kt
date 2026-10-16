@@ -15,9 +15,6 @@ object Attachments {
     private const val CHUNK = 1_048_576
 
     /** Chunked download into the attachment cache (DESIGN §7.8). */
-    suspend fun load(ctx: SyncContext, attachmentId: Long, onProgress: (Float) -> Unit): File =
-        load(SessionOpContext(ctx), attachmentId, onProgress)
-
     internal fun load(ctx: OpContext, attachmentId: Long, onProgress: (Float) -> Unit): File {
         val store = ctx.store
         val attachment = store.messages.attachment(attachmentId) ?: throw FileNotFoundException("Attachment is gone")

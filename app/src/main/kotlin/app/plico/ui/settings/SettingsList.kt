@@ -78,7 +78,7 @@ internal fun SettingsScaffold(title: String, onBack: () -> Unit, content: @Compo
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Back, contentDescription = stringResource(R.string.settings_back))
+                        Icon(Icons.Back, contentDescription = stringResource(R.string.ui_back))
                     }
                 },
                 scrollBehavior = scroll,
@@ -335,7 +335,7 @@ internal fun TextFieldDialog(
                         showError = true
                     }
                 },
-            ) { Text(stringResource(R.string.settings_save)) }
+            ) { Text(stringResource(R.string.ui_save)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) } },
     )

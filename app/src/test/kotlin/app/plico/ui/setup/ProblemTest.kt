@@ -79,6 +79,5 @@ class ProblemTest {
     @Test
     fun `other refusals show the server text`() {
         assertEquals(Problem(Problem.Kind.SERVER, "Mailbox is locked"), riseup(MailError.Server("Mailbox is locked")))
-        assertEquals(Problem(Problem.Kind.SERVER), riseup(MailError.TooLarge(10)))
     }
 }

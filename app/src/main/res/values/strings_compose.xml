@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Strings of app.plico.ui.compose: the compose screen and drafts from other apps. -->
 <resources>
-    <string name="compose_back">Back</string>
     <string name="compose_send">Send</string>
     <string name="compose_attach">Attach</string>
     <string name="compose_attach_photos">Photos and videos</string>
     <string name="compose_attach_files">Files</string>
-    <string name="compose_more">More options</string>
 
     <string name="compose_from">From</string>
     <string name="compose_to">To</string>
@@ -32,9 +30,10 @@
     <!-- 1: the reason from the server or the app -->
     <string name="compose_failed">Not sent: %1$s</string>
     <string name="compose_sending">Sending…</string>
-    <string name="compose_undo">Undo</string>
     <string name="compose_undo_too_late">Too late to undo. The message is being sent.</string>
     <string name="compose_draft_saved">Draft saved</string>
+    <string name="compose_waiting">This message waits to be sent. Plico sends it when the connection works.</string>
+    <string name="compose_cancel_send">Cancel send and edit</string>
 
     <string name="compose_no_recipient">Add a recipient.</string>
     <string name="compose_invalid_recipients">Correct the addresses that are marked in red.</string>

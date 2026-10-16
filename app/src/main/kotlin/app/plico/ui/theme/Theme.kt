@@ -18,23 +18,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Plico's Material 3 expressive theme (DESIGN §13): the wallpaper colours of the phone (dynamic colour),
- * day/night, expressive motion. [dynamicColor] = false uses the indigo fallback schemes.
+ * Plico's Material 3 expressive theme (DESIGN §13): the wallpaper colours of the phone (dynamic colour, always
+ * there from Android 12, minSdk 35), day/night, expressive motion.
  */
 @Composable
-fun PlicoTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit,
-) {
+fun PlicoTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val colorScheme = remember(context, darkTheme, dynamicColor) {
-        when {
-            dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
-            dynamicColor -> dynamicLightColorScheme(context)
-            darkTheme -> DarkFallback
-            else -> LightFallback
-        }
+    val dark = isSystemInDarkTheme()
+    val colorScheme = remember(context, dark) {
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     }
     MaterialExpressiveTheme(
         colorScheme = colorScheme,

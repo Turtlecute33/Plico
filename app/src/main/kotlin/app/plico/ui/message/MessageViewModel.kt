@@ -1,6 +1,7 @@
 package app.plico.ui.message
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,11 +12,9 @@ import app.plico.data.Attachment
 import app.plico.data.Body
 import app.plico.data.Files
 import app.plico.data.Folder
-import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.Message
 import app.plico.data.MessageDetail
-import app.plico.data.long
 import app.plico.html.AttachmentCheck
 import app.plico.html.AttachmentSafety
 import app.plico.html.HtmlSanitizer
@@ -27,6 +26,8 @@ import app.plico.html.SenderCheck
 import app.plico.html.SenderTrust
 import app.plico.html.SenderWarning
 import app.plico.sync.Undo
+import app.plico.ui.components.ErrorText
+import app.plico.ui.components.OneAtATime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -111,7 +112,8 @@ sealed interface HeadersState {
 /** One-shot work for the screen: navigation, intents and snackbars. */
 sealed interface MessageEvent {
     data object Close : MessageEvent
-    data class Compose(val draftId: Long) : MessageEvent
+    /** [fresh]: a reply, forward or mailto draft made now, discarded when the user leaves it unedited. */
+    data class Compose(val draftId: Long, val fresh: Boolean) : MessageEvent
     data class OpenUrl(val url: String) : MessageEvent
     data class OpenFile(val file: File, val mimeType: String) : MessageEvent
 
@@ -172,7 +174,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     private val headersFlow = MutableStateFlow<HeadersState?>(null)
     private val linkSheetFlow = MutableStateFlow<LinkSheet?>(null)
     private val pendingOpenFlow = MutableStateFlow<PendingOpen?>(null)
-    private val composingFlow = MutableStateFlow(false)
+    private val composer = OneAtATime(viewModelScope)
 
     /** Download progress (0..1) per attachment id. */
     val progress: StateFlow<Map<Long, Float>> = progressFlow.asStateFlow()
@@ -183,7 +185,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     val pendingOpen: StateFlow<PendingOpen?> = pendingOpenFlow.asStateFlow()
 
     /** Reply, Reply all, Forward or a mailto draft is being prepared. */
-    val composing: StateFlow<Boolean> = composingFlow.asStateFlow()
+    val composing: StateFlow<Boolean> = composer.busy
     val events: Flow<MessageEvent> = eventChannel.receiveAsFlow()
 
     init {
@@ -229,21 +231,27 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         change { app.trustedSenders.setTrusted(email, on) }
     }
 
-    /** A `cid:` image of this message (DESIGN §11.2, privacy PS13). Blocking; WebView worker thread. */
-    override fun cidImage(contentId: String): Served? {
+    /**
+     * A `cid:` image of this message (DESIGN §11.2, privacy PS13). Blocking; WebView worker thread. Any failure
+     * (also a cache file that the prune deleted meanwhile) is a 403: an exception here would end the process,
+     * push included.
+     */
+    override fun cidImage(contentId: String): Served? = try {
         val part = app.messages.attachments(messageId)
-            .firstOrNull { a -> a.cid?.let { sameContentId(it, contentId) } == true } ?: return null
+            .firstOrNull { a -> a.cid?.let { sameContentId(it, contentId) } == true }
         // Attachment sizes are encoded sizes; base64 adds a third.
-        if (!part.mime.startsWith("image/", ignoreCase = true) || part.size > MAX_INLINE_BYTES * 4 / 3) return null
-        val file = try {
-            runBlocking { viewModelScope.async(Dispatchers.IO) { mail.loadAttachment(part.id) }.await() }
-        } catch (_: Exception) {
-            return null
+        val image = part?.mime?.startsWith("image/", ignoreCase = true) == true
+        if (part == null || !image || part.size > MAX_INLINE_BYTES * 4 / 3) {
+            null
+        } else {
+            val file = runBlocking { viewModelScope.async(Dispatchers.IO) { mail.loadAttachment(part.id) }.await() }
+            val type = file.takeIf { it.length() <= MAX_INLINE_BYTES }
+                ?.inputStream()?.use { AttachmentSafety.sniff(it.readNBytes(AttachmentSafety.SNIFF_BYTES)) }
+                ?.takeIf { it.startsWith("image/") }
+            type?.let { Served(it, file.inputStream()) }
         }
-        if (file.length() > MAX_INLINE_BYTES) return null
-        val type = file.inputStream().use { AttachmentSafety.sniff(it.readNBytes(AttachmentSafety.SNIFF_BYTES)) }
-            ?.takeIf { it.startsWith("image/") } ?: return null
-        return Served(type, file.inputStream())
+    } catch (_: Exception) {
+        null
     }
 
     /** A remote image, only while the body on screen allows remote content. Blocking; WebView worker thread. */
@@ -269,14 +277,14 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
             when (val tap = linkTap(link, confirm)) {
                 is LinkTap.Open -> eventChannel.send(MessageEvent.OpenUrl(tap.url))
                 is LinkTap.Sheet -> linkSheetFlow.value = tap.sheet
-                is LinkTap.Compose -> compose { mail.newDraft(accountId(), tap.prefill) }
+                is LinkTap.Compose -> compose(fresh = true) { mail.newDraft(accountId(), tap.prefill) }
             }
         }
     }
 
     // ---- Top bar and menu actions
 
-    fun archive() = close(R.string.message_archived) { mail.archive(ids, it.placement.view) }
+    fun archive() = close(R.string.message_archived) { mail.archive(ids) }
 
     fun delete() = close(R.string.message_deleted) { mail.delete(ids) }
 
@@ -314,7 +322,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
                 }
                 notice(if (done) R.string.message_unsubscribed else R.string.message_unsubscribe_failed)
             }
-            is Unsubscribe.Mail -> compose { mail.newDraft(accountId(), prefillOf(method.mailto)) }
+            is Unsubscribe.Mail -> compose(fresh = true) { mail.newDraft(accountId(), prefillOf(method.mailto)) }
             is Unsubscribe.Web -> openLink(method.url, null, sheet = true)
         }
     }
@@ -340,11 +348,11 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
 
     // ---- Reply
 
-    fun reply(all: Boolean) = compose { mail.reply(messageId, all) }
+    fun reply(all: Boolean) = compose(fresh = true) { mail.reply(messageId, all) }
 
-    fun forward() = compose { mail.forward(messageId) }
+    fun forward() = compose(fresh = true) { mail.forward(messageId) }
 
-    fun editDraft() = compose { mail.editServerDraft(messageId) }
+    fun editDraft() = compose(fresh = false) { mail.editServerDraft(messageId) }
 
     // ---- Attachments
 
@@ -411,7 +419,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
                 then(file, check)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                notice(errorText(e).text)
+                notice(errorText(e).res)
             } finally {
                 progressFlow.update { it - attachment.id }
             }
@@ -423,10 +431,11 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         val view = (state.value as? MessageState.Ready)?.view ?: return
         if (busy) return
         busy = true
+        val since = SystemClock.elapsedRealtime()
         viewModelScope.launch {
             try {
                 val undo = io { action(view) }
-                if (undo != null && undoText != null) MessageUndo.post(UndoNotice(undoText, undo))
+                if (undo != null && undoText != null) MessageUndo.post(UndoNotice(undoText, undo, since))
                 eventChannel.send(MessageEvent.Close)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -449,17 +458,13 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         }
     }
 
-    private fun compose(make: suspend () -> Long) {
-        if (composingFlow.value) return
-        composingFlow.value = true
-        viewModelScope.launch {
+    private fun compose(fresh: Boolean, make: suspend () -> Long) {
+        composer.run {
             try {
-                eventChannel.send(MessageEvent.Compose(make()))
+                eventChannel.send(MessageEvent.Compose(make(), fresh))
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                notice(errorText(e).text)
-            } finally {
-                composingFlow.value = false
+                notice(errorText(e).res)
             }
         }
     }
@@ -488,24 +493,16 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
             .mapTo(HashSet()) { it.lowercase() }
         val role = d.folders.firstOrNull { it.id == m.folderId }?.role
         val ownMessage = m.fromEmail.lowercase() in own || role == FolderRole.SENT || role == FolderRole.DRAFTS
-        fun has(role: FolderRole) = !account.isGmail || app.folders.byRole(account.id, role, FolderKind.MAILBOX) != null
-        return Fixed(account, m.fromEmail, own, ownMessage, has(FolderRole.TRASH), has(FolderRole.JUNK))
+        val abilities = app.folders.abilities(account)
+        return Fixed(account, m.fromEmail, own, ownMessage, abilities.canDelete, abilities.canSpam)
     }
 
     private suspend fun senderWarnings(m: Message): List<SenderWarning> =
         SenderCheck(psl.await()).check(m.fromName, m.fromEmail, m.replyTo, m.auth, isFirstContact(m))
 
     /** No contact entry and no earlier message from this address in the local database (DESIGN §11.4). */
-    private fun isFirstContact(m: Message): Boolean {
-        if (m.fromEmail.isBlank()) return false
-        val sql = app.db.sql
-        val known = sql.long("SELECT 1 FROM contact WHERE email = ?", m.fromEmail.lowercase()) != null ||
-            sql.long(
-                "SELECT 1 FROM message WHERE from_email = ? COLLATE NOCASE AND date < ? AND id != ? LIMIT 1",
-                m.fromEmail, m.date, m.id,
-            ) != null
-        return !known
-    }
+    private fun isFirstContact(m: Message): Boolean = m.fromEmail.isNotBlank() &&
+        !app.contacts.isKnown(m.fromEmail) && !app.messages.hasEarlierFrom(m.fromEmail, m.date, m.id)
 
     private fun viewOf(
         d: MessageDetail,

@@ -1,12 +1,15 @@
 package app.plico.ui.message
 
+import android.net.Uri
 import android.os.SystemClock
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import androidx.test.platform.app.InstrumentationRegistry
 import app.plico.html.HtmlSanitizer
 import org.junit.After
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.FileNotFoundException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -80,6 +83,31 @@ class MessageWebViewTest {
         instrumentation.runOnMainSync { view.loadUrl("chrome://crash") }
         // Without onRenderProcessGone returning true, this process (the test, or push in the app) would die here.
         assertTrue(gone.await(20, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun aFailingResourceIsA403NotACrash() {
+        // E.g. the attachment-cache prune deleted the file between the check and the read.
+        val failing = object : BodyResources {
+            override fun cidImage(contentId: String): Served = throw FileNotFoundException("pruned")
+            override fun remoteImage(url: String): Served = throw IllegalStateException("bug")
+        }
+        val client = Client(failing, { _, _ -> }, {})
+        val view = show("<p>Hello</p>", Recorder())
+        for (url in listOf("https://${HtmlSanitizer.CID_HOST}/logo@example", "https://images.example.com/a.png")) {
+            // An exception that left this callback would end the process, and push with it.
+            val response = client.shouldInterceptRequest(view, get(url))
+            assertEquals(403, response?.statusCode, url)
+        }
+    }
+
+    private fun get(url: String) = object : WebResourceRequest {
+        override fun getUrl(): Uri = Uri.parse(url)
+        override fun isForMainFrame() = false
+        override fun isRedirect() = false
+        override fun hasGesture() = false
+        override fun getMethod() = "GET"
+        override fun getRequestHeaders() = emptyMap<String, String>()
     }
 
     private companion object {

@@ -1,6 +1,7 @@
 package app.plico.ui.mailbox
 
 import androidx.compose.ui.state.ToggleableState
+import app.plico.data.AccountAbilities
 import app.plico.data.FolderRole
 import app.plico.data.Prefs.Swipe
 import org.junit.Test
@@ -18,7 +19,8 @@ class RowActionsTest {
         flagged: Boolean = false,
         gmail: Boolean = false,
         abilities: AccountAbilities = AccountAbilities(),
-    ) = RowInfo(id, accountId, seen, flagged, place, gmail, abilities)
+        canArchive: Boolean = true,
+    ) = RowInfo(id, accountId, seen, flagged, place, gmail, abilities, canArchive)
 
     @Test
     fun placeComesFromTheSourceMailboxAndTheDraftFlag() {
@@ -39,6 +41,15 @@ class RowActionsTest {
         for (place in listOf(Place.ARCHIVE, Place.DRAFTS, Place.TRASH, Place.SPAM)) {
             assertNull(RowActions.swipe(Swipe.ARCHIVE, row(place)), place.name)
         }
+    }
+
+    @Test
+    fun gmailArchiveOnlyWhereRowsHaveTheInboxLabel() {
+        // Outside the inbox views a Gmail row may lack \Inbox: Archive would change nothing.
+        val outside = row(gmail = true, canArchive = false)
+        assertNull(RowActions.swipe(Swipe.ARCHIVE, outside))
+        assertFalse(RowActions.selection(listOf(row(id = 2, gmail = true), outside)).archive)
+        assertEquals(RowAction.ARCHIVE, RowActions.swipe(Swipe.ARCHIVE, row(gmail = true)))
     }
 
     @Test

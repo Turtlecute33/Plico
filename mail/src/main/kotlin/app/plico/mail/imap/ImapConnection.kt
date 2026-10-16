@@ -136,6 +136,9 @@ class ImapConnection(private val stream: MailStream, private val log: (String) -
         reader = ImapReader(stream.input)
     }
 
+    /** False after [close] or an error that closed the connection; every later call then fails. */
+    val isOpen: Boolean get() = !broken
+
     override fun close() {
         broken = true
         stream.close()

@@ -5,14 +5,12 @@ import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.plico.app
@@ -62,7 +60,6 @@ fun PrivateTextInput(content: @Composable () -> Unit) {
  */
 @Composable
 fun <T> rememberPref(initial: T, read: Prefs.() -> T): State<T> {
-    if (LocalInspectionMode.current) return remember { mutableStateOf(initial) }
     val prefs = LocalContext.current.app.prefs
     val values = remember(prefs) { prefs.changes().map { prefs.read() }.distinctUntilChanged() }
     return values.collectAsStateWithLifecycle(initial)

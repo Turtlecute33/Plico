@@ -14,7 +14,14 @@ sealed interface Route {
     data class Reauth(val accountId: Long) : Route
     data class Mailbox(val view: MailView) : Route
     data class Message(val id: Long) : Route
-    data class Compose(val draftId: Long) : Route
+    /**
+     * [fresh]: a draft made for this screen (reply, forward, a mailto link, a new message). Leaving it without an
+     * edit deletes it; other drafts (shared, from the Drafts view or the server) stay as they are.
+     */
+    data class Compose(val draftId: Long, val fresh: Boolean = false) : Route
+
+    /** Local drafts of an account without a Drafts mailbox (Riseup creates it on the first upload). */
+    data class Drafts(val accountId: Long) : Route
     data object Settings : Route
     data class AccountSettings(val accountId: Long) : Route
     data object About : Route

@@ -40,14 +40,15 @@ data class Mailto(
             return Mailto(to.unique(), cc.unique(), bcc.unique(), subject.orEmpty(), body.orEmpty())
         }
 
-        private fun addresses(value: String): List<Address> =
+        /** The valid addr-specs in [value]. */
+        internal fun addresses(value: String): List<Address> =
             Addresses.parseList(value).filter { Addresses.isValidAddrSpec(it.email) }
 
         /** The first address of each email (compared without case). */
         private fun List<Address>.unique(): List<Address> = distinctBy { it.email.lowercase() }
 
         /** CR LF and CR become LF; other controls except tab are dropped. */
-        private fun cleanBody(value: String): String =
+        internal fun cleanBody(value: String): String =
             value.replace("\r\n", "\n").replace('\r', '\n').filter { it == '\n' || it == '\t' || !it.isISOControl() }
     }
 }

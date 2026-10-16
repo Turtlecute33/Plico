@@ -84,6 +84,12 @@ class SyncFakeServer(
     /** Command lines received, without tags. */
     val commands = ArrayList<String>()
 
+    /** Runs for each command before its responses, e.g. to deliver mail at that moment or [announce]. */
+    var onCommand: ((String) -> Unit)? = null
+
+    /** Commands for which this is true get a tagged NO. */
+    var refuse: ((String) -> Boolean)? = null
+
     private var selected: Box? = null
     private var nextMsgId = 1_000L
     private var pendingUntagged = ArrayList<String>()
@@ -137,8 +143,10 @@ class SyncFakeServer(
         val tag = text.substringBefore(' ')
         val command = text.substringAfter(' ')
         commands += command
+        onCommand?.invoke(command)
         pendingUntagged.forEach(::reply)
         pendingUntagged.clear()
+        if (refuse?.invoke(command) == true) return reply("$tag NO [UNAVAILABLE] Refused by the test")
         val verb = command.substringBefore(' ').uppercase(Locale.ROOT)
         val args = command.substringAfter(' ', "")
         when (verb) {

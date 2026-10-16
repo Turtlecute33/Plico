@@ -132,6 +132,37 @@ class GmailSyncDeviceTest : DbFixture() {
     }
 
     @Test
+    fun theUidNextCheckRepeatsWhileMailKeepsComing() {
+        deliver("Old")
+        start()
+        sync.missedMail(SyncReport())
+        deliver("First")
+        val report = SyncReport()
+        sync.fastPath(report)
+        sync.claimNew()
+        deliver("Second") // after the All Mail fetch
+        var selects = 0
+        // Arrives after the second All Mail fetch, before the next SELECT INBOX: IDLE would never report it.
+        server.onCommand = { if (it == "SELECT \"INBOX\"" && ++selects == 2) deliver("Third") }
+        assertTrue(sync.missedMail(report))
+        assertEquals(setOf("Second", "Third"), sync.claimNew().map { messages.get(it)!!.subject }.toSet())
+        assertEquals(inbox.uidNext, view("\\Inbox").uidNext)
+    }
+
+    @Test
+    fun aRiseOfUidNextWithoutNewMailIsTheNewBase() {
+        deliver("Old")
+        start()
+        sync.missedMail(SyncReport())
+        inbox.add(subject = "Old", gmMsgId = 1L) // a label added on the web: INBOX gets a UID, All Mail none
+        sync.fastPath(SyncReport())
+        assertTrue(sync.missedMail(SyncReport()))
+        assertEquals(inbox.uidNext, view("\\Inbox").uidNext)
+        sync.fastPath(SyncReport())
+        assertFalse(sync.missedMail(SyncReport()), "no check runs the fast path again")
+    }
+
+    @Test
     fun labelChangesComeWithChangedSince() {
         val a = deliver("A")
         start()
@@ -190,7 +221,6 @@ class GmailSyncDeviceTest : DbFixture() {
         val account = accounts.get(accountId)!!
         assertEquals(AccountState.SETUP_PROBLEM, account.state)
         assertEquals(context.getString(R.string.account_note_gmail_trash_hidden), account.stateText)
-        assertFailsWith<MailError.Setup> { sync.ensureFolder(FolderRole.TRASH) }
 
         server.box("[Gmail]/Trash", "\\Trash")
         sync.refreshFolders()

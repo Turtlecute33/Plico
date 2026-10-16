@@ -12,6 +12,7 @@ import app.plico.data.PushMode
 import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderSafety
 import app.plico.push.PushStatus
+import app.plico.sync.GmailSync
 import java.net.URI
 
 /** The values that the settings offer (DESIGN §7.5, §8.3, §12, §13). */
@@ -24,7 +25,6 @@ internal object Choices {
 
     /** 0 = all mail offline. */
     val BODY_DAYS = listOf(30, 90, 365, 0)
-    val GMAIL_CATEGORIES = listOf("primary", "social", "promotions", "updates", "forums")
 
     const val LABEL_MAX = 40
     const val NAME_MAX = 100
@@ -54,7 +54,7 @@ internal fun Prefs.Swipe.title(): Int = when (this) {
     Prefs.Swipe.NONE -> R.string.settings_swipe_none
 }
 
-/** The name of a Gmail category from [Choices.GMAIL_CATEGORIES]. */
+/** The name of a Gmail category from [GmailSync.CATEGORIES]. */
 @StringRes
 internal fun gmailCategoryTitle(category: String): Int = when (category) {
     "primary" -> R.string.settings_category_primary
@@ -66,12 +66,12 @@ internal fun gmailCategoryTitle(category: String): Int = when (category) {
 }
 
 /**
- * [current] with [category] turned on or off, in the order of [Choices.GMAIL_CATEGORIES]. The last
+ * [current] with [category] turned on or off, in the order of [GmailSync.CATEGORIES]. The last
  * category stays on: the category search needs at least one (DESIGN §7.3).
  */
 internal fun withCategory(current: Set<String>, category: String, on: Boolean): Set<String> {
     val next = if (on) current + category else current - category
-    val ordered = Choices.GMAIL_CATEGORIES.filter { it in next }
+    val ordered = GmailSync.CATEGORIES.filter { it in next }
     return if (ordered.isEmpty()) current else ordered.toSet()
 }
 
@@ -179,12 +179,13 @@ internal enum class PushCheck {
 
 /** The rows to show for [status], most severe first, with true when the grant holds. */
 internal fun pushChecks(status: PushStatus): List<Pair<PushCheck, Boolean>> = buildList {
-    if (status.backgroundRestricted) add(PushCheck.RESTRICTED to false)
-    add(PushCheck.NOTIFICATIONS to status.notificationsAllowed)
-    add(PushCheck.BATTERY to status.batteryUnrestricted)
-    if (!status.batteryUnrestricted) {
-        add(PushCheck.EXACT_ALARMS to status.exactAlarms)
-        if (!status.exactAlarms) add(PushCheck.MAY_STOP to false)
+    val grants = status.grants
+    if (grants.backgroundRestricted) add(PushCheck.RESTRICTED to false)
+    add(PushCheck.NOTIFICATIONS to grants.notifications)
+    add(PushCheck.BATTERY to grants.batteryUnrestricted)
+    if (!grants.batteryUnrestricted) {
+        add(PushCheck.EXACT_ALARMS to grants.exactAlarms)
+        if (!grants.exactAlarms) add(PushCheck.MAY_STOP to false)
     }
 }
 
@@ -223,7 +224,7 @@ internal fun pushState(status: PushStatus, hasAccounts: Boolean): PushState = wh
     !hasAccounts -> PushState.NO_ACCOUNTS
     status.pausedByUser -> PushState.PAUSED
     status.stoppedBySystem -> PushState.STOPPED
-    status.backgroundRestricted -> PushState.RESTRICTED
+    status.grants.backgroundRestricted -> PushState.RESTRICTED
     !status.running -> PushState.NOT_RUNNING
     !status.hasNetwork -> PushState.NO_NETWORK
     else -> PushState.RUNNING
@@ -246,9 +247,6 @@ private fun Providers.Spec.endpoints() = listOf(imap, smtp).map { "${it.host}:${
 
 /** Certificate Transparency checks of the network security config work from Android 16 (API 36; apis AF10). */
 internal fun certificateTransparency(sdkInt: Int): Boolean = sdkInt >= 36
-
-/** System notification channel of an account's new mail (DESIGN §9). */
-internal fun mailChannelId(accountId: Long): String = "mail_$accountId"
 
 private const val SECONDS_PER_DAY = 86_400
 private const val MINUTES_PER_DAY = 1_440

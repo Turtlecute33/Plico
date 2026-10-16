@@ -2,14 +2,13 @@ package app.plico.account
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import app.plico.PlicoApp
 import app.plico.R
 import app.plico.data.Prefs
+import app.plico.ui.components.SystemPages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
@@ -50,12 +49,10 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
         val clientId = clientId()
         val verifier = randomToken()
         val state = randomToken()
-        prefs.putString(PENDING_KEY, Pending(state, verifier, email, now()).toJson())
+        prefs.put(PENDING_KEY, Pending(state, verifier, email, now()).toJson())
         val url = authUrl(clientId, redirectUri, state, challenge(verifier), email)
-        try {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
-        } catch (_: ActivityNotFoundException) {
-            prefs.putString(PENDING_KEY, null)
+        if (!SystemPages.browser(activity, url, toast = false)) {
+            prefs.put(PENDING_KEY, null)
             throw MailError.Setup(context.getString(R.string.account_error_no_browser))
         }
     }
@@ -67,14 +64,14 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
     fun onRedirect(uri: Uri): Boolean {
         val ours = uri.scheme == context.packageName && uri.authority.isNullOrEmpty() && uri.path == REDIRECT_PATH
         if (!ours) return false
-        val pending = Pending.parse(prefs.getString(PENDING_KEY)) ?: return false
+        val pending = Pending.parse(prefs.get(PENDING_KEY)) ?: return false
         val done = pending.redirected(
             state = uri.getQueryParameter("state"),
             code = uri.getQueryParameter("code"),
             error = uri.getQueryParameter("error"),
             now = now(),
         ) ?: return false
-        prefs.putString(PENDING_KEY, done.toJson())
+        prefs.put(PENDING_KEY, done.toJson())
         return true
     }
 
@@ -84,12 +81,12 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
      * client or a missing Gmail scope, and IOException for network failures.
      */
     suspend fun completePending(): SignIn? {
-        val pending = Pending.parse(prefs.getString(PENDING_KEY)) ?: return null
+        val pending = Pending.parse(prefs.get(PENDING_KEY)) ?: return null
         if (!pending.done) {
-            if (!pending.isFresh(now())) prefs.putString(PENDING_KEY, null)
+            if (!pending.isFresh(now())) prefs.put(PENDING_KEY, null)
             return null
         }
-        prefs.putString(PENDING_KEY, null)
+        prefs.put(PENDING_KEY, null)
         pending.error?.let { error ->
             throw if (error == "access_denied") {
                 MailError.AuthRequired(context.getString(R.string.account_error_oauth_denied))
@@ -256,6 +253,17 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
         private const val TIMEOUT_MS = 20_000
 
         private val random = SecureRandom()
+
+        /**
+         * Removes a pending sign-in that can no longer complete (abandoned in the browser, or unreadable), so that
+         * its address, verifier and state do not stay in Prefs. Call it at app start.
+         */
+        fun dropStale(prefs: Prefs) {
+            val json = prefs.get(PENDING_KEY) ?: return
+            if (isStale(json, SystemClock.elapsedRealtime())) prefs.put(PENDING_KEY, null)
+        }
+
+        internal fun isStale(json: String, now: Long) = Pending.parse(json)?.isFresh(now) != true
 
         internal fun redirectUri(applicationId: String) = "$applicationId:$REDIRECT_PATH"
 

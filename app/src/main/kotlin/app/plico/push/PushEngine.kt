@@ -56,7 +56,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
     private val tlsErrors = ConcurrentHashMap<Long, MailError.Tls>()
     private val modes = Mutex()
     private val signal = Channel<Unit>(Channel.CONFLATED)
-    private val wakePending = AtomicBoolean()
+    private val wakes = PendingWakes()
     private val firstStart = AtomicBoolean(true)
     private val sessions = MutableStateFlow<List<AccountSession>>(emptyList())
     private val serviceLock = Any()
@@ -154,9 +154,8 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
 
     override fun wakeHolder(tag: String): WakeHolder = app.power.holder(tag)
 
-    override fun reschedule() {
-        signal.trySend(Unit)
-    }
+    /** Arms the alarm on the caller's thread, so that it is armed before the caller's wake lock ends (push PB4). */
+    override fun reschedule() = armNow()
 
     override fun onServerActivity() = onWake()
 
@@ -194,7 +193,13 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
 
     /** A coalescing point (DESIGN §8.3, push PB13): alarm, server byte, network change, app visible. */
     internal fun onWake() {
-        wakePending.set(true)
+        wakes.wake()
+        signal.trySend(Unit)
+    }
+
+    /** The alarm fired while push runs: a wake that also ends the `alarm` wake lock (AlarmReceiver). */
+    internal fun onAlarm() {
+        wakes.alarm()
         signal.trySend(Unit)
     }
 
@@ -203,7 +208,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
     /** True only for the first service start in this process (the exit-reason check, DESIGN §8.1). */
     internal fun takeFirstStart(): Boolean = firstStart.getAndSet(false)
 
-    internal fun serviceText(): ServiceText = ServiceText.of(network() != null, state.value.reliable, delayed = false)
+    internal fun serviceText(): ServiceText = ServiceText.of(network() != null, state.value.grants.reliable, delayed = false)
 
     /** The service is in the foreground and may run push. Main thread. */
     internal fun onServiceStarted() {
@@ -245,21 +250,35 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
 
     internal fun cancelAlarm() = scheduler.cancel()
 
-    /** Runs a pending wake, then arms the alarm for the earliest due time (push PB4: armed before any lock ends). */
+    /** Arms the alarm for the earliest due time of the sessions and the TLS alerts. */
+    @Synchronized
+    private fun armNow() {
+        if (!running) return
+        val dues = app.sessions.all().map { it.nextDueAt() } + tls.nextDueAt()
+        scheduler.arm(DueTimes.alarmAt(SystemClock.elapsedRealtime(), dues, network() != null))
+    }
+
+    /**
+     * Runs a pending wake, then arms the alarm for the earliest due time (push PB4: armed before any lock ends).
+     * The sessions take their own locks in onWake, so the `alarm` lock of a taken alarm ends here.
+     */
     private fun process() {
         if (!running) return
         val now = SystemClock.elapsedRealtime()
+        val taken = wakes.take()
         try {
-            if (wakePending.getAndSet(false)) {
+            if (taken.wake) {
                 app.sessions.all().forEach { it.onWake(now) }
+                // The no-network backstop alarm: a missed network callback shows here (push PB5).
+                if (network() == null) watcher.recheck()
                 for (id in tls.due(now)) {
                     val account = app.accounts.get(id) ?: continue
                     tlsErrors[id]?.let { app.notifier.problem(account, it) }
                 }
             }
         } finally {
-            val dues = app.sessions.all().map { it.nextDueAt() } + tls.nextDueAt()
-            scheduler.arm(DueTimes.alarmAt(now, dues, network() != null))
+            armNow()
+            if (taken.alarm) app.power.holder("alarm").release()
         }
     }
 
@@ -318,23 +337,17 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
             }
         }
         return combine(watcher.current, state, delayed) { net, status, late ->
-            ServiceText.of(net != null, status.reliable, late)
+            ServiceText.of(net != null, status.grants.reliable, late)
         }
     }
 
-    private fun readStatus(): PushStatus {
-        val grants = Grants.read(app)
-        return PushStatus(
-            running = running,
-            pausedByUser = app.prefs.pushPaused,
-            stoppedBySystem = app.prefs.pushStoppedBySystemUi,
-            hasNetwork = network() != null,
-            notificationsAllowed = grants.notifications,
-            batteryUnrestricted = grants.batteryUnrestricted,
-            exactAlarms = grants.exactAlarms,
-            backgroundRestricted = grants.backgroundRestricted,
-        )
-    }
+    private fun readStatus() = PushStatus(
+        running = running,
+        pausedByUser = app.prefs.pushPaused,
+        stoppedBySystem = app.prefs.pushStoppedBySystemUi,
+        hasNetwork = network() != null,
+        grants = Grants.read(app),
+    )
 
     private fun updateStatus() {
         state.value = readStatus()
@@ -361,4 +374,29 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         const val TEXT_GAP_MS = 5_000L
         const val RETRY_START_MS = 60_000L
     }
+}
+
+/**
+ * The wakes the engine has not run yet (push PB13). An alarm is also a wake. [alarm] sets the wake first and
+ * [take] reads the alarm first, so a taken alarm comes with its wake, or after a take that ran it: the
+ * `alarm` wake lock never ends before the sessions got the wake.
+ */
+internal class PendingWakes {
+    private val wake = AtomicBoolean()
+    private val alarm = AtomicBoolean()
+
+    fun wake() = wake.set(true)
+
+    fun alarm() {
+        wake.set(true)
+        alarm.set(true)
+    }
+
+    /** Takes and clears both flags. */
+    fun take(): Taken {
+        val alarmTaken = alarm.getAndSet(false)
+        return Taken(wake = wake.getAndSet(false), alarm = alarmTaken)
+    }
+
+    data class Taken(val wake: Boolean, val alarm: Boolean)
 }

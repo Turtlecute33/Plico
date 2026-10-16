@@ -1,9 +1,9 @@
 package app.plico.ui.compose
 
-import app.plico.account.Providers
 import app.plico.data.Account
 import app.plico.data.AccountState
 import app.plico.data.AuthKind
+import app.plico.data.DraftState
 import app.plico.data.Identity
 import app.plico.data.Provider
 import app.plico.data.PushMode
@@ -14,29 +14,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DraftRulesTest {
-    @Test
-    fun encodedSizeIsRawTimes137RoundedUp() {
-        assertEquals(0, DraftRules.encodedSize(0))
-        assertEquals(2, DraftRules.encodedSize(1))
-        assertEquals(137, DraftRules.encodedSize(100))
-        assertEquals(1_370_000, DraftRules.encodedSize(1_000_000))
-    }
-
-    @Test
-    fun sizeLimitBoundaryForRiseup() {
-        val limit = Providers.RISEUP.maxMessageBytes
-        // 18,686,131 x 1.37 = 25,599,999.47 and 18,686,132 x 1.37 = 25,600,000.84
-        assertFalse(DraftRules.encodedSize(18_686_131) > limit)
-        assertTrue(DraftRules.encodedSize(18_686_132) > limit)
-    }
-
-    @Test
-    fun sizeLimitBoundaryForGmail() {
-        val limit = Providers.GMAIL.maxMessageBytes
-        assertFalse(DraftRules.encodedSize(limit * 100 / 137) > limit)
-        assertTrue(DraftRules.encodedSize(limit * 100 / 137 + 1) > limit)
-    }
-
     @Test
     fun utf8Length() {
         assertEquals(0, DraftRules.utf8Length(""))
@@ -57,11 +34,24 @@ class DraftRulesTest {
 
     @Test
     fun leaveRules() {
-        assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = false, empty = true))
-        assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = true, empty = true))
-        assertEquals(DraftRules.Leave.SAVE, DraftRules.leave(edited = true, empty = false))
-        // A shared draft that the user did not touch stays local (DESIGN §7.6).
-        assertEquals(DraftRules.Leave.KEEP, DraftRules.leave(edited = false, empty = false))
+        assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = false, empty = true, fresh = false))
+        assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = true, empty = true, fresh = false))
+        assertEquals(DraftRules.Leave.SAVE, DraftRules.leave(edited = true, empty = false, fresh = false))
+        assertEquals(DraftRules.Leave.SAVE, DraftRules.leave(edited = true, empty = false, fresh = true))
+        // A shared draft, or one opened from the Drafts view, that the user did not touch stays (DESIGN §7.6).
+        assertEquals(DraftRules.Leave.KEEP, DraftRules.leave(edited = false, empty = false, fresh = false))
+        // A Reply or Forward left without an edit goes, with its copied files: no stray drafts.
+        assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = false, empty = false, fresh = true))
+    }
+
+    @Test
+    fun aQueuedDraftOpensReadOnlyAndKeepsItsSend() {
+        assertEquals(ComposeViewModel.Phase.EDITING, DraftRules.openPhase(DraftState.EDITING))
+        assertEquals(ComposeViewModel.Phase.EDITING, DraftRules.openPhase(DraftState.FAILED))
+        assertEquals(ComposeViewModel.Phase.EDITING, DraftRules.openPhase(DraftState.UNCERTAIN))
+        assertEquals(ComposeViewModel.Phase.WAITING, DraftRules.openPhase(DraftState.QUEUED))
+        assertEquals(ComposeViewModel.Phase.GONE, DraftRules.openPhase(DraftState.SENDING))
+        assertEquals(ComposeViewModel.Phase.GONE, DraftRules.openPhase(DraftState.SENT))
     }
 
     @Test
@@ -111,6 +101,6 @@ class DraftRulesTest {
         id = id, provider = provider, email = email, senderName = name, label = label, color = 0,
         auth = AuthKind.PASSWORD, deviceAccount = null, bodyDays = 30, pushMode = PushMode.INSTANT, pollMinutes = 15,
         gmailCategories = setOf("primary"), archiveFolder = null, signature = "", state = AccountState.OK,
-        stateText = null, caps = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = id.toInt(),
+        stateText = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = id.toInt(),
     )
 }

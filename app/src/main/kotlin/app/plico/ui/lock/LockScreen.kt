@@ -1,14 +1,11 @@
 package app.plico.ui.lock
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import android.hardware.biometrics.BiometricPrompt
 import android.os.CancellationSignal
-import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -26,6 +23,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.plico.R
 import app.plico.ui.components.EmptyState
 import app.plico.ui.components.Icons
+import app.plico.ui.components.SystemPages
 
 private const val AUTHENTICATORS = BIOMETRIC_STRONG or DEVICE_CREDENTIAL
 
@@ -56,7 +54,7 @@ fun LockScreen(onUnlocked: () -> Unit, modifier: Modifier = Modifier) {
                 .safeDrawingPadding(),
             message = if (prompt.available) prompt.error else stringResource(R.string.ui_lock_no_screen_lock),
             actionLabel = stringResource(if (prompt.available) R.string.ui_lock_unlock else R.string.ui_lock_set_screen_lock),
-            onAction = { if (prompt.available) prompt.show() else openScreenLockSettings(activity) },
+            onAction = { if (prompt.available) prompt.show() else SystemPages.screenLock(activity) },
         )
     }
 }
@@ -119,15 +117,5 @@ private class Prompt(private val activity: Activity, private val title: String, 
                 else -> error = errString.toString()
             }
         }
-    }
-}
-
-private fun openScreenLockSettings(activity: Activity) {
-    val enroll = Intent(Settings.ACTION_BIOMETRIC_ENROLL)
-        .putExtra(Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED, AUTHENTICATORS)
-    try {
-        activity.startActivity(enroll)
-    } catch (_: ActivityNotFoundException) {
-        activity.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
     }
 }

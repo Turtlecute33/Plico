@@ -1,21 +1,16 @@
 package app.plico.sync
 
 import app.plico.R
+import app.plico.account.AccountProbe
 import app.plico.account.MailError
 import app.plico.data.AccountState
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.NewFolder
-import app.plico.mail.imap.Command
-import app.plico.mail.imap.ImapClient
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.MailboxInfo
-import app.plico.mail.imap.MailboxName
 import app.plico.mail.imap.MailboxStatus
-import app.plico.mail.imap.listOrEmpty
-import app.plico.mail.imap.longOrNull
-import app.plico.mail.imap.textOrNull
 
 /** The folder list of one account (DESIGN.md §7.2 step 1, §7.3) and the STATUS of its mailboxes (step 2). */
 internal class FolderList(private val env: SyncEnv) {
@@ -50,7 +45,7 @@ internal class FolderList(private val env: SyncEnv) {
         }
         val known = before.filter { it.kind == FolderKind.LABEL }.map { it.path }.toSet()
         write(listed.folders, before)
-        val notes = listed.missing.mapNotNull { MISSING_NOTES[it] }.map(env::text)
+        val notes = listed.missing.mapNotNull { AccountProbe.MISSING_NOTES[it] }.map(env::text)
         if (notes.isEmpty()) {
             clearSetupProblem()
         } else {
@@ -85,7 +80,7 @@ internal class FolderList(private val env: SyncEnv) {
      */
     fun statuses(folders: List<Folder>): Map<Long, MailboxStatus> {
         if (folders.size > 1 && "LIST-STATUS" in env.client.caps) {
-            val byPath = listStatus(env.client)
+            val byPath = env.client.listStatus()
             return folders.mapNotNull { f -> byPath[f.path]?.let { f.id to it } }.toMap()
         }
         return folders.mapNotNull { folder ->
@@ -95,40 +90,5 @@ internal class FolderList(private val env: SyncEnv) {
                 null // Deleted on the server; the caller lists again.
             }
         }.toMap()
-    }
-
-    companion object {
-        private val MISSING_NOTES = mapOf(
-            FolderRole.TRASH to R.string.account_note_gmail_trash_hidden,
-            FolderRole.JUNK to R.string.account_note_gmail_spam_hidden,
-        )
-
-        /** `LIST "" "*" RETURN (STATUS (...))` (RFC 5819): every mailbox's status in one round trip, by decoded name. */
-        fun listStatus(client: ImapClient): Map<String, MailboxStatus> {
-            val items = "MESSAGES UIDNEXT UIDVALIDITY" + if ("CONDSTORE" in client.caps) " HIGHESTMODSEQ" else ""
-            val out = HashMap<String, MailboxStatus>()
-            val command = Command.build {
-                raw("LIST")
-                string("")
-                string("*")
-                raw("RETURN (STATUS ($items))")
-            }
-            client.conn.execute(command) { r ->
-                if (r.keyword != "STATUS") return@execute
-                val wire = r.values.getOrNull(0)?.textOrNull() ?: return@execute
-                val values = r.values.getOrNull(1)?.listOrEmpty().orEmpty().chunked(2).mapNotNull { pair ->
-                    val name = pair.getOrNull(0)?.textOrNull()?.uppercase() ?: return@mapNotNull null
-                    pair.getOrNull(1)?.longOrNull()?.let { name to it }
-                }.toMap()
-                val name = if (wire.equals(FolderRules.INBOX, ignoreCase = true)) FolderRules.INBOX else MailboxName.decode(wire)
-                out[name] = MailboxStatus(
-                    messages = values["MESSAGES"] ?: return@execute,
-                    uidNext = values["UIDNEXT"] ?: return@execute,
-                    uidValidity = values["UIDVALIDITY"] ?: return@execute,
-                    highestModSeq = values["HIGHESTMODSEQ"]?.takeIf { it > 0 },
-                )
-            }
-            return out
-        }
     }
 }

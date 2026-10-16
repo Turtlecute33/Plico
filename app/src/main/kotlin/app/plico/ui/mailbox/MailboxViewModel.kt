@@ -1,7 +1,7 @@
 package app.plico.ui.mailbox
 
+import android.os.SystemClock
 import androidx.annotation.PluralsRes
-import androidx.annotation.StringRes
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.runtime.getValue
@@ -15,16 +15,17 @@ import app.plico.PlicoApp
 import app.plico.R
 import app.plico.account.MailError
 import app.plico.data.Account
-import app.plico.data.Db
+import app.plico.data.AccountAbilities
 import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.Folder
-import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.MailView
 import app.plico.data.MessageSummary
-import app.plico.data.list
+import app.plico.sync.FolderRules
 import app.plico.sync.Undo
+import app.plico.ui.components.ErrorText
+import app.plico.ui.components.OneAtATime
 import app.plico.ui.nav.Route
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -52,27 +53,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-/** A user-facing error: a string resource, with the server's own text when it has one. */
-internal data class ErrorText(@param:StringRes val res: Int, val detail: String? = null) {
-    companion object {
-        fun of(e: Throwable): ErrorText = when (e) {
-            is MailError.AuthRequired -> ErrorText(R.string.mailbox_error_sign_in)
-            is MailError.Tls -> ErrorText(R.string.mailbox_error_tls)
-            is MailError.Network -> ErrorText(R.string.mailbox_error_network)
-            is MailError.Throttled -> ErrorText(R.string.mailbox_error_busy)
-            is MailError.Server -> ErrorText(R.string.mailbox_error_server, e.message)
-            is MailError.TooLarge -> ErrorText(R.string.mailbox_error_too_large)
-            is MailError.Setup -> ErrorText(R.string.mailbox_error_detail, e.message)
-            is IOException -> ErrorText(R.string.mailbox_error_network)
-            else -> ErrorText(R.string.mailbox_error_failed)
-        }
-    }
+/** The text for a failed list action, refresh or search (DESIGN §14). */
+internal fun actionError(e: Throwable): ErrorText = when (e) {
+    is MailError.AuthRequired -> ErrorText(R.string.mailbox_error_sign_in)
+    is MailError.Tls -> ErrorText(R.string.ui_error_tls)
+    is MailError.Throttled -> ErrorText(R.string.ui_error_busy)
+    is MailError.Server -> ErrorText(R.string.mailbox_error_server, e.message)
+    is MailError.Setup -> ErrorText(R.string.mailbox_error_detail, e.message)
+    is MailError.Network, is IOException -> ErrorText(R.string.mailbox_error_network)
+    else -> ErrorText(R.string.mailbox_error_failed)
 }
 
 /** One-shot results for the screen: snackbars and navigation after background work. */
 internal sealed interface MailboxEvent {
-    /** [count] messages changed; [undo] adds an Undo button. */
-    data class Done(@param:PluralsRes val text: Int, val count: Int, val undo: Undo?) : MailboxEvent
+    /** [count] messages changed; [undo] adds an Undo button until the change runs; [since] is the action's start. */
+    data class Done(@param:PluralsRes val text: Int, val count: Int, val undo: Undo?, val since: Long) : MailboxEvent
     data class Failed(val error: ErrorText) : MailboxEvent
     data class Open(val route: Route) : MailboxEvent
 }
@@ -81,25 +76,20 @@ internal sealed interface MailboxEvent {
 internal sealed interface ServerSearch {
     data object Idle : ServerSearch
     data object Running : ServerSearch
-    data class Done(val hits: Int) : ServerSearch
+    /** [ids]: the local ids of the server hits, newest first; the list shows them next to the local hits. */
+    data class Done(val ids: List<Long>) : ServerSearch
     data class Failed(val error: ErrorText) : ServerSearch
 }
 
-/** The accounts and folders a list needs to decide what each row allows. */
-internal class ListContext(accounts: List<Account>, folders: List<Folder>) {
+/**
+ * The accounts and folders a list needs to decide what each row allows. [inboxView]: the list shows inboxes
+ * (all inboxes, or one inbox); only there are Gmail rows sure to carry the `\Inbox` label that Archive removes.
+ */
+internal class ListContext(accounts: List<Account>, folders: List<Folder>, private val inboxView: Boolean) {
     val accounts: Map<Long, Account> = accounts.associateBy { it.id }
     private val folders = folders.associateBy { it.id }
-    private val archives = accounts.associate { it.id to MailboxFolders.archiveOf(it, folders)?.id }
-    private val abilities = accounts.associate { account ->
-        account.id to if (account.isGmail) {
-            AccountAbilities(
-                canDelete = MailboxFolders.byRole(account, folders, FolderRole.TRASH) != null,
-                canSpam = MailboxFolders.byRole(account, folders, FolderRole.JUNK) != null,
-            )
-        } else {
-            AccountAbilities()
-        }
-    }
+    private val archives = accounts.associate { it.id to FolderRules.archiveOf(it, folders)?.id }
+    private val abilities = accounts.associate { it.id to AccountAbilities.of(it, folders) }
 
     fun info(row: MessageSummary) = RowInfo(
         id = row.id,
@@ -109,6 +99,9 @@ internal class ListContext(accounts: List<Account>, folders: List<Folder>) {
         place = RowActions.placeOf(row, folders[row.folderId], archives[row.accountId]),
         gmail = accounts[row.accountId]?.isGmail == true,
         abilities = abilities[row.accountId] ?: AccountAbilities(),
+        canArchive = inboxView || accounts[row.accountId]?.isGmail != true,
+        sent = folders[row.folderId]?.role == FolderRole.SENT ||
+            row.fromEmail.equals(accounts[row.accountId]?.email, ignoreCase = true),
     )
 }
 
@@ -163,11 +156,21 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
 
     private val page = MutableStateFlow(Page(null))
 
-    /** Rows of [listView], newest first; null until the first read. */
+    private val _serverSearch = MutableStateFlow<ServerSearch>(ServerSearch.Idle)
+    val serverSearch: StateFlow<ServerSearch> = _serverSearch.asStateFlow()
+    private var serverJob: Job? = null
+
+    /** The server hits of the current search; a new query clears them (see init). */
+    private val serverHits: Flow<List<Long>> =
+        _serverSearch.map { (it as? ServerSearch.Done)?.ids.orEmpty() }.distinctUntilChanged()
+
+    /** Rows of [listView], newest first; a search adds the server hits. Null until the first read. */
     val messages: StateFlow<List<MessageSummary>?> = listView.flatMapLatest { shown ->
         if (shown == null) return@flatMapLatest flowOf(emptyList())
         page.update { if (it.view == shown) it else Page(shown) }
-        page.flatMapLatest { app.messages.observeList(shown, it.limit) }
+        combine(page, serverHits, ::Pair).flatMapLatest { (p, hits) ->
+            app.messages.observeList(shown, p.limit, if (shown is MailView.Search) hits else emptyList())
+        }
     }.state(null)
 
     /** Local drafts on top of a Drafts view (DESIGN §7.5): editing, queued, sending and failed ones. */
@@ -185,12 +188,21 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    private val _serverSearch = MutableStateFlow<ServerSearch>(ServerSearch.Idle)
-    val serverSearch: StateFlow<ServerSearch> = _serverSearch.asStateFlow()
-    private var serverJob: Job? = null
-
     private val _events = Channel<MailboxEvent>(Channel.BUFFERED)
     val events: Flow<MailboxEvent> = _events.receiveAsFlow()
+
+    private val opener = OneAtATime(viewModelScope)
+
+    /** A draft is being prepared for Compose (a server draft may wait for its body and files). */
+    val opening: StateFlow<Boolean> = opener.busy
+
+    /**
+     * Local drafts of every account that are not sent yet. The drawer offers a Drafts entry for an account that
+     * has them but no Drafts mailbox yet (Riseup creates it on the first upload); failed sends get a banner.
+     */
+    val localDrafts: StateFlow<List<Draft>> = app.drafts.observeAll()
+        .map { list -> list.filter { it.state != DraftState.SENT } }
+        .state(emptyList())
 
     init {
         // DESIGN §7.1: opening a folder syncs it; failures show in the account banners instead.
@@ -229,35 +241,40 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         val shown = listView.value ?: view
         val mail = app.mail
         val count = ids.size
+        val since = SystemClock.elapsedRealtime()
         when (action) {
-            RowAction.ARCHIVE -> done(R.plurals.mailbox_done_archived, count, mail.archive(ids, shown))
-            RowAction.DELETE -> done(R.plurals.mailbox_done_deleted, count, mail.delete(ids))
+            RowAction.ARCHIVE -> undoable(R.plurals.mailbox_done_archived, count, since, mail.archive(ids))
+            RowAction.DELETE -> undoable(R.plurals.mailbox_done_deleted, count, since, mail.delete(ids))
             RowAction.DELETE_FOREVER -> {
                 mail.deleteForever(ids)
-                done(R.plurals.mailbox_done_deleted_forever, count, null)
+                _events.send(MailboxEvent.Done(R.plurals.mailbox_done_deleted_forever, count, null, since))
             }
             RowAction.MARK_READ -> mail.markSeen(ids, true)
             RowAction.MARK_UNREAD -> mail.markSeen(ids, false)
             RowAction.STAR -> mail.star(ids, true)
             RowAction.UNSTAR -> mail.star(ids, false)
-            RowAction.SPAM -> done(R.plurals.mailbox_done_spam, count, mail.spam(ids, true))
-            RowAction.NOT_SPAM -> done(R.plurals.mailbox_done_not_spam, count, mail.spam(ids, false))
+            RowAction.SPAM -> undoable(R.plurals.mailbox_done_spam, count, since, mail.spam(ids, true))
+            RowAction.NOT_SPAM -> undoable(R.plurals.mailbox_done_not_spam, count, since, mail.spam(ids, false))
         }
     }
 
     fun moveTo(ids: List<Long>, target: Folder) = io {
-        done(R.plurals.mailbox_done_moved, ids.size, app.mail.moveTo(ids, target.id, listView.value ?: view))
+        val since = SystemClock.elapsedRealtime()
+        undoable(R.plurals.mailbox_done_moved, ids.size, since, app.mail.moveTo(ids, target.id, listView.value ?: view))
     }
 
     fun setLabels(ids: List<Long>, add: Set<Long>, remove: Set<Long>) = io {
         if (add.isNotEmpty() || remove.isNotEmpty()) app.mail.setLabels(ids, add, remove)
     }
 
-    fun undo(undo: Undo) = io { app.mail.undo(undo) }
+    /** Undo; the snackbar ends before the change runs, so "too late" is rare (a slow tap, a busy phone). */
+    fun undo(undo: Undo) = io {
+        if (!app.mail.undo(undo)) _events.send(MailboxEvent.Failed(ErrorText(R.string.mailbox_undo_too_late)))
+    }
 
     /** Initial label checkboxes for the Gmail label picker over [ids]. */
     suspend fun labelStates(ids: Collection<Long>): Map<Long, ToggleableState> =
-        withContext(Dispatchers.IO) { RowActions.labelStates(app.db.labelMemberships(ids)) }
+        withContext(Dispatchers.IO) { RowActions.labelStates(app.messages.labelIds(ids)) }
 
     /** Pull to refresh. */
     fun refresh() {
@@ -269,7 +286,7 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _events.send(MailboxEvent.Failed(ErrorText.of(e)))
+                _events.send(MailboxEvent.Failed(actionError(e)))
             } finally {
                 _refreshing.value = false
             }
@@ -285,11 +302,11 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         serverJob = viewModelScope.launch(Dispatchers.IO) {
             val (accountId, folderId) = scopeIds()
             _serverSearch.value = try {
-                ServerSearch.Done(app.mail.searchServer(text, accountId, folderId))
+                ServerSearch.Done(app.mail.searchServerIds(text, accountId, folderId))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                ServerSearch.Failed(ErrorText.of(e))
+                ServerSearch.Failed(actionError(e))
             }
         }
     }
@@ -301,14 +318,10 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         _serverSearch.value = ServerSearch.Idle
     }
 
-    fun compose() = io {
-        _events.send(MailboxEvent.Open(Route.Compose(app.mail.newDraft(scopeIds().first))))
-    }
+    fun compose() = open { Route.Compose(app.mail.newDraft(scopeIds().first), fresh = true) }
 
-    /** A server draft row: copy it into a local draft, then edit (DESIGN §7.6). */
-    fun editServerDraft(messageId: Long) = io {
-        _events.send(MailboxEvent.Open(Route.Compose(app.mail.editServerDraft(messageId))))
-    }
+    /** A server draft row: copy it into a local draft, then edit (DESIGN §7.6). May wait for the body and files. */
+    fun editServerDraft(messageId: Long) = open { Route.Compose(app.mail.editServerDraft(messageId)) }
 
     fun retrySend(draftId: Long) = io { app.mail.retrySend(draftId) }
     fun setNotify(folderId: Long, notify: Boolean) = io { app.mail.setFolderNotify(folderId, notify) }
@@ -326,18 +339,27 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         else -> null to null
     }
 
-    private suspend fun done(@PluralsRes text: Int, count: Int, undo: Undo?) =
-        _events.send(MailboxEvent.Done(text, count, undo))
+    /** A result with Undo; nothing to say when nothing changed (Gmail Archive of a row without `\Inbox`). */
+    private suspend fun undoable(@PluralsRes text: Int, count: Int, since: Long, undo: Undo?) {
+        if (undo != null) _events.send(MailboxEvent.Done(text, count, undo, since))
+    }
+
+    /** Prepares a draft, one at a time ([opening]), and opens it. */
+    private fun open(route: suspend () -> Route) {
+        opener.run { withContext(Dispatchers.IO) { catching { _events.send(MailboxEvent.Open(route())) } } }
+    }
 
     private fun io(block: suspend () -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                block()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _events.send(MailboxEvent.Failed(ErrorText.of(e)))
-            }
+        viewModelScope.launch(Dispatchers.IO) { catching(block) }
+    }
+
+    private suspend fun catching(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _events.send(MailboxEvent.Failed(actionError(e)))
         }
     }
 
@@ -348,20 +370,4 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         const val SEARCH_DEBOUNCE_MS = 250L
         const val STOP_TIMEOUT_MS = 5_000L
     }
-}
-
-/**
- * The Gmail label views (kind 1) of each message in [ids]; a message without labels maps to an empty set.
- * Blocks: call on Dispatchers.IO.
- */
-internal fun Db.labelMemberships(ids: Collection<Long>): Map<Long, Set<Long>> {
-    val memberships = ids.associateWithTo(HashMap()) { HashSet<Long>() }
-    // Ids are numbers, so joining them into the statement is safe; 500 stays far below SQLite's limits.
-    ids.chunked(500).forEach { batch ->
-        sql.list(
-            "SELECT mf.message_id, mf.folder_id FROM message_folder mf JOIN folder f ON f.id = mf.folder_id " +
-                "WHERE f.kind = ${FolderKind.LABEL} AND mf.message_id IN (${batch.joinToString(",")})",
-        ) { it.getLong(0) to it.getLong(1) }.forEach { (message, label) -> memberships[message]?.add(label) }
-    }
-    return memberships
 }

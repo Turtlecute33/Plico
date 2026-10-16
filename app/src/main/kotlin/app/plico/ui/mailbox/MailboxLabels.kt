@@ -1,14 +1,11 @@
 package app.plico.ui.mailbox
 
-import android.content.res.Resources
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.addPathNodes
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import app.plico.R
 import app.plico.data.Folder
 import app.plico.data.FolderKind
@@ -68,27 +65,10 @@ internal fun actionIcon(action: RowAction): ImageVector = when (action) {
     RowAction.NOT_SPAM -> Icons.NotSpam
 }
 
-internal fun ErrorText.text(resources: Resources): String =
-    if (detail == null) resources.getString(res) else resources.getString(res, detail)
-
+/** An icon button for [action], described by its label. */
 @Composable
-internal fun ErrorText.text(): String = text(LocalResources.current)
-
-/** Material Symbols Rounded "expand_more" (Apache-2.0), for the drawer's More entry. */
-internal val ExpandMore: ImageVector by lazy {
-    ImageVector.Builder(
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 960f,
-        viewportHeight = 960f,
-    ).addGroup(translationY = 960f)
-        .addPath(
-            addPathNodes(
-                "M480-361q-8 0-15-2.5t-13-8.5L268-556q-11-11-11-28t11-28q11-11 28-11t28 11l156 156 156-156" +
-                    "q11-11 28-11t28 11q11 11 11 28t-11 28L508-372q-6 6-13 8.5t-15 2.5Z",
-            ),
-            fill = SolidColor(Color.Black),
-        )
-        .clearGroup()
-        .build()
+internal fun ActionButton(action: RowAction, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Icon(actionIcon(action), contentDescription = stringResource(actionLabel(action)))
+    }
 }

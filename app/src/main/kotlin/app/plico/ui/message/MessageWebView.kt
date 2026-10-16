@@ -153,11 +153,16 @@ internal class Client(
         if (uri.scheme == "data" || uri.scheme == "about") return null
         val url = uri.toString()
         val cid = HtmlSanitizer.cidOf(url)
-        val served = when {
-            request.method != "GET" -> null
-            cid != null -> resources.cidImage(cid)
-            uri.scheme == "https" && uri.host != HtmlSanitizer.CID_HOST -> resources.remoteImage(url)
-            else -> null
+        // An exception that leaves this WebView callback would end the process, push included: 403 instead.
+        val served = try {
+            when {
+                request.method != "GET" -> null
+                cid != null -> resources.cidImage(cid)
+                uri.scheme == "https" && uri.host != HtmlSanitizer.CID_HOST -> resources.remoteImage(url)
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
         }
         return served?.let { WebResourceResponse(it.mimeType, null, 200, "OK", NO_STORE, it.stream) }
             ?: WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", NO_STORE, ByteArrayInputStream(EMPTY))

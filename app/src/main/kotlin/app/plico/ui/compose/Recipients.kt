@@ -24,7 +24,6 @@ internal sealed interface Recipient {
 
 /** Parses typed and pasted recipient text into chips. Pure Kotlin. */
 internal object Recipients {
-    private const val SPECIALS = "()<>[]:;@\\,.\""
 
     /** Every recipient in [text]: list separators are `,` `;` and line breaks outside quotes. */
     fun parse(text: String): List<Recipient> = distinct(split(text).flatMap(::parseEntry))
@@ -68,15 +67,7 @@ internal object Recipients {
     }
 
     /** `Name <a@b>` with the name quoted when it holds specials, or `a@b`. Readable, and safe to parse again. */
-    fun display(address: Address): String {
-        val name = address.name?.takeIf { it.isNotBlank() } ?: return address.email
-        val phrase = if (name.any { it in SPECIALS }) {
-            "\"" + name.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-        } else {
-            name
-        }
-        return "$phrase <${address.email}>"
-    }
+    fun display(address: Address): String = Addresses.format(listOf(address), encode = false)
 
     private fun parseEntry(entry: String): List<Recipient> {
         val text = entry.trim()

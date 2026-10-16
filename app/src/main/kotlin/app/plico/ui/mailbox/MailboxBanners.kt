@@ -15,6 +15,9 @@ internal sealed interface MailboxBanner {
     data class Tls(val account: Account) : MailboxBanner
     data class Setup(val account: Account) : MailboxBanner
 
+    /** [count] sends of [account] failed (DESIGN §7.5); View opens its drafts. */
+    data class Unsent(val account: Account, val count: Int) : MailboxBanner
+
     /** A Gmail note that does not stop sync (hidden Trash or Spam, IMAP folder size limit): the state text of an OK account. */
     data class Note(val account: Account) : MailboxBanner
 
@@ -36,8 +39,8 @@ internal object MailboxBanners {
         status == null -> null
         status.pausedByUser -> PushProblem.PAUSED
         status.stoppedBySystem -> PushProblem.STOPPED
-        status.backgroundRestricted -> PushProblem.RESTRICTED
-        !status.batteryUnrestricted && !status.exactAlarms -> PushProblem.LATE
+        status.grants.backgroundRestricted -> PushProblem.RESTRICTED
+        !status.grants.batteryUnrestricted && !status.grants.exactAlarms -> PushProblem.LATE
         else -> null
     }
 
@@ -51,7 +54,8 @@ internal object MailboxBanners {
 
     /**
      * Banners for a list that shows mail of [shown] accounts and the frozen folders [guarded], given every
-     * account in [all], the push [status] and whether the Gmail IP note was seen.
+     * account in [all], the push [status], whether the Gmail IP note was seen and the failed sends per account
+     * ([unsent]).
      */
     fun of(
         shown: List<Account>,
@@ -59,6 +63,7 @@ internal object MailboxBanners {
         guarded: List<Folder>,
         status: PushStatus?,
         gmailIpNoteShown: Boolean,
+        unsent: Map<Long, Int> = emptyMap(),
     ): List<MailboxBanner> = buildList {
         for (account in shown) {
             when (account.state) {
@@ -68,6 +73,7 @@ internal object MailboxBanners {
                 AccountState.OK -> Unit
             }
         }
+        for (account in shown) unsent[account.id]?.takeIf { it > 0 }?.let { add(MailboxBanner.Unsent(account, it)) }
         guarded.forEach { add(MailboxBanner.Guard(it)) }
         if (all.isNotEmpty()) pushProblem(status)?.let { add(MailboxBanner.Push(it)) }
         shown.filter { it.state == AccountState.OK && !it.stateText.isNullOrBlank() }.forEach { add(MailboxBanner.Note(it)) }

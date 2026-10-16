@@ -33,7 +33,7 @@ CardDAV, HTML compose, server-side filter UI (link out instead).
 Only these. Adding one needs a written reason here.
 
 - `kotlinx-coroutines-android` (`:app` only; `:mail` has no dependencies)
-- Compose BOM: `ui`, `foundation`, `material3` 1.5.0-beta01, `ui-tooling-preview` / `ui-tooling` (debug)
+- Compose BOM: `ui`, `foundation`, `material3` 1.5.0-beta01 (no tooling, no previews)
 - `activity-compose`, `lifecycle-runtime-compose`, `lifecycle-viewmodel-compose`
 - `navigation3-runtime`, `navigation3-ui`, `lifecycle-viewmodel-navigation3` (per-screen ViewModels are
   scoped to their back-stack entry and cleared when it leaves). The back stack is a
@@ -314,7 +314,7 @@ CREATE TABLE account(
   archive_folder INTEGER,                   -- Riseup: chosen archive folder id (NULL = auto)
   signature TEXT NOT NULL DEFAULT '',
   state INTEGER NOT NULL DEFAULT 0, state_text TEXT,   -- 0 ok, 1 sign-in needed, 2 TLS problem, 3 setup problem (e.g. Gmail All Mail hidden)
-  caps TEXT, server_keepalive_s INTEGER, quota_used INTEGER, quota_limit INTEGER, sort INTEGER NOT NULL DEFAULT 0);
+  server_keepalive_s INTEGER, quota_used INTEGER, quota_limit INTEGER, sort INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE identity(id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES account(id) ON DELETE CASCADE,
   email TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', UNIQUE(account_id, email));
 CREATE TABLE folder(
@@ -364,7 +364,7 @@ CREATE TABLE draft(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT 
   subject TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', in_reply_to TEXT, refs TEXT,
   source_message INTEGER, attachments TEXT NOT NULL DEFAULT '[]',   -- JSON [{file,name,mime,size}], file = safe name in filesDir/outbox/<id>/
   on_server INTEGER NOT NULL DEFAULT 0,     -- a revision was APPENDed
-  state INTEGER NOT NULL DEFAULT 0,         -- 0 editing, 1 queued, 2 sending, 3 failed, 4 sent (follow-up ops pending)
+  state INTEGER NOT NULL DEFAULT 0,         -- 0 editing, 1 queued, 2 sending, 3 failed, 4 sent (follow-up ops pending), 5 failed but may have been sent
   send_at INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, error TEXT, updated INTEGER NOT NULL);
 CREATE TABLE contact(email TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', last_used INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE trusted_sender(email TEXT PRIMARY KEY);
@@ -556,8 +556,9 @@ class AccountSession(...) {
 ### 7.4 Pending operations (`Ops`)
 User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, `move`, `expunge`,
 `append` (drafts and the Riseup Sent copy, from a file in `outbox/`), `delete_draft` (by Message-ID).
-- `run_at` = now + 4 s for undoable actions (archive, delete, move, spam) so the snackbar can undo
-  (undo deletes the op and restores the row). Notification actions and everything else: `run_at = now`.
+- `run_at` = now + 6 s for undoable actions (archive, delete, move, spam) so the snackbar can undo
+  (undo deletes the op and restores the row). The snackbar closes 1 s before `run_at`; an undo that comes
+  after the op started says "Too late to undo". Notification actions and everything else: `run_at = now`.
 - The loop runs due ops in id order. `nextDueAt()` includes the earliest `run_at`, so the alarm wakes
   the session (`push PB7`, `protocol PS12`, `simplicity EM1`).
 - The runner resolves UIDs from the rows at run time. It SELECTs the folder first; a UIDVALIDITY
@@ -579,9 +580,12 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
   any more, delete the row and its outbox dir.
 - Errors: `SmtpRecipientException` → `state = 3` with the rejected address(es). 5xx → `state = 3` with the
   server text. Transient (connect, 4xx at MAIL/DATA, IOException before the final dot) → backoff, max 6
-  attempts or 24 h, then `state = 3`. `SmtpUncertainException` → `state = 3` "May have been sent — check
+  attempts or 24 h, then `state = 3`. `SmtpUncertainException` → `state = 5` "May have been sent — check
   Sent before you retry". At start-up every `state = 2` row becomes `state = 3` with that text.
-- Drafts view shows failed drafts with Edit and Retry.
+- Drafts view shows failed drafts (states 3 and 5) with Edit and Retry; Retry of a state-5 draft asks first.
+  A failed send shows a mailbox banner "N messages not sent · View" and, while the app is not on screen, one
+  `alerts` notification "Message not sent" per account (no content). At process start, outbox dirs without
+  a draft row are deleted.
 
 ### 7.6 Drafts (`Drafts`)
 - Every draft has one `message_id` from its first save; all revisions and the final message use it.
@@ -597,7 +601,8 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 ### 7.7 Search
 Local first: FTS4 over subject, people, body. "Search on server": Gmail `X-GM-RAW` in All Mail;
 Riseup `UID SEARCH TEXT` in the open folder only (INBOX in the unified view). `CHARSET UTF-8` for
-non-ASCII. Hits not yet local are fetched (headers, `notified = 1`). The UI shows "Searching on
+non-ASCII. Hits not yet local are fetched (headers, `notified = 1`); the list shows the local hits plus
+the server hits (at most 1,000). The UI shows "Searching on
 server…" with Cancel; Cancel closes the socket (normal reconnect) (`simplicity EM15`).
 
 ### 7.8 Attachments
@@ -646,7 +651,8 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   sessions' `nextDueAt()` (plus a 30-min backstop while there is no network) and arms it with
   `setExactAndAllowWhileIdle(ELAPSED_REALTIME_WAKEUP)` when `canScheduleExactAlarms()` or the battery
   exemption holds, else `setAndAllowWhileIdle`; `SecurityException` → inexact. `AlarmReceiver.onReceive`
-  (exported=false): acquire the `alarm` wake lock (10 s, released by timeout), skip if paused, call
+  (exported=false): acquire the `alarm` wake lock (10 s; the engine releases it after the sessions got the wake
+  and the next alarm is armed; the timeout covers a service start), skip if paused, call
   `engine.onWake(ALARM)` if the engine runs, else `startForegroundService` in try/catch; `reschedule()` in
   `finally`.
 - **Coalescing** (`push PB13`): `engine.onWake(source)` runs on every wake: alarm, any server byte
@@ -680,7 +686,8 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   - `TCP_USER_TIMEOUT` = 30 s on every socket.
 - **Network** (`push PB5`): `registerDefaultNetworkCallback`; every callback holds the `net` lock (30 s)
   through a 2 s debounce. New default network → reconnect only sessions on another `Network`. VALIDATED
-  gained / unblocked → reconnect only sessions that are not connected. No default network → close
+  gained / unblocked → reconnect only sessions that are not connected. At a wake without network the watcher
+  reads the default network again (a missed callback). No default network → close
   sockets, park sessions (no backoff), service text "Waiting for network", 30-min backstop alarm.
 - **Backoff** (`push PB10`): healthy = IDLE `+` received and the connection stayed up ≥ 2 min (or one
   refresh succeeded). Only healthy resets the step. Steps: 0 s, 5 s, 20 s (in process, under the lock),
@@ -862,8 +869,8 @@ mailto, VIEW mailto BROWSABLE; singleTop), alias `.OpenMessage` (not exported), 
 
 ## 13. UI (`ui`)
 Material 3 expressive (`MaterialExpressiveTheme`), dynamic colour, day/night, edge-to-edge, predictive back.
-Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message(id)`, `Compose(draftId)`,
-`Settings`, `AccountSettings(id)`, `About`; `View = Unified | Folder(id) | Starred(accountId?) | Search(query, accountId?)`.
+Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message(id)`, `Compose(draftId, fresh)`,
+`Drafts(accountId)`, `Settings`, `AccountSettings(id)`, `About`; `View = Unified | Folder(id) | Starred(accountId?) | Search(query, accountId?)`.
 
 - **Setup**: Welcome (one-line privacy promise; Add Riseup / Add Gmail) → credentials (Riseup: address +
   password; Gmail: App password card always, with a link to `https://myaccount.google.com/apppasswords`;
@@ -878,7 +885,9 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   captures only the id; toggle actions reset the state first, then apply; defaults start→end Archive, end→start
   Delete; choices Archive, Delete, Read/Unread, Star, None; Undo snackbar. Long-press multi-select: Select all,
   Archive, Delete, Read/Unread, Star, Move/Labels, Spam/Not spam. Trash and Spam overflow: Empty (confirm).
-  Pull to refresh. Extended FAB "Compose". Banners: sign-in needed, push paused/late, guard, Gmail setup state.
+  Pull to refresh. Extended FAB "Compose". Banners: sign-in needed, push paused/late, guard, Gmail setup state,
+  messages not sent. Rows of sent mail (in Sent, or from the account address) show "To: <first recipient>".
+  An account with local drafts and no Drafts mailbox gets a Drafts entry that opens its local drafts.
 - **Message**: top bar (back, Archive, Delete, Unread, overflow: Move/Labels with "New…", Spam/Not spam, Star,
   Important (Gmail), Unsubscribe, View headers (`BODY.PEEK[HEADER]` on demand, shows the sender's Date)).
   Subject, Gmail label chips, sender block (name + real address, date, to/cc/bcc expandable), sender-check
@@ -887,7 +896,9 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   marks it seen.
 - **Compose**: From (account addresses and identities), To/Cc/Bcc chip fields with local autocomplete,
   Subject, plain-text body, quoted text, attachments (photo picker, document picker, share), size warning
-  when raw size × 1.37 exceeds the provider limit, Send with Undo.
+  when (raw size + 4 KB) × 1.37 exceeds the provider limit (the same estimate that Send checks), Send with Undo.
+  A reply, forward, mailto or new draft that is left without an edit is discarded. A queued draft opens
+  read-only with "Cancel send and edit"; opening it never cancels the send.
   Reply rules (`simplicity EM16`): From = the identity whose address is in the source's To/Cc, else the account
   address; Reply → Reply-To else From (from Sent: its To); Reply all = that + To + Cc minus own addresses; no
   stacked "Re:"/"Fwd:".
@@ -904,7 +915,7 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
 `ImapByeException`, `ImapProtocolException`, `ImapMissingCapabilityException`, `SmtpException`,
 `SmtpRecipientException`, `SmtpUncertainException`, `SSLException`. The app maps them to `MailError`:
 `AuthRequired` (`[AUTHENTICATIONFAILED]`, SMTP 535, `invalid_grant`, consent intent), `Tls` (§8.3),
-`Network`, `Throttled`, `Server(text)`, `TooLarge`, `Setup(text)`.
+`Network`, `Throttled`, `Server(text)`, `Setup(text)`.
 
 ## 15. Build and tests
 - Gradle 9.8.1, AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.21, JDK 21. arm64-v8a. Checks:

@@ -28,11 +28,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -84,12 +83,20 @@ import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.EmptyState
+import app.plico.ui.components.ErrorText
 import app.plico.ui.components.Icons
+import app.plico.ui.components.Menu
+import app.plico.ui.components.MenuEntry
+import app.plico.ui.components.SystemPages
 import app.plico.ui.components.rejectObscuredTouches
 import app.plico.ui.components.rememberDateFormats
 import app.plico.ui.components.rememberPref
+import app.plico.ui.mailbox.ActionButton
 import app.plico.ui.mailbox.FolderPicker
 import app.plico.ui.mailbox.FolderPickerMode
+import app.plico.ui.mailbox.RowAction
+import app.plico.ui.mailbox.actionIcon
+import app.plico.ui.mailbox.actionLabel
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
 import app.plico.ui.theme.isDark
@@ -127,8 +134,8 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
         vm.events.collect { event ->
             when (event) {
                 MessageEvent.Close -> if (nav.current == Route.Message(messageId)) nav.back()
-                is MessageEvent.Compose -> nav.go(Route.Compose(event.draftId))
-                is MessageEvent.OpenUrl -> if (!openUrl(context, event.url)) say(R.string.message_link_no_app)
+                is MessageEvent.Compose -> nav.go(Route.Compose(event.draftId, event.fresh))
+                is MessageEvent.OpenUrl -> if (!SystemPages.browser(context, event.url, toast = false)) say(R.string.message_link_no_app)
                 is MessageEvent.OpenFile ->
                     if (!openFile(context, event.file, event.mimeType)) say(R.string.message_no_app_file)
                 is MessageEvent.SaveFile -> try {
@@ -198,7 +205,7 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
             sheet = sheet,
             onOpen = { url ->
                 vm.dismissLinkSheet()
-                if (!openUrl(context, url)) say(R.string.message_link_no_app)
+                if (!SystemPages.browser(context, url, toast = false)) say(R.string.message_link_no_app)
             },
             onDismiss = vm::dismissLinkSheet,
         )
@@ -219,7 +226,7 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
         ConfirmDialog(
             title = stringResource(R.string.message_delete_forever_title),
             text = stringResource(R.string.message_delete_forever_text),
-            confirmLabel = stringResource(R.string.message_delete_forever),
+            confirmLabel = stringResource(R.string.mailbox_action_delete_forever),
             onConfirm = vm::deleteForever,
             onDismiss = { confirmDelete = false },
             destructive = true,
@@ -260,77 +267,55 @@ private fun MessageTopBar(
     onUnsubscribe: (Unsubscribe) -> Unit,
     onToggleColours: () -> Unit,
 ) {
-    var menu by remember { mutableStateOf(false) }
     TopAppBar(
         title = {},
         navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.Back, stringResource(R.string.message_back)) }
+            IconButton(onClick = onBack) { Icon(Icons.Back, stringResource(R.string.ui_back)) }
         },
         actions = {
             if (view == null) return@TopAppBar
             val place = view.placement
-            if (place.canArchive) {
-                IconButton(onClick = vm::archive) { Icon(Icons.Archive, stringResource(R.string.message_archive)) }
-            }
+            if (place.canArchive) ActionButton(RowAction.ARCHIVE, vm::archive)
             if (view.canDelete) {
-                IconButton(
-                    onClick = { if (place.deletesForever) onDeleteForever() else vm.delete() },
-                    modifier = Modifier.rejectObscuredTouches(),
-                ) {
-                    if (place.deletesForever) {
-                        Icon(Icons.DeleteForever, stringResource(R.string.message_delete_forever))
-                    } else {
-                        Icon(Icons.Delete, stringResource(R.string.message_delete))
-                    }
+                if (place.deletesForever) {
+                    ActionButton(RowAction.DELETE_FOREVER, onDeleteForever, Modifier.rejectObscuredTouches())
+                } else {
+                    ActionButton(RowAction.DELETE, vm::delete, Modifier.rejectObscuredTouches())
                 }
             }
-            IconButton(onClick = vm::markUnread) {
-                Icon(Icons.MarkUnread, stringResource(R.string.message_mark_unread))
-            }
-            Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.More, stringResource(R.string.message_more)) }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    val item = @Composable { icon: ImageVector, text: Int, action: () -> Unit ->
-                        DropdownMenuItem(
-                            text = { Text(stringResource(text)) },
-                            leadingIcon = { Icon(icon, contentDescription = null) },
-                            onClick = {
-                                menu = false
-                                action()
-                            },
-                        )
+            ActionButton(RowAction.MARK_UNREAD, vm::markUnread)
+            Menu(
+                buildList {
+                    val entry = @Composable { text: Int, icon: ImageVector, onClick: () -> Unit ->
+                        add(MenuEntry(stringResource(text), icon, onClick))
                     }
-                    item(Icons.Move, R.string.message_move) { onPick(FolderPickerMode.MOVE) }
-                    if (place.gmail) item(Icons.Label, R.string.message_labels) { onPick(FolderPickerMode.LABELS) }
-                    if (view.canSpam) {
-                        if (place.inJunk) {
-                            item(Icons.NotSpam, R.string.message_not_spam) { vm.spam(false) }
-                        } else {
-                            item(Icons.ReportSpam, R.string.message_spam) { vm.spam(true) }
-                        }
-                    }
-                    if (view.message.flagged) {
-                        item(Icons.StarFilled, R.string.message_unstar) { vm.star(false) }
-                    } else {
-                        item(Icons.Star, R.string.message_star) { vm.star(true) }
-                    }
+                    entry(R.string.mailbox_action_move, Icons.Move) { onPick(FolderPickerMode.MOVE) }
                     if (place.gmail) {
-                        if (place.important) {
-                            item(Icons.LabelImportantFilled, R.string.message_not_important) { vm.important(false) }
-                        } else {
-                            item(Icons.LabelImportant, R.string.message_important) { vm.important(true) }
-                        }
+                        entry(R.string.mailbox_action_labels, Icons.Label) { onPick(FolderPickerMode.LABELS) }
+                    }
+                    if (view.canSpam) {
+                        val spam = if (place.inJunk) RowAction.NOT_SPAM else RowAction.SPAM
+                        entry(actionLabel(spam), actionIcon(spam)) { vm.spam(!place.inJunk) }
+                    }
+                    // The icon shows the star as it is now; a swipe in the list shows the result instead.
+                    val starred = view.message.flagged
+                    val star = if (starred) RowAction.UNSTAR else RowAction.STAR
+                    entry(actionLabel(star), if (starred) Icons.StarFilled else Icons.Star) { vm.star(!starred) }
+                    if (place.gmail && place.important) {
+                        entry(R.string.message_not_important, Icons.LabelImportantFilled) { vm.important(false) }
+                    } else if (place.gmail) {
+                        entry(R.string.message_important, Icons.LabelImportant) { vm.important(true) }
                     }
                     view.unsubscribe?.let { method ->
-                        item(Icons.Unsubscribe, R.string.message_unsubscribe) { onUnsubscribe(method) }
+                        entry(R.string.message_unsubscribe, Icons.Unsubscribe) { onUnsubscribe(method) }
                     }
                     originalColours?.let { original ->
                         val text = if (original) R.string.message_dark_colours else R.string.message_original_colours
-                        item(Icons.Image, text, onToggleColours)
+                        entry(text, Icons.Image, onToggleColours)
                     }
-                    item(Icons.Info, R.string.message_view_headers, vm::showHeaders)
-                }
-            }
+                    entry(R.string.message_view_headers, Icons.Info, vm::showHeaders)
+                },
+            )
         },
         scrollBehavior = scrollBehavior,
     )
@@ -358,7 +343,7 @@ private fun MessageContent(
         ) {
             SelectionContainer {
                 Text(
-                    text = view.message.subject.ifBlank { stringResource(R.string.message_no_subject) },
+                    text = view.message.subject.ifBlank { stringResource(R.string.ui_no_subject) },
                     style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -469,7 +454,7 @@ private fun SenderBlock(view: MessageView) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = view.sender.name.ifEmpty { stringResource(R.string.message_no_sender) },
+                        text = view.sender.name.ifEmpty { stringResource(R.string.ui_no_sender) },
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -511,7 +496,7 @@ private fun SenderBlock(view: MessageView) {
                 }
             }
             Icon(
-                imageVector = MessageIcons.ExpandMore,
+                imageVector = Icons.ExpandMore,
                 contentDescription = null,
                 tint = scheme.onSurfaceVariant,
                 modifier = Modifier.rotate(if (expanded) 180f else 0f),
@@ -634,7 +619,7 @@ private fun BodyError(error: ErrorText, onRetry: () -> Unit, onSignIn: () -> Uni
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(Icons.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(stringResource(error.text), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+        Text(stringResource(error.res), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
         error.detail?.let {
             Text(
                 it,
@@ -644,7 +629,7 @@ private fun BodyError(error: ErrorText, onRetry: () -> Unit, onSignIn: () -> Uni
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (error.signIn) FilledTonalButton(onClick = onSignIn) { Text(stringResource(R.string.message_sign_in)) }
+            if (error.signIn) FilledTonalButton(onClick = onSignIn) { Text(stringResource(R.string.ui_sign_in)) }
             TextButton(onClick = onRetry) { Text(stringResource(R.string.message_retry)) }
         }
     }
@@ -654,20 +639,24 @@ private fun BodyError(error: ErrorText, onRetry: () -> Unit, onSignIn: () -> Uni
 private fun ReplyBar(view: MessageView, vm: MessageViewModel) {
     val busy by vm.composing.collectAsStateWithLifecycle()
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (view.message.draft) {
-                ReplyButton(Icons.Edit, R.string.message_edit_draft, !busy, primary = true, onClick = vm::editDraft)
-            } else {
-                ReplyButton(Icons.Reply, R.string.message_reply, !busy, primary = true) { vm.reply(false) }
-                if (view.replyAll) ReplyButton(Icons.ReplyAll, R.string.message_reply_all, !busy) { vm.reply(true) }
-                ReplyButton(Icons.Forward, R.string.message_forward, !busy, onClick = vm::forward)
+        Box {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (view.message.draft) {
+                    ReplyButton(Icons.Edit, R.string.message_edit_draft, !busy, primary = true, onClick = vm::editDraft)
+                } else {
+                    ReplyButton(Icons.Reply, R.string.message_reply, !busy, primary = true) { vm.reply(false) }
+                    if (view.replyAll) ReplyButton(Icons.ReplyAll, R.string.message_reply_all, !busy) { vm.reply(true) }
+                    ReplyButton(Icons.Forward, R.string.message_forward, !busy, onClick = vm::forward)
+                }
             }
+            // The body or the attachments may still download (forward): show that the tap was taken.
+            if (busy) LinearWavyProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
     }
 }
@@ -708,7 +697,7 @@ private fun HeadersDialog(state: HeadersState, onDismiss: () -> Unit) {
                         .height(120.dp),
                     contentAlignment = Alignment.Center,
                 ) { Loading() }
-                is HeadersState.Failed -> Text(stringResource(state.error.text))
+                is HeadersState.Failed -> Text(stringResource(state.error.res))
                 is HeadersState.Loaded -> Column(Modifier.verticalScroll(rememberScrollState())) {
                     state.senderDate?.let {
                         Text(

@@ -14,8 +14,14 @@ data class NewAccount(
     /** Vault ciphertext of the password or refresh token; null for [AuthKind.DEVICE]. */
     val secret: ByteArray?,
     val deviceAccount: String?,
-    val bodyDays: Int,
-)
+    /** 0 = all mail offline; the schema default is [DEFAULT_BODY_DAYS]. */
+    val bodyDays: Int = DEFAULT_BODY_DAYS,
+) {
+    companion object {
+        /** Bodies of the last 30 days are offline (DESIGN §1). */
+        const val DEFAULT_BODY_DAYS = 30
+    }
+}
 
 class AccountDao(private val db: Db) {
     /** Every account in display order (sort, then id). */
@@ -73,7 +79,6 @@ class AccountDao(private val db: Db) {
         write("UPDATE account SET state = ?, state_text = ? WHERE id = ?", state.id, text, id)
     }
 
-    fun setCaps(id: Long, caps: String): Unit = set(id, "caps", caps)
     fun setServerKeepalive(id: Long, seconds: Int?): Unit = set(id, "server_keepalive_s", seconds)
 
     fun setQuota(id: Long, used: Long?, limit: Long?): Unit = db.tx(Tables.ACCOUNT) {
@@ -86,10 +91,10 @@ class AccountDao(private val db: Db) {
     }
 
     /**
-     * Removes the account so that no copy of its mail stays on disk (`privacy PS8`): [delete], the outbox
+     * Removes the account so that no copy of its mail stays on disk (`privacy PS8`): the cascade of [delete], the outbox
      * dirs of its drafts and the attachment dirs of its messages, then compacts the search index and
-     * truncates the WAL. Blocking; call it off the main thread. The caller deletes the account's
-     * notification channel.
+     * truncates the WAL. Contacts and trusted senders belong to no single account; they go with the last
+     * account. Blocking; call it off the main thread. The caller deletes the account's notification channel.
      */
     fun purge(id: Long, files: Files) {
         val sql = db.sql
@@ -98,7 +103,13 @@ class AccountDao(private val db: Db) {
             "SELECT DISTINCT message_id FROM attachment WHERE message_id IN (SELECT id FROM message WHERE account_id = ?)",
             id,
         ) { it.getLong(0) }
-        delete(id)
+        db.tx(*Tables.ACCOUNT_OWNED, Tables.CONTACT, Tables.TRUSTED_SENDER) {
+            write("DELETE FROM account WHERE id = ?", id)
+            if (long("SELECT 1 FROM account LIMIT 1") == null) {
+                write("DELETE FROM contact")
+                write("DELETE FROM trusted_sender")
+            }
+        }
         drafts.forEach(files::deleteOutbox)
         messages.forEach(files::deleteAttachments)
         sql.execSQL("INSERT INTO message_fts(message_fts) VALUES('optimize')")
@@ -139,15 +150,12 @@ class AccountDao(private val db: Db) {
 
     internal companion object {
         private const val COLS = "id, provider, email, sender_name, label, color, auth, device_account, body_days, " +
-            "push_mode, poll_minutes, gmail_categories, archive_folder, signature, state, state_text, caps, " +
+            "push_mode, poll_minutes, gmail_categories, archive_folder, signature, state, state_text, " +
             "server_keepalive_s, quota_used, quota_limit, sort"
 
         /** The provider's name, numbered from 2 when [taken] already holds it. */
         fun nextLabel(provider: Provider, taken: Set<String>): String {
-            val base = when (provider) {
-                Provider.RISEUP -> "Riseup"
-                Provider.GMAIL -> "Gmail"
-            }
+            val base = provider.brand
             return generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base $it" }.first { it !in taken }
         }
 
@@ -174,11 +182,10 @@ class AccountDao(private val db: Db) {
             signature = c.str(13),
             state = AccountState.of(c.getInt(14)),
             stateText = c.strOrNull(15),
-            caps = c.strOrNull(16),
-            serverKeepaliveS = c.longOrNull(17)?.toInt(),
-            quotaUsed = c.longOrNull(18),
-            quotaLimit = c.longOrNull(19),
-            sort = c.getInt(20),
+            serverKeepaliveS = c.longOrNull(16)?.toInt(),
+            quotaUsed = c.longOrNull(17),
+            quotaLimit = c.longOrNull(18),
+            sort = c.getInt(19),
         )
     }
 }

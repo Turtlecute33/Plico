@@ -1,16 +1,13 @@
 package app.plico.ui.message
 
-import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.PersistableBundle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -27,9 +24,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -102,7 +99,11 @@ fun LinkSheetView(sheet: LinkSheet, onOpen: (String) -> Unit, onDismiss: () -> U
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Wraps at large font sizes instead of squeezing the last button.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (sheet.openable) {
                     val open: @Composable RowScope.() -> Unit = {
                         Icon(Icons.OpenInNew, null, Modifier.size(ButtonDefaults.IconSize))
@@ -129,18 +130,6 @@ fun LinkSheetView(sheet: LinkSheet, onOpen: (String) -> Unit, onDismiss: () -> U
             }
         }
     }
-}
-
-/**
- * Opens [url] in the browser the user chose (DESIGN §11.3): ACTION_VIEW with CATEGORY_BROWSABLE, no component
- * and no selector. False when no app takes it.
- */
-@SuppressLint("UseKtx") // core-ktx is not a dependency (DESIGN §2)
-fun openUrl(context: Context, url: String): Boolean = try {
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
-    true
-} catch (_: ActivityNotFoundException) {
-    false
 }
 
 /** Links can hold tokens: marked sensitive, so that the clipboard preview hides them. */

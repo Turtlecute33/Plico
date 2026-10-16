@@ -7,6 +7,7 @@ import app.plico.data.Account
 import app.plico.data.AccountDao
 import app.plico.data.ContactDao
 import app.plico.data.Db
+import app.plico.data.Draft
 import app.plico.data.DraftDao
 import app.plico.data.Files
 import app.plico.data.Folder
@@ -15,13 +16,14 @@ import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.MessageDao
 import app.plico.data.OpDao
+import app.plico.data.Tables
 import app.plico.mail.imap.ImapClient
 import app.plico.mail.imap.SelectResult
 import app.plico.mail.smtp.SmtpClient
 
 /**
  * What ops, sends, bodies, attachments and search use while they run on a session loop. In the app it is
- * a [SyncContext]; tests use a scripted server.
+ * the [SyncContext] of the connection; tests use a scripted server.
  */
 internal interface OpContext {
     val store: OpStore
@@ -37,8 +39,8 @@ internal interface OpContext {
     /** Runs the incremental sync of one mailbox now. */
     suspend fun syncFolder(folder: Folder)
 
-    /** Renews the session wake lock; call during long work. */
-    fun progress()
+    /** Renews the session wake lock for [timeoutMs]; call during long work, and before a long upload. */
+    fun progress(timeoutMs: Long = PROGRESS_MS)
 
     /** True when other work waits; long loops stop at a batch end. */
     val workPending: Boolean
@@ -63,6 +65,14 @@ internal class OpStore(
     /** The mailbox (kind 0) with [role], or null. */
     fun mailbox(accountId: Long, role: FolderRole): Folder? = folders.byRole(accountId, role, FolderKind.MAILBOX)
 
+    /**
+     * Reads draft [id] and saves [change] of it in one transaction, so that no other write comes between
+     * (attachments added at the same time stay). False when the draft is gone, sending or sent.
+     */
+    fun updateDraft(id: Long, change: (Draft) -> Draft): Boolean = db.tx(Tables.DRAFT) {
+        drafts.get(id)?.let { drafts.update(change(it)) } == true
+    }
+
     companion object {
         fun of(app: PlicoApp) = OpStore(
             app, app.db, app.files, app.accounts, app.folders, app.messages, app.ops, app.drafts, app.contacts,
@@ -70,14 +80,10 @@ internal class OpStore(
     }
 }
 
-/** The [OpContext] of a session loop. */
-internal class SessionOpContext(private val ctx: SyncContext) : OpContext {
-    override val store = OpStore.of(ctx.app)
-    override val account: Account get() = ctx.account
-    override val client: ImapClient get() = ctx.client
-    override fun select(folder: Folder): SelectResult = ctx.select(folder)
-    override suspend fun smtp(): SmtpClient = ctx.smtp()
-    override suspend fun syncFolder(folder: Folder) = ctx.syncFolder(folder)
-    override fun progress() = ctx.progress()
-    override val workPending: Boolean get() = ctx.workPending
-}
+/** The wake-lock time of a step without server data. */
+internal const val PROGRESS_MS = 60_000L
+
+/** Wake-lock time for an upload of [bytes]: at least [PROGRESS_MS], else the time at 25 KB/s (a slow uplink). */
+internal fun uploadMs(bytes: Int): Long = maxOf(PROGRESS_MS, bytes * 1_000L / UPLOAD_BYTES_PER_S)
+
+private const val UPLOAD_BYTES_PER_S = 25_000L

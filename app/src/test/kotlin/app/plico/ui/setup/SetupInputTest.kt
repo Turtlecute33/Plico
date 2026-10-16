@@ -3,9 +3,7 @@ package app.plico.ui.setup
 import app.plico.data.Provider
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class SetupInputTest {
     @Test
@@ -45,16 +43,6 @@ class SetupInputTest {
         assertNull(SetupInput.checkPassword(Provider.RISEUP, " "))
         assertEquals(InputError.REQUIRED, SetupInput.checkPassword(Provider.GMAIL, "    "))
         assertNull(SetupInput.checkPassword(Provider.GMAIL, "abcd efgh ijkl mnop"))
-    }
-
-    @Test
-    fun `client IDs`() {
-        assertTrue(SetupInput.isValidClientId(""))
-        assertTrue(SetupInput.isValidClientId("123456789012-abcdefghijklmnopqrstuvwxyz0123.apps.googleusercontent.com"))
-        assertFalse(SetupInput.isValidClientId("abcdefghijklmnop.apps.googleusercontent.com"))
-        assertFalse(SetupInput.isValidClientId("123-abc.apps.googleusercontent.com.evil.example"))
-        assertFalse(SetupInput.isValidClientId("123-abc def.apps.googleusercontent.com"))
-        assertFalse(SetupInput.isValidClientId("GOCSPX-secret"))
     }
 
     @Test

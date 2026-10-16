@@ -16,18 +16,22 @@ object Addresses {
      */
     fun parseList(value: String): List<Address> = segments(tokenize(value)).flatMap(::mailboxes)
 
-    /** Comma-separated header value. Names and emails pass [HeaderSafety.clean] first. */
-    fun format(list: List<Address>): String = list.joinToString(", ") { a ->
+    /**
+     * Comma-separated header value. Names and emails pass [HeaderSafety.clean] first; a name is quoted when it
+     * holds specials. With [encode] false, non-ASCII names stay as they are (stored lists and the UI), and
+     * [parseList] reads the result back.
+     */
+    fun format(list: List<Address>, encode: Boolean = true): String = list.joinToString(", ") { a ->
         val email = HeaderSafety.clean(a.email)
         val name = HeaderSafety.clean(a.name.orEmpty())
-        if (name.isEmpty()) email else "${displayName(name)} <$email>"
+        if (name.isEmpty()) email else "${displayName(name, encode)} <$email>"
     }
 
     /** Strict addr-spec check for SMTP commands and outgoing headers; see [AddrSpec.isValid]. */
     fun isValidAddrSpec(s: String): Boolean = AddrSpec.isValid(s)
 
-    private fun displayName(name: String): String = when {
-        name.any { it > '~' } -> EncodedWords.encode(name)
+    private fun displayName(name: String, encode: Boolean): String = when {
+        encode && name.any { it > '~' } -> EncodedWords.encode(name)
         name.any { it in SPECIALS } -> "\"" + name.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
         else -> name
     }

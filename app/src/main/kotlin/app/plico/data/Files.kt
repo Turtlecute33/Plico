@@ -36,6 +36,9 @@ class Files(context: Context) {
             .first { it.name != MESSAGE_FILE && it.createNewFile() }
     }
 
+    /** The draft ids that have an outbox dir. */
+    fun outboxDraftIds(): List<Long> = outboxBase.list().orEmpty().mapNotNull(String::toLongOrNull)
+
     fun deleteOutbox(draftId: Long) {
         inside(outboxBase, draftId.toString()).deleteRecursively()
     }

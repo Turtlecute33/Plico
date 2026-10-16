@@ -8,6 +8,7 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -204,6 +205,7 @@ class ImapConnectionTest {
         }
         assertEquals("database is locked", e.message)
         assertTrue(fake.closed)
+        assertFalse(conn.isOpen)
         // The rest of A1's responses never reach a later command.
         val unsolicited = ArrayList<Untagged>()
         conn.onUnsolicited = { unsolicited += it }

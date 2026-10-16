@@ -7,6 +7,7 @@ import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.mail.imap.Command
 import app.plico.mail.imap.UidSet
+import app.plico.push.policy.KeyValueStore
 import app.plico.push.policy.NotifyRule
 import app.plico.push.policy.UidNextCheck
 
@@ -64,16 +65,29 @@ internal class GmailSync(
     /**
      * The UIDNEXT check before IDLE (push PB2, protocol PS3). When INBOX is still selected, the server reports
      * new mail itself. Else SELECT INBOX: a UIDNEXT above the last one plus this cycle's new inbox mail means
-     * mail came after the All Mail fetch, so the fast path runs once more. Returns true when it ran.
+     * mail came after the All Mail fetch, so the fast path runs again, and the check repeats (at most
+     * [MAX_RERUNS] times). Only a SELECT that passed the check is stored, because IDLE never reports mail that
+     * was already there at the SELECT. Returns true when the fast path ran.
      */
     fun missedMail(report: SyncReport): Boolean {
         if (env.selection.current(FolderRules.INBOX) != null) return false
         val view = env.folders.byRole(env.accountId, FolderRole.INBOX, FolderKind.LABEL) ?: return false
-        val uidNext = env.selection.select(FolderRules.INBOX).uidNext
-        env.folders.setSyncState(view.id, uidNext = uidNext)
-        if (!UidNextCheck.missedMail(uidNext, UidNextCheck.gmailExpected(view.uidNext, report.newInbox))) return false
-        fastPath(report)
-        env.folders.setSyncState(view.id, uidNext = env.selection.select(FolderRules.INBOX).uidNext)
+        var expected = UidNextCheck.gmailExpected(view.uidNext, report.newInbox)
+        for (pass in 0..MAX_RERUNS) {
+            val uidNext = env.selection.select(FolderRules.INBOX).uidNext
+            if (!UidNextCheck.missedMail(uidNext, expected)) {
+                env.folders.setSyncState(view.id, uidNext = uidNext)
+                return pass > 0
+            }
+            if (pass == MAX_RERUNS) break
+            val before = report.newInbox
+            fastPath(report)
+            val fetched = report.newInbox - before
+            // The fetched inbox mail counts on top. Nothing fetched: the rise was no new mail (a label added on the
+            // web gives INBOX a new UID, but All Mail none), so this SELECT is the new base.
+            expected = if (fetched > 0) expected + fetched else uidNext
+        }
+        // Mail still comes in: the old value stays, so the next cycle checks again.
         return true
     }
 
@@ -107,8 +121,14 @@ internal class GmailSync(
     }
 
     companion object {
+        /** Deletes the notes of a removed account. */
+        fun forget(notes: KeyValueStore, accountId: Long) = notes.put(SIZE_NOTE_KEY + accountId, null)
+
         /** Gmail inbox categories in `account.gmail_categories`. */
         val CATEGORIES = listOf("primary", "social", "promotions", "updates", "forums")
+
+        /** Fast-path runs of one UIDNEXT check while mail keeps coming. */
+        private const val MAX_RERUNS = 2
 
         private val SIZE_LIMITS = setOf(1_000L, 2_000L, 5_000L, 10_000L)
         private const val SIZE_NOTE_KEY = "sync.gmail_size_note."

@@ -1,8 +1,6 @@
 package app.plico.push.policy
 
-import app.plico.push.policy.Coalescing.Item
 import app.plico.push.policy.Coalescing.Kind
-import app.plico.push.policy.Coalescing.Run
 import app.plico.push.policy.Coalescing.Timing
 import app.plico.push.policy.KeepalivePolicy.Action
 import kotlin.test.Test
@@ -30,32 +28,8 @@ class CoalescingTest {
         assertEquals(Timing.LATER, Coalescing.timing(now, now + 3 * MIN, 9 * MIN, Kind.REFRESH))
         assertEquals(Timing.EARLY, Coalescing.timing(now, now + 4 * MIN, 15 * MIN, Kind.POLL))
         assertEquals(Timing.LATER, Coalescing.timing(now, now + 6 * MIN, 15 * MIN, Kind.POLL))
-    }
-
-    @Test
-    fun riseupWakeTakesGmailRefreshDueInTwoMinutes() {
-        val now = 50 * MIN
-        val runs = Coalescing.select(
-            now,
-            listOf(
-                Item("gmail", Kind.REFRESH, now + 2 * MIN, 9 * MIN),
-                Item("gmail2", Kind.REFRESH, now + 4 * MIN, 9 * MIN),
-                Item("gmail3", Kind.REFRESH, now - SEC, 9 * MIN),
-                Item("poll", Kind.POLL, now + 4 * MIN, 15 * MIN),
-                Item("poll2", Kind.POLL, now + 6 * MIN, 15 * MIN),
-                Item("long", Kind.REFRESH, now + 9 * MIN, 28 * MIN),
-                Item("idle", Kind.REFRESH, null, 9 * MIN),
-            ),
-        )
-        assertEquals(
-            listOf(
-                Run("gmail", Kind.REFRESH, early = true),
-                Run("gmail3", Kind.REFRESH, early = false),
-                Run("poll", Kind.POLL, early = true),
-                Run("long", Kind.REFRESH, early = true),
-            ),
-            runs,
-        )
+        // A Riseup wake takes a 28-min refresh due in 9 min (window 28 / 3 min).
+        assertEquals(Timing.EARLY, Coalescing.timing(now, now + 9 * MIN, 28 * MIN, Kind.REFRESH))
     }
 
     @Test

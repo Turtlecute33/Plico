@@ -2,12 +2,11 @@ package app.plico.ui.components
 
 import android.content.Context
 import android.text.format.DateFormat
+import android.text.format.Formatter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import java.math.RoundingMode
-import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -91,27 +90,6 @@ fun rememberDateFormats(): DateFormats {
     return remember(context, locale) { DateFormats.forDevice(context, locale) }
 }
 
-private val SIZE_UNITS = listOf("kB", "MB", "GB", "TB")
-private const val NBSP = '\u00A0'
-
-/**
- * A file or message size with SI units like Android's own formatter: "512 B", "1.2 MB", "34 kB".
- * One decimal below 10, none above; the number uses the separators of [locale].
- */
-fun formatFileSize(bytes: Long, locale: Locale = Locale.getDefault()): String {
-    if (bytes < 1000) return "${NumberFormat.getIntegerInstance(locale).format(bytes.coerceAtLeast(0))}${NBSP}B"
-    var value = bytes / 1000.0
-    var unit = 0
-    // Step up before rounding could show "1000 kB".
-    while (value >= 999.5 && unit < SIZE_UNITS.lastIndex) {
-        value /= 1000
-        unit++
-    }
-    val digits = if (value < 9.95) 1 else 0
-    val number = NumberFormat.getNumberInstance(locale).apply {
-        minimumFractionDigits = digits
-        maximumFractionDigits = digits
-        roundingMode = RoundingMode.HALF_UP
-    }
-    return "${number.format(value)}$NBSP${SIZE_UNITS[unit]}"
-}
+/** A file or message size as Android shows it ("1.2 MB"), the same text as the send and upload errors. */
+@Composable
+fun fileSize(bytes: Long): String = Formatter.formatShortFileSize(LocalContext.current, bytes)

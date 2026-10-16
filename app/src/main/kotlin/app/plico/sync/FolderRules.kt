@@ -1,5 +1,7 @@
 package app.plico.sync
 
+import app.plico.data.Account
+import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.NewFolder
@@ -43,16 +45,6 @@ internal object FolderRules {
     /** Riseup's spam filter files only into a mailbox named exactly this (riseup R12, R20). */
     private const val RISEUP_SPAM = "Spam"
 
-    /** Mailbox name that Riseup sync CREATEs on first use of a missing role; null for roles never created. */
-    fun createName(role: FolderRole): String? = when (role) {
-        FolderRole.ARCHIVE -> "Archive"
-        FolderRole.JUNK -> RISEUP_SPAM
-        FolderRole.SENT -> "Sent"
-        FolderRole.DRAFTS -> "Drafts"
-        FolderRole.TRASH -> "Trash"
-        else -> null
-    }
-
     /**
      * Riseup mailboxes. Roles come from SPECIAL-USE attributes and INBOX from its name; each role goes to one
      * mailbox. Archive: [archivePath] (the user's choice), else `\Archive`, else a top-level `Archive` or
@@ -82,6 +74,20 @@ internal object FolderRules {
                 delimiter = info.delimiter,
             )
         }
+    }
+
+    /**
+     * The Riseup archive (protocol PS5, simplicity EM5): the chosen folder, else the `\Archive` mailbox, else a
+     * mailbox named Archive or Archives (any case). Null for Gmail and while none exists (the first archive
+     * action creates "Archive").
+     */
+    fun archiveOf(account: Account, folders: List<Folder>): Folder? {
+        if (account.isGmail) return null
+        val own = folders.filter { it.accountId == account.id && it.kind == FolderKind.MAILBOX && !it.hidden }
+            .sortedBy { it.id }
+        return own.firstOrNull { it.id == account.archiveFolder }
+            ?: own.firstOrNull { it.role == FolderRole.ARCHIVE }
+            ?: own.firstOrNull { it.role == null && it.path.lowercase() in ARCHIVE_NAMES }
     }
 
     /** Gmail folder rows and the required mailboxes that LIST does not show. */

@@ -1,12 +1,13 @@
 package app.plico.ui.mailbox
 
+import app.plico.data.AccountState
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
+import app.plico.data.MailView
 import app.plico.data.Provider
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MailboxFoldersTest {
@@ -61,19 +62,6 @@ class MailboxFoldersTest {
     }
 
     @Test
-    fun archiveChoice() {
-        val withRole = riseupFolders + folder(40, 1, "Archive", FolderRole.ARCHIVE)
-        assertEquals(40L, MailboxFolders.archiveOf(riseup, withRole)?.id)
-        // The user's choice wins over the \Archive mailbox.
-        assertEquals(17L, MailboxFolders.archiveOf(account(1, archiveFolder = 17), withRole)?.id)
-        // A chosen folder that is gone falls back to the rules.
-        assertEquals(40L, MailboxFolders.archiveOf(account(1, archiveFolder = 99), withRole)?.id)
-        // Only a top-level name matches.
-        assertNull(MailboxFolders.archiveOf(riseup, listOf(folder(41, 1, "Work/Archive"))))
-        assertNull(MailboxFolders.archiveOf(gmail, gmailFolders))
-    }
-
-    @Test
     fun moreHoldsOtherVisibleFoldersByName() {
         val section = MailboxFolders.sections(listOf(riseup), riseupFolders, mapOf(16L to 3, 10L to 2)).single()
         assertEquals(listOf(17L, 16L), section.more.map { it.folder.id })
@@ -125,6 +113,37 @@ class MailboxFoldersTest {
         assertEquals(listOf(30L, 29L), MailboxFolders.moveTargets(gmail, gmailFolders, setOf(24)).map { it.id })
         assertEquals(listOf(24L, 30L, 29L), MailboxFolders.labelTargets(gmail, gmailFolders).map { it.id })
         assertTrue(MailboxFolders.labelTargets(riseup, riseupFolders).isEmpty())
+    }
+
+    @Test
+    fun localDraftsGetADrawerEntryOnlyWithoutADraftsMailbox() {
+        val drafts = mapOf(1L to 2)
+        assertEquals(0, MailboxFolders.sections(listOf(riseup), riseupFolders, emptyMap(), drafts).single().localDrafts)
+        val noMailbox = riseupFolders.filter { it.role != FolderRole.DRAFTS }
+        assertEquals(2, MailboxFolders.sections(listOf(riseup), noMailbox, emptyMap(), drafts).single().localDrafts)
+        assertEquals(0, MailboxFolders.sections(listOf(riseup), noMailbox, emptyMap()).single().localDrafts)
+    }
+
+    @Test
+    fun firstSyncIsPendingUntilTheMainMailboxHasHeaders() {
+        val accounts = listOf(riseup)
+        // Right after setup: no INBOX row yet, then an INBOX that was never fetched.
+        assertTrue(MailboxFolders.firstSyncPending(MailView.Unified, accounts, emptyList()))
+        val fresh = listOf(folder(10, 1, "INBOX", FolderRole.INBOX, backfillUid = 0))
+        assertTrue(MailboxFolders.firstSyncPending(MailView.Unified, accounts, fresh))
+        assertTrue(MailboxFolders.firstSyncPending(MailView.Starred(1), accounts, fresh))
+        assertFalse(MailboxFolders.firstSyncPending(MailView.Unified, accounts, riseupFolders))
+        // An account with a problem has a banner: the list does not wait for it.
+        val signIn = listOf(account(1, state = AccountState.SIGN_IN_NEEDED))
+        assertFalse(MailboxFolders.firstSyncPending(MailView.Unified, signIn, emptyList()))
+        // A folder view waits for that mailbox; a Gmail label view for All Mail.
+        val bills = riseupFolders.map { if (it.id == 17L) it.copy(backfillUid = 0) else it }
+        assertTrue(MailboxFolders.firstSyncPending(MailView.InFolder(17), accounts, bills))
+        assertFalse(MailboxFolders.firstSyncPending(MailView.InFolder(16), accounts, bills))
+        val allMail = gmailFolders.map { if (it.id == 20L) it.copy(backfillUid = 0) else it }
+        assertTrue(MailboxFolders.firstSyncPending(MailView.InFolder(24), listOf(gmail), allMail))
+        assertFalse(MailboxFolders.firstSyncPending(MailView.InFolder(24), listOf(gmail), gmailFolders))
+        assertFalse(MailboxFolders.firstSyncPending(MailView.Search("x", null), accounts, emptyList()))
     }
 
     @Test

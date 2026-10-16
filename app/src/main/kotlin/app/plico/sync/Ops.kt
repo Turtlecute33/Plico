@@ -1,9 +1,9 @@
 package app.plico.sync
 
 import android.text.format.Formatter
-import app.plico.PlicoApp
 import app.plico.R
 import app.plico.account.Providers
+import app.plico.data.Account
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
@@ -11,6 +11,7 @@ import app.plico.data.MessageRef
 import app.plico.data.NewFolder
 import app.plico.data.Op
 import app.plico.data.ServerFlags
+import app.plico.mail.imap.Command
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.UidSet
 import kotlinx.coroutines.channels.BufferOverflow
@@ -34,19 +35,11 @@ object Ops {
     /** Changes the server refused (undone locally) and sends that failed; see [MailActions.failures]. */
     internal val failures: SharedFlow<ActionFailure> = failed.asSharedFlow()
 
-    /** Runs every due op of the account in id order (DESIGN §7.4). */
-    suspend fun runDue(ctx: SyncContext): Unit = run(SessionOpContext(ctx))
-
-    /** Earliest run_at (epoch ms) of an op that can run, or null. Ops on a guarded folder wait for its resync. */
-    fun nextRunAt(app: PlicoApp, accountId: Long): Long? = nextRunAt(OpStore.of(app), accountId)
-
-    /** Message ids that pending ops reference; sync must not overwrite their local state (§7.2, protocol PS2). */
-    fun protectedIds(app: PlicoApp, accountId: Long): Set<Long> = app.ops.referencedMessageIds(accountId)
-
-    internal fun report(accountId: Long, text: String) {
-        failed.tryEmit(ActionFailure(accountId, text))
+    internal fun report(accountId: Long, text: String, draftId: Long? = null) {
+        failed.tryEmit(ActionFailure(accountId, text, draftId))
     }
 
+    /** Runs every due op of the account in id order (DESIGN §7.4). */
     internal suspend fun run(ctx: OpContext) {
         val store = ctx.store
         var after = 0L
@@ -60,6 +53,7 @@ object Ops {
         }
     }
 
+    /** Earliest run_at (epoch ms) of an op that can run, or null. Ops on a guarded folder wait for its resync. */
     internal fun nextRunAt(store: OpStore, accountId: Long): Long? =
         store.ops.byAccount(accountId).filterNot { waits(store, it) }.minOfOrNull { it.runAt }
 
@@ -75,11 +69,19 @@ object Ops {
     } catch (e: ImapNoException) {
         if (e.code?.name != "TRYCREATE") throw e
         ctx.client.create(path)
-        val delimiter = ctx.store.folders.byAccount(ctx.account.id)
-            .firstOrNull { it.kind == FolderKind.MAILBOX && it.delimiter != null }?.delimiter
-        val name = if (delimiter.isNullOrEmpty()) path else path.substringAfterLast(delimiter)
-        ctx.store.folders.upsert(NewFolder(ctx.account.id, FolderKind.MAILBOX, path, name, role, delimiter))
+        ctx.store.folders.upsert(createdFolder(ctx.store, ctx.account, path, role))
         block()
+    }
+
+    /**
+     * The row of a mailbox that Plico has just created: a Riseup mailbox with [role], or a Gmail label view (Gmail
+     * makes a label of every CREATE; its mailboxes are found by SPECIAL-USE only, DESIGN §7.3).
+     */
+    internal fun createdFolder(store: OpStore, account: Account, path: String, role: FolderRole?): NewFolder {
+        if (account.isGmail) return NewFolder(account.id, FolderKind.LABEL, path, FolderRules.leaf(path, "/"), null, "/")
+        val delimiter = store.folders.byAccount(account.id)
+            .firstOrNull { it.kind == FolderKind.MAILBOX && it.delimiter != null }?.delimiter
+        return NewFolder(account.id, FolderKind.MAILBOX, path, FolderRules.leaf(path, delimiter), role, delimiter)
     }
 
     /** Throws [OpRefused] when [size] bytes exceed the server's APPENDLIMIT or the provider limit. */
@@ -119,12 +121,13 @@ object Ops {
         } catch (e: Exception) {
             val attempts = op.attempts + 1
             val now = store.now()
+            val ends = OpErrors.endsConnection(e, ctx.client)
             if (OpErrors.classify(e) == Failure.TRANSIENT && now - op.created < OpErrors.GIVE_UP_MS) {
                 store.ops.retryLater(op.id, attempts, now + OpErrors.backoffMs(attempts), OpErrors.text(e))
             } else {
-                drop(ctx, op, arg, failureText(store, arg, e), refetch = !OpErrors.endsConnection(e))
+                drop(ctx, op, arg, failureText(store, arg, e), refetch = !ends)
             }
-            if (OpErrors.endsConnection(e)) throw e
+            if (ends) throw e
         }
     }
 
@@ -156,13 +159,40 @@ object Ops {
             }
             val moved = creating(ctx, arg.path, arg.role) { ctx.client.uidMove(uids(rows), arg.path) }
             val target = store.folders.byPath(ctx.account.id, FolderKind.MAILBOX, arg.path)
+            // Gmail: out of Trash or Spam into INBOX or a label, the message is back in All Mail with a new UID.
+            val (folder, newUids) = when {
+                target != null -> target to moved
+                ctx.account.isGmail -> allMailUids(ctx, rows)
+                else -> null to emptyMap()
+            }
             for (row in rows) {
-                val uid = moved[row.uid]
-                // COPYUID keeps the row with its body (protocol PS26); without it the target's sync brings it.
-                if (target != null && uid != null) store.messages.moveRow(row.id, target.id, uid)
+                val uid = newUids[row.uid]
+                // The row keeps its body and notified state (protocol PS26); without a UID the target's sync brings it.
+                if (folder != null && uid != null) store.messages.moveRow(row.id, folder.id, uid)
                 else store.messages.delete(listOf(row.id))
             }
+            if (folder != null && folder.id != target?.id) {
+                // The next All Mail fetch writes every label; the label view of the target shows the rows at once.
+                val view = labelIds(store, ctx.account.id, listOf(if (arg.path == FolderRules.INBOX) INBOX_LABEL else arg.path))
+                view.forEach { store.messages.addToFolder(rows.filter { it.uid in newUids }.map { it.id }, it) }
+            }
         }
+    }
+
+    /** The All Mail UIDs (by old UID) of Gmail [rows] that a MOVE has taken out of Trash or Spam, by X-GM-MSGID. */
+    private fun allMailUids(ctx: OpContext, rows: List<MessageRef>): Pair<Folder?, Map<Long, Long>> {
+        val all = ctx.store.mailbox(ctx.account.id, FolderRole.ALL) ?: return null to emptyMap()
+        if (ctx.select(all).uidValidity.let { all.uidValidity != 0L && it != all.uidValidity }) return null to emptyMap()
+        val uids = HashMap<Long, Long>()
+        for (row in rows) {
+            val msgId = ctx.store.messages.get(row.id)?.gmMsgId ?: continue
+            val criteria = Command.build {
+                raw("X-GM-MSGID")
+                raw(msgId.toString())
+            }
+            ctx.client.uidSearch(criteria).toList().maxOrNull()?.let { uids[row.uid] = it }
+        }
+        return all to uids
     }
 
     private fun expunge(ctx: OpContext, op: Op, arg: OpArg.Expunge) {
@@ -227,7 +257,8 @@ object Ops {
                     store.messages.setHidden(ids.values - store.ops.referencedMessageIds(ctx.account.id), false)
                 }
                 is OpArg.Append -> if (arg.role == FolderRole.SENT) Sender.cleanup(store, arg.draftId)
-                is OpArg.DeleteDraft -> Unit
+                // The copies stay on the server, so they show again.
+                is OpArg.DeleteDraft -> if (arg.keep == 0L) Drafts.hideServerCopies(store, ctx.account.id, arg.messageId, false)
             }
         } finally {
             report(ctx.account.id, text)
@@ -253,9 +284,15 @@ object Ops {
             if (ctx.select(folder).uidValidity != folder.uidValidity && folder.uidValidity != 0L) continue
             val wanted = rows.mapTo(HashSet()) { it.uid }
             val found = ArrayList<ServerFlags>()
-            ctx.client.uidFetch(UidSet.of(wanted), HeaderParser.flagItems(gmail)) { item ->
+            // As in the sync: only All Mail rows have labels; Trash and Spam rows have none (MailboxSync.labelsOf).
+            val withLabels = gmail && folder.role == FolderRole.ALL
+            ctx.client.uidFetch(UidSet.of(wanted), HeaderParser.flagItems(withLabels)) { item ->
                 if (item.uid !in wanted) return@uidFetch
-                val labels = if (gmail) labelIds(store, ctx.account.id, item.gmLabels.orEmpty()) else null
+                val labels = when {
+                    !gmail -> null
+                    withLabels -> labelIds(store, ctx.account.id, item.gmLabels.orEmpty())
+                    else -> emptySet()
+                }
                 HeaderParser.serverFlags(item, labels)?.let(found::add)
             }
             store.messages.syncFlags(folder.id, found)
@@ -286,4 +323,5 @@ object Ops {
     private fun uids(rows: List<MessageRef>) = UidSet.of(rows.map { it.uid })
 
     private const val DELETED = "\\Deleted"
+    private const val INBOX_LABEL = "\\Inbox"
 }

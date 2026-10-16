@@ -9,7 +9,6 @@ import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.Files
 import app.plico.data.FolderRole
-import app.plico.data.NewOp
 import app.plico.data.Tables
 import app.plico.mail.smtp.SmtpException
 import app.plico.mail.smtp.SmtpRecipientException
@@ -28,20 +27,28 @@ object Sender {
     /** Databases whose interrupted sends were failed in this process. */
     private val checked: MutableSet<Db> = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
 
-    /** Sends every due draft of the account (DESIGN §7.5). */
-    suspend fun runDue(ctx: SyncContext): Unit = run(SessionOpContext(ctx))
-
-    /** Earliest send_at of a queued draft (epoch ms), or null. */
-    fun nextSendAt(app: PlicoApp, accountId: Long): Long? = app.drafts.nextSendAt(accountId)
-
-    /** At process start: drafts left in SENDING become FAILED "may have been sent". Runs once per process. */
-    fun onProcessStart(app: PlicoApp): Unit = failInterrupted(OpStore.of(app))
+    /**
+     * At process start: drafts left in SENDING become FAILED "may have been sent", sent drafts whose cleanup
+     * did not run are deleted, and so are outbox dirs without a draft (a process that died after the draft was
+     * deleted). Runs once per process; call it off the main thread.
+     */
+    fun onProcessStart(app: PlicoApp) {
+        val store = OpStore.of(app)
+        failInterrupted(store)
+        // Draft ids are never used again (AUTOINCREMENT), and a draft row exists before its dir.
+        store.files.outboxDraftIds().filter { store.drafts.get(it) == null }.forEach(store.files::deleteOutbox)
+    }
 
     /** The start-up rule; [run] calls it before its first claim, so no send of this process is touched. */
     internal fun failInterrupted(store: OpStore) = synchronized(checked) {
-        if (checked.add(store.db)) store.drafts.failInterrupted(store.text(R.string.data_error_may_have_been_sent))
+        if (!checked.add(store.db)) return@synchronized
+        store.drafts.failInterrupted(store.text(R.string.data_error_may_have_been_sent))
+        // A process that died between the sent transaction and its cleanup left the row: its Message-ID would
+        // hide the sent message from every list (protocol PS7).
+        store.drafts.sentIds().forEach { cleanup(store, it) }
     }
 
+    /** Sends every due draft of the account (DESIGN §7.5). */
     internal suspend fun run(ctx: OpContext) {
         val store = ctx.store
         failInterrupted(store)
@@ -55,6 +62,11 @@ object Sender {
     private suspend fun send(ctx: OpContext, draft: Draft) {
         val store = ctx.store
         val spec = Providers.of(ctx.account.provider)
+        // The server would send it, but from an address that the user did not set up for this account.
+        val own = store.accounts.identities(ctx.account.id).map { it.email } + ctx.account.email
+        if (own.none { it.equals(draft.fromEmail, ignoreCase = true) }) {
+            return fail(ctx, draft, store.text(R.string.ops_error_unknown_sender, draft.fromEmail))
+        }
         val date = store.now()
         val message: ByteArray
         val sentCopy: ByteArray?
@@ -81,6 +93,8 @@ object Sender {
                 if (message.size > limit) {
                     return fail(ctx, draft, store.text(R.string.ops_error_too_large, Ops.formatSize(store, limit)))
                 }
+                // One blocking write: the lock must last for the whole upload.
+                ctx.progress(uploadMs(message.size))
                 smtp.send(draft.fromEmail, recipients, message)
             } finally {
                 smtp.quit()
@@ -94,7 +108,7 @@ object Sender {
         } catch (e: SmtpRecipientException) {
             return fail(ctx, draft, store.text(R.string.ops_error_send_rejected, e.rejected.keys.joinToString(", ")))
         } catch (_: SmtpUncertainException) {
-            return fail(ctx, draft, store.text(R.string.data_error_may_have_been_sent))
+            return fail(ctx, draft, store.text(R.string.data_error_may_have_been_sent), uncertain = true)
         } catch (e: SmtpException) {
             return if (e.transient) retry(ctx, draft, e) else refused(ctx, draft, e)
         } catch (e: MailError.AuthRequired) {
@@ -122,22 +136,24 @@ object Sender {
             }
         }
         val now = store.now()
-        store.db.tx(Tables.DRAFT, Tables.OP, Tables.MESSAGE, Tables.CONTACT) {
-            store.drafts.markSent(draft.id)
+        val recorded = store.db.tx(Tables.DRAFT, Tables.OP, Tables.MESSAGE, Tables.CONTACT) {
+            // The row is gone (the account was removed during the send): nothing to follow up.
+            if (!store.drafts.markSent(draft.id)) return@tx false
             // Revisions that were never uploaded are not needed any more.
             Drafts.dropUploads(store, accountId, draft.id)
             if (copy != null) {
-                store.ops.insert(op(accountId, OpArg.Append(draft.id, FolderRole.SENT, copy.name), now))
+                store.ops.insert(OpArg.Append(draft.id, FolderRole.SENT, copy.name).toNewOp(accountId, now))
             }
-            if (store.drafts.get(draft.id)?.onServer == true) {
-                store.ops.insert(op(accountId, OpArg.DeleteDraft(draft.messageId), now))
-            }
+            if (store.drafts.get(draft.id)?.onServer == true) Drafts.queueDelete(store, accountId, draft.messageId)
             draft.sourceMessage?.let(store.messages::get)?.let { source ->
                 store.messages.setAnswered(listOf(source.id), true)
-                store.ops.insert(op(source.accountId, OpArg.Flags(ANSWERED, true), now, listOf(source.id)))
+                store.ops.insert(OpArg.Flags(ANSWERED, true).toNewOp(source.accountId, now, listOf(source.id)))
             }
             store.contacts.touch(DraftMime.addresses(draft), now)
+            true
         }
+        // The files of a removed account must not stay (the Sent copy has the Bcc recipients).
+        if (!recorded) return store.files.deleteOutbox(draft.id)
         cleanup(store, draft.id)
     }
 
@@ -150,6 +166,7 @@ object Sender {
         val bytes = file.readBytes()
         Ops.checkAppendSize(ctx, bytes.size)
         val path = store.mailbox(ctx.account.id, FolderRole.SENT)?.path ?: DEFAULT_SENT
+        ctx.progress(uploadMs(bytes.size))
         Ops.creating(ctx, path, FolderRole.SENT) { ctx.client.append(path, listOf(SEEN), bytes) }
     }
 
@@ -179,13 +196,10 @@ object Sender {
     private fun refused(ctx: OpContext, draft: Draft, e: Exception) =
         fail(ctx, draft, ctx.store.text(R.string.ops_error_send_refused, OpErrors.text(e)))
 
-    private fun fail(ctx: OpContext, draft: Draft, text: String) {
-        ctx.store.drafts.markFailed(draft.id, text)
-        Ops.report(ctx.account.id, text)
+    private fun fail(ctx: OpContext, draft: Draft, text: String, uncertain: Boolean = false) {
+        ctx.store.drafts.markFailed(draft.id, text, uncertain)
+        Ops.report(ctx.account.id, text, draft.id)
     }
-
-    private fun op(accountId: Long, arg: OpArg, runAt: Long, messageIds: List<Long> = emptyList()) =
-        NewOp(accountId, arg.kind, messageIds, OpArg.encode(arg), runAt)
 
     private const val SENT_FILE = "sent.eml"
     private const val DEFAULT_SENT = "Sent"

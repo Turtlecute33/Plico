@@ -4,14 +4,14 @@ import app.plico.data.DbFixture
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
-import app.plico.data.NewFolder
 import app.plico.data.NewOp
 import app.plico.data.OpKind
+import app.plico.mail.imap.ImapNoException
 import app.plico.push.policy.KeyValueStore
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -275,6 +275,32 @@ class MailboxSyncDeviceTest : DbFixture() {
     }
 
     @Test
+    fun unsolicitedFlagUpdatesAreNoNewRows() {
+        inbox.addAll(250)
+        // A flag change of an old message during the first-sync fetch (DESIGN §4.3).
+        server.onCommand = { if (it.startsWith("FETCH 51:* ")) server.announce("* 1 FETCH (UID 1 FLAGS (\\Seen))") }
+        val f = start()
+        assertEquals(51, f.backfillUid, "the lowest UID of the header rows")
+        assertEquals(200, messages.count(f.id))
+        assertNull(row(f, 1))
+    }
+
+    @Test
+    fun aFailedExpungeCheckIsNotSkippedLater() {
+        val work = server.box("Work")
+        work.addAll(3)
+        start()
+        sync.fullSweep(SyncReport())
+        work.expunge(listOf(2L))
+        server.refuse = { it.startsWith("UID SEARCH RETURN (COUNT)") }
+        assertFailsWith<ImapNoException> { sync.fullSweep(SyncReport()) }
+        server.refuse = null
+        sync.fullSweep(SyncReport())
+        assertNull(row(folder("Work"), 2), "the next sweep finds the expunge")
+        assertEquals(2, messages.count(folder("Work").id))
+    }
+
+    @Test
     fun existsOutsideASelectIsNewMail() {
         inbox.addAll(2)
         start()
@@ -282,25 +308,6 @@ class MailboxSyncDeviceTest : DbFixture() {
         server.announce("* 3 EXISTS")
         sync.fullSweep(SyncReport()) // any command: the quota
         assertEquals(1, serverNewMail)
-    }
-
-    @Test
-    fun missingRiseupFoldersAreCreatedOnFirstUse() {
-        server.box("Spam", "\\Junk")
-        start()
-        assertNull(sync.folder(FolderRole.ARCHIVE))
-        server.take()
-        val archive = sync.ensureFolder(FolderRole.ARCHIVE)
-        assertEquals("Archive", archive.path)
-        assertEquals(FolderRole.ARCHIVE, archive.role)
-        assertTrue("CREATE \"Archive\"" in server.take())
-        assertEquals("Spam", sync.ensureFolder(FolderRole.JUNK).path)
-        assertTrue(server.take().isEmpty(), "Spam exists: nothing created")
-
-        val chosen = folders.upsert(NewFolder(accountId, FolderKind.MAILBOX, "Kept", "Kept", null, "."))
-        accounts.update(accounts.get(accountId)!!.copy(archiveFolder = chosen))
-        assertEquals(chosen, sync.folder(FolderRole.ARCHIVE)?.id, "the user's choice first")
-        assertNotNull(sync.folder(FolderRole.INBOX))
     }
 
     private class MemoryNotes : KeyValueStore {

@@ -69,18 +69,34 @@ class ImapClient(val conn: ImapConnection) : Closeable {
 
     /** `STATUS` with MESSAGES UIDNEXT UIDVALIDITY, plus HIGHESTMODSEQ when CONDSTORE is advertised. */
     fun status(mailbox: String): MailboxStatus {
-        val items = "MESSAGES UIDNEXT UIDVALIDITY" + if ("CONDSTORE" in caps) " HIGHESTMODSEQ" else ""
         var values = emptyMap<String, Long>()
-        conn.execute(Command.build { raw("STATUS"); string(MailboxName.encode(mailbox)); raw("($items)") }) { r ->
+        conn.execute(Command.build { raw("STATUS"); string(MailboxName.encode(mailbox)); raw("($statusQuery)") }) { r ->
             if (r.keyword == "STATUS") values = statusItems(r.values.getOrNull(1))
         }
-        return MailboxStatus(
-            messages = values.required("MESSAGES"),
-            uidNext = values.required("UIDNEXT"),
-            uidValidity = values.required("UIDVALIDITY"),
-            highestModSeq = values["HIGHESTMODSEQ"]?.takeIf { it > 0 },
-        )
+        return mailboxStatus(values) ?: throw ImapProtocolException("Incomplete STATUS")
     }
+
+    /**
+     * `LIST "" "*" RETURN (STATUS (...))` (RFC 5819, needs LIST-STATUS): the [status] of every mailbox in one
+     * round trip, by decoded name. Incomplete entries are left out.
+     */
+    fun listStatus(): Map<String, MailboxStatus> {
+        val out = HashMap<String, MailboxStatus>()
+        val command = Command.build {
+            raw("LIST")
+            string("")
+            string("*")
+            raw("RETURN (STATUS ($statusQuery))")
+        }
+        conn.execute(command) { r ->
+            if (r.keyword != "STATUS") return@execute
+            val wire = r.values.getOrNull(0)?.textOrNull() ?: return@execute
+            mailboxStatus(statusItems(r.values.getOrNull(1)))?.let { out[nameOf(wire)] = it }
+        }
+        return out
+    }
+
+    private val statusQuery: String get() = "MESSAGES UIDNEXT UIDVALIDITY" + if ("CONDSTORE" in caps) " HIGHESTMODSEQ" else ""
 
     fun select(mailbox: String): SelectResult = open("SELECT", mailbox)
     fun examine(mailbox: String): SelectResult = open("EXAMINE", mailbox)
@@ -326,8 +342,7 @@ class ImapClient(val conn: ImapConnection) : Closeable {
          * to an extended LIST; any spelling of either adds `\Noselect`, so that callers check one name.
          */
         private fun mailboxInfo(values: List<ImapValue>): MailboxInfo? {
-            val wire = values.getOrNull(2)?.textOrNull() ?: return null
-            val name = if (wire.equals("INBOX", ignoreCase = true)) "INBOX" else MailboxName.decode(wire)
+            val name = nameOf(values.getOrNull(2)?.textOrNull() ?: return null)
             var attributes = values[0].listOrEmpty().mapNotNull { it.textOrNull() }.toSet()
             if (attributes.any { it.equals(NONEXISTENT, true) || it.equals(NOSELECT, true) }) {
                 attributes = attributes + NOSELECT
@@ -346,8 +361,17 @@ class ImapClient(val conn: ImapConnection) : Closeable {
             return out
         }
 
-        private fun Map<String, Long>.required(name: String) =
-            this[name] ?: throw ImapProtocolException("STATUS without $name")
+        /** INBOX in any case is INBOX; other names are decoded from modified UTF-7. */
+        private fun nameOf(wire: String): String =
+            if (wire.equals("INBOX", ignoreCase = true)) "INBOX" else MailboxName.decode(wire)
+
+        /** Null when MESSAGES, UIDNEXT or UIDVALIDITY is missing. A HIGHESTMODSEQ of 0 means none. */
+        private fun mailboxStatus(values: Map<String, Long>): MailboxStatus? = MailboxStatus(
+            messages = values["MESSAGES"] ?: return null,
+            uidNext = values["UIDNEXT"] ?: return null,
+            uidValidity = values["UIDVALIDITY"] ?: return null,
+            highestModSeq = values["HIGHESTMODSEQ"]?.takeIf { it > 0 },
+        )
 
         /** `* ESEARCH [(TAG "A5")] [UID] NAME value ...` as upper-case names to value text. */
         private fun esearchItems(values: List<ImapValue>): Map<String, String> {

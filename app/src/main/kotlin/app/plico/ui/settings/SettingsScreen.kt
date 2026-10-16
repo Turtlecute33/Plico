@@ -41,7 +41,7 @@ fun SettingsScreen(nav: Navigator) {
         val list = accounts ?: return@SettingsScaffold
         AccountsGroup(list, nav)
         GmailSignInGroup(usesGoogleClient = list.any { it.auth != AuthKind.PASSWORD })
-        NotificationsGroup(list)
+        NotificationsGroup()
         PrivacyGroup()
         MailGroup()
         PushGroup(hasAccounts = list.isNotEmpty())
@@ -109,9 +109,8 @@ private fun GmailSignInGroup(usesGoogleClient: Boolean) {
 }
 
 @Composable
-private fun NotificationsGroup(accounts: List<Account>) {
-    val context = LocalContext.current
-    val prefs = context.app.prefs
+private fun NotificationsGroup() {
+    val prefs = LocalContext.current.app.prefs
     val hide by rememberPref(true) { hideNotificationContent }
     val lock by rememberPref(false) { appLock }
 
@@ -123,17 +122,6 @@ private fun NotificationsGroup(accounts: List<Account>) {
             checked = hide || lock,
             enabled = !lock,
         ) { prefs.hideNotificationContent = it }
-        accounts.forEach { account ->
-            item {
-                ClickRow(
-                    shapes = it,
-                    title = stringResource(R.string.settings_mail_channel, account.label),
-                    onClick = { SystemPages.mailChannel(context, account.id) },
-                    summary = stringResource(R.string.settings_mail_channel_text),
-                    icon = Icons.Notifications,
-                )
-            }
-        }
     }
 }
 

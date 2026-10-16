@@ -1,7 +1,9 @@
 package app.plico.sync
 
 import app.plico.account.MailError
+import app.plico.account.MailErrors
 import app.plico.mail.imap.ImapBadException
+import app.plico.mail.imap.ImapClient
 import app.plico.mail.imap.ImapNoException
 import java.io.IOException
 
@@ -34,13 +36,14 @@ internal object OpErrors {
     const val MAX_SEND_ATTEMPTS = 6
 
     fun classify(t: Throwable): Failure = when (t) {
-        is ImapNoException -> when (t.code?.name) {
-            "TRYCREATE" -> Failure.TRYCREATE
-            in TRANSIENT_CODES -> Failure.TRANSIENT
+        is ImapNoException -> when {
+            t.code?.name == "TRYCREATE" -> Failure.TRYCREATE
+            // A bare [OVERQUOTA] (Riseup: the mailbox is full) stays permanent (DESIGN §7.4, protocol PS14).
+            t.code?.name in TRANSIENT_CODES || MailErrors.isThrottleText(t.message.orEmpty()) -> Failure.TRANSIENT
             else -> Failure.PERMANENT
         }
         is ImapBadException, is OpRefused -> Failure.PERMANENT
-        is MailError.Server, is MailError.TooLarge, is MailError.Setup -> Failure.PERMANENT
+        is MailError.Server, is MailError.Setup -> Failure.PERMANENT
         is MailError -> Failure.TRANSIENT
         // BYE, protocol errors, timeouts and resets: the connection is gone, the op is not wrong.
         is IOException -> Failure.TRANSIENT
@@ -49,11 +52,14 @@ internal object OpErrors {
 
     /**
      * True when [t] ends the connection (or the session must handle it), so the work cycle stops after the
-     * op is rescheduled. A tagged NO or BAD refuses one command and keeps the connection.
+     * op is rescheduled. A tagged NO or BAD refuses one command and keeps the connection. Other I/O errors
+     * depend on the state of [client]: `:mail` closes it on every wire or protocol error, but an app error
+     * such as a missing local file leaves it open.
      */
-    fun endsConnection(t: Throwable): Boolean = when (t) {
+    fun endsConnection(t: Throwable, client: ImapClient): Boolean = when (t) {
         is ImapNoException, is ImapBadException, is UidValidityChanged -> false
-        is IOException, is MailError -> true
+        is MailError -> true
+        is IOException -> !client.conn.isOpen
         else -> false
     }
 

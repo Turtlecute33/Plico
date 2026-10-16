@@ -1,8 +1,14 @@
 package app.plico.sync
 
+import app.plico.data.Account
+import app.plico.data.AccountState
+import app.plico.data.AuthKind
+import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.NewFolder
+import app.plico.data.Provider
+import app.plico.data.PushMode
 import app.plico.mail.imap.MailboxInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -115,13 +121,33 @@ class FolderRulesTest {
     }
 
     @Test
-    fun createdNames() {
-        assertEquals("Archive", FolderRules.createName(FolderRole.ARCHIVE))
-        assertEquals("Spam", FolderRules.createName(FolderRole.JUNK))
-        assertEquals("Trash", FolderRules.createName(FolderRole.TRASH))
-        assertNull(FolderRules.createName(FolderRole.INBOX))
-        assertNull(FolderRules.createName(FolderRole.ALL))
+    fun theArchiveIsTheChoiceThenTheRoleThenTheName() {
+        val riseup = account(Provider.RISEUP)
+        val named = folder(1, "archives")
+        val role = folder(2, "Old mail", FolderRole.ARCHIVE)
+        val chosen = folder(3, "Kept")
+        val all = listOf(named, role, chosen, folder(4, "Archive", kind = FolderKind.LABEL), folder(5, "INBOX", FolderRole.INBOX))
+        assertEquals(chosen, FolderRules.archiveOf(riseup.copy(archiveFolder = 3), all))
+        assertEquals(role, FolderRules.archiveOf(riseup.copy(archiveFolder = 99), all), "a chosen folder that is gone")
+        assertNull(FolderRules.archiveOf(riseup, listOf(folder(6, "Work/Archive"))), "only a top-level name")
+        assertEquals(role, FolderRules.archiveOf(riseup, all))
+        assertEquals(named, FolderRules.archiveOf(riseup, all - role))
+        assertNull(FolderRules.archiveOf(riseup, listOf(named.copy(hidden = true))), "hidden folders do not count")
+        assertNull(FolderRules.archiveOf(riseup, listOf(named.copy(accountId = 9))), "another account")
+        assertNull(FolderRules.archiveOf(account(Provider.GMAIL), all), "Gmail archives with labels")
     }
+
+    private fun account(provider: Provider) = Account(
+        id = 1, provider = provider, email = "me@example.org", senderName = "", label = "", color = 0,
+        auth = AuthKind.PASSWORD, deviceAccount = null, bodyDays = 30, pushMode = PushMode.INSTANT, pollMinutes = 15,
+        gmailCategories = emptySet(), archiveFolder = null, signature = "", state = AccountState.OK, stateText = null,
+        serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = 0,
+    )
+
+    private fun folder(id: Long, path: String, role: FolderRole? = null, kind: Int = FolderKind.MAILBOX) = Folder(
+        id = id, accountId = 1, path = path, name = path, role = role, kind = kind, delimiter = ".", hidden = false,
+        notify = false, guard = false, uidValidity = 0, uidNext = 0, modSeq = 0, backfillUid = 0, syncedAt = 0,
+    )
 
     @Test
     fun leafNames() {

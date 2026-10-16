@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -52,15 +53,34 @@ class DraftsTest : OpFixture() {
     }
 
     @Test
-    fun eachLeaveQueuesAnUploadUntilTheDraftIsSent() {
+    fun oneUploadIsQueuedUntilTheDraftIsSent() {
         val id = newDraft(prefill = DraftPrefill(to = "bob@example.org", subject = "Shared"))
         assertTrue(ops.byAccount(riseup).isEmpty(), "A new draft stays local until compose leaves it after an edit")
         actions.leaveDraft(id)
         actions.leaveDraft(id)
-        assertEquals(2, ops.byAccount(riseup).size)
+        assertEquals(1, ops.byAccount(riseup).size, "the upload reads the draft when it runs: one is enough")
         assertTrue(actions.send(id))
         actions.leaveDraft(id)
-        assertEquals(2, ops.byAccount(riseup).size, "A queued draft is not uploaded")
+        assertEquals(1, ops.byAccount(riseup).size, "A queued draft is not uploaded")
+    }
+
+    @Test
+    fun twoUploadsInARowKeepTheNewestRevision() {
+        mailbox(riseup, "Drafts", FolderRole.DRAFTS)
+        val messageId = drafts.get(newDraft())!!.messageId
+        // The deletions of two uploads (APPENDUID 12, then 13) run after both uploads.
+        ops.insert(OpArg.DeleteDraft(messageId, keep = 12).toNewOp(riseup, 0))
+        ops.insert(OpArg.DeleteDraft(messageId, keep = 13).toNewOp(riseup, 0))
+        val imap = FakeImap()
+            .select("Drafts")
+            .expect(search(messageId), "* ESEARCH UID ALL 4,12,13")
+            .expect("UID STORE 4 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 4")
+            .expect(search(messageId), "* ESEARCH UID ALL 12,13")
+            .expect("UID STORE 12 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 12")
+        run(session(riseup, imap))
+        imap.finish()
     }
 
     @Test
@@ -105,9 +125,15 @@ class DraftsTest : OpFixture() {
         val gmail = gmailAccount()
         mailbox(gmail, "[Gmail]/Drafts", FolderRole.DRAFTS)
         mailbox(gmail, "[Gmail]/Trash", FolderRole.TRASH)
+        val all = mailbox(gmail, "[Gmail]/All Mail", FolderRole.ALL)
+        // Gmail does not sync Drafts: a revision is an All Mail row with \Draft. The Sent copy has none.
+        val revision = insert(header(gmail, all, 8, messageId = "<g@gmail.com>").copy(draft = true)).single()
+        val sentCopy = insert(header(gmail, all, 9, messageId = "<g@gmail.com>")).single()
         val id = drafts.create(NewDraft(gmail, "me@gmail.com", messageId = "<g@gmail.com>"))
         drafts.setOnServer(id, true)
         actions.discardDraft(id)
+        assertTrue(messages.get(revision)!!.hidden, "the discarded draft does not show until the server copy is gone")
+        assertFalse(messages.get(sentCopy)!!.hidden)
         val imap = FakeImap()
             .select("[Gmail]/Drafts")
             .expect(search("<g@gmail.com>"), "* ESEARCH UID ALL 3")
@@ -117,6 +143,19 @@ class DraftsTest : OpFixture() {
             .expect("UID EXPUNGE 40")
         run(session(gmail, imap))
         imap.finish()
+        assertNull(messages.get(revision))
+        assertNotNull(messages.get(sentCopy))
+    }
+
+    @Test
+    fun gmailWithoutADraftsMailboxKeepsTheDraftLocal() {
+        val gmail = gmailAccount()
+        val id = newDraft(gmail)
+        edit(id)
+        actions.leaveDraft(id)
+        run(session(gmail, FakeImap())) // No APPEND to a made-up "Drafts" (it would become a label).
+        assertTrue(ops.byAccount(gmail).isEmpty())
+        assertFalse(drafts.get(id)!!.onServer)
     }
 
     @Test
@@ -141,6 +180,25 @@ class DraftsTest : OpFixture() {
         val moved = drafts.get(id)!!
         assertEquals(gmail, moved.accountId)
         assertFalse(moved.onServer)
-        assertEquals(listOf(OpKind.DELETE_DRAFT), ops.byAccount(riseup).map { it.kind })
+        assertTrue(moved.messageId.endsWith("@gmail.com>"), "a Riseup Message-ID would link the two addresses")
+        val delete = ops.byAccount(riseup).single()
+        assertEquals(OpArg.DeleteDraft("<m@riseup.net>"), OpArg.decode(delete.kind, delete.arg))
+    }
+
+    @Test
+    fun anIdentityOfAnotherDomainGetsItsOwnMessageId() {
+        accounts.addIdentity(riseup, "me@example.org", "Me")
+        accounts.addIdentity(riseup, "other@riseup.net", "Other")
+        val id = drafts.create(NewDraft(riseup, "user@riseup.net", messageId = "<m@riseup.net>"))
+        actions.saveDraft(id, "other@riseup.net", "bob@example.org", "", "", "Hi", "Text")
+        assertEquals("<m@riseup.net>", drafts.get(id)!!.messageId, "the same domain keeps the Message-ID")
+        actions.saveDraft(id, "me@example.org", "bob@example.org", "", "", "Hi", "Text")
+        val draft = drafts.get(id)!!
+        assertEquals(riseup, draft.accountId)
+        assertTrue(draft.messageId.endsWith("@example.org>"), draft.messageId)
+        assertTrue(ops.byAccount(riseup).isEmpty(), "never uploaded: nothing to delete")
+        // The message that goes out has the new Message-ID.
+        val built = DraftMime.builder(store, accounts.get(riseup)!!, draft, strict = true, date = 0).build(includeBcc = false)
+        assertTrue("Message-ID: ${draft.messageId}\r\n" in built.toString(Charsets.UTF_8))
     }
 }

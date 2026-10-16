@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Common -->
-    <string name="settings_back">Back</string>
-    <string name="settings_save">Save</string>
     <string name="settings_add">Add</string>
     <string name="settings_allow">Allow</string>
     <string name="settings_change">Change</string>
@@ -33,7 +31,6 @@
     <string name="settings_hide_content">Hide content</string>
     <string name="settings_hide_content_text">Notifications show only the number of new messages.</string>
     <string name="settings_hide_content_locked">Always on while the app lock is on.</string>
-    <string name="settings_mail_channel">New mail in %1$s</string>
     <string name="settings_mail_channel_text">Sound, vibration and importance</string>
     <string name="settings_account_channel">Notification settings</string>
     <string name="settings_folder_notify_note">Notifications come for the inbox. For another folder or label, touch and hold it in the menu.</string>
@@ -236,7 +233,6 @@
 
     <!-- Account: sign-in and removal -->
     <string name="settings_sign_in_group">Sign-in</string>
-    <string name="settings_sign_in">Sign in</string>
     <string name="settings_sign_in_again">Sign in again</string>
     <string name="settings_sign_in_again_text">Change the password or give access again.</string>
     <string name="settings_remove_account">Remove account</string>

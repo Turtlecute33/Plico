@@ -1,6 +1,7 @@
 package app.plico.sync
 
 import app.plico.data.FolderRole
+import app.plico.data.NewOp
 import app.plico.data.OpKind
 import org.json.JSONArray
 import org.json.JSONException
@@ -79,3 +80,7 @@ internal sealed interface OpArg {
         private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
     }
 }
+
+/** The op row of this argument for [accountId], due at [runAt] (epoch ms), on the messages [ids]. */
+internal fun OpArg.toNewOp(accountId: Long, runAt: Long, ids: List<Long> = emptyList()) =
+    NewOp(accountId, kind, ids, OpArg.encode(this), runAt)

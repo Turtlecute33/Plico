@@ -30,7 +30,7 @@ class NotifierTest {
         id = id, provider = Provider.RISEUP, email = "test$id@example.invalid", senderName = "", label = label,
         color = 0, auth = AuthKind.PASSWORD, deviceAccount = null, bodyDays = 30, pushMode = PushMode.INSTANT,
         pollMinutes = 15, gmailCategories = emptySet(), archiveFolder = null, signature = "", state = AccountState.OK,
-        stateText = null, caps = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = 0,
+        stateText = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = 0,
     )
 
     @Before

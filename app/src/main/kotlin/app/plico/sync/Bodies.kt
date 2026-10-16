@@ -4,7 +4,6 @@ import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.MessageRef
 import app.plico.data.NewAttachment
-import app.plico.data.list
 import app.plico.html.HtmlSanitizer
 import app.plico.mail.imap.UidSet
 import app.plico.mail.mime.MimePart
@@ -22,12 +21,6 @@ object Bodies {
     private const val DAY_MS = 86_400_000L
 
     /** Fetches BODYSTRUCTURE + display text parts for [messageIds] and stores body, attachments, snippet and FTS. */
-    suspend fun fetch(ctx: SyncContext, messageIds: List<Long>): Unit = fetch(SessionOpContext(ctx), messageIds)
-
-    /** Fetches missing bodies in the body window of [folder], at most [limit] messages. Returns how many. */
-    suspend fun fetchWindow(ctx: SyncContext, folder: Folder, limit: Int = 25): Int =
-        fetchWindow(SessionOpContext(ctx), folder, limit)
-
     internal fun fetch(ctx: OpContext, messageIds: List<Long>) {
         val store = ctx.store
         for ((folderId, rows) in store.messages.refs(messageIds).groupBy { it.folderId }) {
@@ -40,15 +33,12 @@ object Bodies {
         }
     }
 
-    internal fun fetchWindow(ctx: OpContext, folder: Folder, limit: Int): Int {
+    /** Fetches missing bodies in the body window of [folder], at most [limit] messages. Returns how many. */
+    internal fun fetchWindow(ctx: OpContext, folder: Folder, limit: Int = BATCH): Int {
         if (folder.kind != FolderKind.MAILBOX || folder.hidden || folder.guard || limit <= 0) return 0
         val days = ctx.account.bodyDays
         val since = if (days == 0) 0L else ctx.store.now() - days * DAY_MS
-        val rows = ctx.store.db.sql.list(
-            "SELECT id, folder_id, uid FROM message WHERE folder_id = ? AND body = 0 AND hidden = 0 AND date >= ? " +
-                "ORDER BY date DESC LIMIT $limit",
-            folder.id, since,
-        ) { c -> MessageRef(c.getLong(0), c.getLong(1), c.getLong(2)) }
+        val rows = ctx.store.messages.needingBodies(folder.id, since, limit)
         if (rows.isEmpty()) return 0
         Ops.selectChecked(ctx, folder)
         rows.chunked(BATCH).forEach { fetchBatch(ctx, it) }

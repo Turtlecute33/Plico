@@ -13,7 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -23,6 +25,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import app.plico.ui.compose.ComposeScreen
+import app.plico.ui.mailbox.DraftsScreen
 import app.plico.ui.mailbox.MailboxScreen
 import app.plico.ui.message.MessageScreen
 import app.plico.ui.settings.AboutScreen
@@ -43,8 +46,17 @@ fun AppNav(nav: Navigator, modifier: Modifier = Modifier) {
     if (nav.finished) LaunchedEffect(Unit) { activity?.finish() }
     if (nav.backStack.isEmpty()) return
 
-    val forward = sharedAxis(forward = true)
-    val backward = sharedAxis(forward = false)
+    // A field of the screen that leaves must not hand focus or the keyboard to the next one: after Back from
+    // Compose the mailbox search field gets focus only when the user taps it.
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(nav.current) {
+        focus.clearFocus(force = true)
+        keyboard?.hide()
+    }
+
+    val forward = sharedAxis<Scene<Route>>(forward = true)
+    val backward = sharedAxis<Scene<Route>>(forward = false)
     NavDisplay(
         backStack = nav.backStack,
         modifier = modifier,
@@ -61,7 +73,8 @@ fun AppNav(nav: Navigator, modifier: Modifier = Modifier) {
             entry<Route.Reauth> { ReauthScreen(it.accountId, nav) }
             entry<Route.Mailbox> { MailboxScreen(it.view, nav) }
             entry<Route.Message> { MessageScreen(it.id, nav) }
-            entry<Route.Compose> { ComposeScreen(it.draftId, nav) }
+            entry<Route.Compose> { ComposeScreen(it.draftId, it.fresh, nav) }
+            entry<Route.Drafts> { DraftsScreen(it.accountId, nav) }
             entry<Route.Settings> { SettingsScreen(nav) }
             entry<Route.AccountSettings> { AccountSettingsScreen(it.accountId, nav) }
             entry<Route.About> { AboutScreen(nav) }
@@ -69,11 +82,15 @@ fun AppNav(nav: Navigator, modifier: Modifier = Modifier) {
     )
 }
 
-private typealias Transition = AnimatedContentTransitionScope<Scene<Route>>.() -> ContentTransform
+/** A transition spec of AnimatedContent or NavDisplay. */
+internal typealias Transition<S> = AnimatedContentTransitionScope<S>.() -> ContentTransform
 
-/** Material shared-axis X with the theme's expressive motion: a short slide plus a cross-fade. */
+/**
+ * Material shared-axis X with the theme's expressive motion: a short slide plus a cross-fade. [forward] slides
+ * towards the start edge, so the direction follows the layout direction (RTL too). Screens and setup pages.
+ */
 @Composable
-private fun sharedAxis(forward: Boolean): Transition {
+internal fun <S> sharedAxis(forward: Boolean): Transition<S> {
     val motion = MaterialTheme.motionScheme
     val slide = motion.defaultSpatialSpec<IntOffset>()
     val fadeIn = motion.defaultEffectsSpec<Float>()

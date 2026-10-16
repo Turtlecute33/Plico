@@ -81,11 +81,13 @@ class DraftOpDaoTest : DbFixture() {
         val text = context.getString(app.plico.R.string.data_error_may_have_been_sent)
         assertEquals(1, drafts.failInterrupted(text))
         drafts.get(sending)!!.let {
-            assertEquals(DraftState.FAILED, it.state)
+            assertEquals(DraftState.UNCERTAIN, it.state)
             assertEquals(text, it.error)
         }
         assertEquals(DraftState.QUEUED, drafts.get(queued)!!.state)
         assertEquals(0, drafts.failInterrupted(text))
+        // Retry is allowed (the UI asks first).
+        assertTrue(drafts.queue(sending, 0))
     }
 
     @Test

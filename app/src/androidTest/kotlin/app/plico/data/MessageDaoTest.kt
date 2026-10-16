@@ -244,12 +244,58 @@ class MessageDaoTest : DbFixture() {
 
     @Test
     fun bodiesNeededInWindow() {
-        val ids = insert(header(riseup, inbox, 1, date = 100), header(riseup, inbox, 2, date = 200), header(riseup, inbox, 3, date = 300))
+        val ids = insert(
+            header(riseup, inbox, 1, date = 100), header(riseup, inbox, 2, date = 200),
+            header(riseup, inbox, 3, date = 300), header(riseup, inbox, 4, date = 400),
+        )
+        insert(header(riseup, archive, 1, date = 500))
         messages.saveBody(ids[2], null, "x", "x", "x", emptyList())
-        assertEquals(listOf(ids[1], ids[0]), messages.needingBodies(riseup, 0, 10).map { it.id })
-        assertEquals(listOf(ids[1]), messages.needingBodies(riseup, 150, 10).map { it.id })
-        folders.setGuard(inbox, true)
-        assertEquals(emptyList(), messages.needingBodies(riseup, 0, 10))
+        messages.setHidden(listOf(ids[3]), true)
+        assertEquals(listOf(MessageRef(ids[1], inbox, 2), MessageRef(ids[0], inbox, 1)), messages.needingBodies(inbox, 0, 10))
+        assertEquals(listOf(ids[1]), messages.needingBodies(inbox, 150, 10).map { it.id })
+        assertEquals(listOf(ids[1]), messages.needingBodies(inbox, 0, 1).map { it.id })
+    }
+
+    @Test
+    fun folderMembersAndLabelViews() {
+        val gmail = account("me@gmail.com", Provider.GMAIL)
+        val all = mailbox(gmail, "[Gmail]/All Mail", FolderRole.ALL)
+        val gInbox = label(gmail, "\\Inbox", FolderRole.INBOX)
+        val work = label(gmail, "Work")
+        val (a, b, c) = insert(
+            header(gmail, all, 1, labels = setOf(gInbox, work)),
+            header(gmail, all, 2, labels = setOf(work)),
+            header(gmail, all, 3, labels = emptySet()),
+        )
+        assertEquals(setOf(a), messages.memberIds(gInbox, listOf(a, b, c, 999)))
+        assertEquals(setOf(a, b, c), messages.memberIds(all, listOf(a, b, c)))
+        assertEquals(emptySet(), messages.memberIds(work, emptyList()))
+
+        // Only label views; the source mailbox is not a label.
+        assertEquals(
+            mapOf(a to setOf(gInbox, work), b to setOf(work), c to emptySet(), 999L to emptySet()),
+            messages.labelIds(listOf(a, b, c, 999)),
+        )
+        assertEquals(emptyMap(), messages.labelIds(emptyList()))
+
+        val many = insert(*Array(1_200) { header(gmail, all, 100 + it.toLong(), labels = setOf(work)) })
+        assertEquals(many.toSet(), messages.memberIds(work, many))
+        val labels = messages.labelIds(many)
+        assertEquals(1_200, labels.size)
+        assertEquals(setOf(work), labels.values.toSet().single())
+    }
+
+    @Test
+    fun earlierMailFromASender() {
+        val (first, second) = insert(
+            header(riseup, inbox, 1, date = 100).copy(fromEmail = "ann@example.org"),
+            header(riseup, archive, 1, date = 200).copy(fromEmail = "Ann@Example.org"),
+        )
+        assertTrue(messages.hasEarlierFrom("ANN@example.org", 200, second))
+        assertTrue(messages.hasEarlierFrom("ann@example.org", 150, second))
+        assertFalse(messages.hasEarlierFrom("ann@example.org", 150, first), "the message itself does not count")
+        assertFalse(messages.hasEarlierFrom("ann@example.org", 100, second), "not earlier")
+        assertFalse(messages.hasEarlierFrom("bob@example.org", 300, 0))
     }
 
     @Test
@@ -313,6 +359,26 @@ class MessageDaoTest : DbFixture() {
         folders.setNotify(trash, true)
         val claimed = messages.claimNotifications(riseup, now - 7 * 86_400_000L).map { it.id }
         assertEquals(listOf(fresh, notifyOn), claimed)
+        assertEquals(0, count("SELECT count(*) FROM message WHERE notified = 0"))
+    }
+
+    @Test
+    fun claimNotificationsTakesSevenDaysAndOnlyVisibleRows() {
+        val now = 1_800_000_000_000L
+        val since = now - 7 * 86_400_000L
+        val (edge, future, tooOld, hidden) = insert(
+            header(riseup, inbox, 1, date = since, notified = false),
+            header(riseup, inbox, 2, date = now + 3_600_000L, notified = false),
+            header(riseup, inbox, 3, date = since - 1, notified = false),
+            header(riseup, inbox, 4, date = now, notified = false),
+            header(riseup, inbox, 5, date = now, notified = false, messageId = "<draft@riseup.net>"),
+        )
+        messages.setHidden(listOf(hidden), true)
+        drafts.create(NewDraft(riseup, "user@riseup.net", messageId = "<draft@riseup.net>"))
+
+        // A future date still notifies; a hidden row and the server copy of a local draft never do.
+        assertEquals(listOf(future, edge), messages.claimNotifications(riseup, since).map { it.id })
+        assertTrue(messages.get(tooOld)!!.notified)
         assertEquals(0, count("SELECT count(*) FROM message WHERE notified = 0"))
     }
 

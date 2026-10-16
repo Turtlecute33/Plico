@@ -1,6 +1,7 @@
 package app.plico.sync
 
 import app.plico.mail.mime.Address
+import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderSafety
 import java.time.Instant
 import java.time.ZoneOffset
@@ -97,11 +98,11 @@ internal object ReplyRules {
         append("\n\n")
         if (signature.isNotBlank()) append(signatureBlock(signature)).append("\n\n")
         append("---------- Forwarded message ----------\n")
-        from?.let { append("From: ").append(HeaderParser.format(listOf(it))).append('\n') }
+        from?.let { append("From: ").append(Addresses.format(listOf(it), encode = false)).append('\n') }
         append("Date: ").append(minute.format(Instant.ofEpochMilli(date))).append(" UTC\n")
         append("Subject: ").append(subject).append('\n')
-        if (to.isNotEmpty()) append("To: ").append(HeaderParser.format(to)).append('\n')
-        if (cc.isNotEmpty()) append("Cc: ").append(HeaderParser.format(cc)).append('\n')
+        if (to.isNotEmpty()) append("To: ").append(Addresses.format(to, encode = false)).append('\n')
+        if (cc.isNotEmpty()) append("Cc: ").append(Addresses.format(cc, encode = false)).append('\n')
         append('\n').append(text.replace("\r\n", "\n").trimEnd())
     }
 

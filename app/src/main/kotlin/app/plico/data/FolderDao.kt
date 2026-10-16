@@ -18,6 +18,9 @@ class FolderDao(private val db: Db) {
         accountId, kind, path, row = ::folderOf,
     )
 
+    /** See [AccountAbilities.of]. */
+    fun abilities(account: Account): AccountAbilities = AccountAbilities.of(account, byAccount(account.id))
+
     fun byRole(accountId: Long, role: FolderRole, kind: Int): Folder? = db.sql.one(
         "SELECT $FOLDER_COLS FROM folder WHERE account_id = ? AND role = ? AND kind = ? ORDER BY id LIMIT 1",
         accountId, role.id, kind, row = ::folderOf,

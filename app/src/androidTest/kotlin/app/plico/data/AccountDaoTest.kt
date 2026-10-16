@@ -44,7 +44,6 @@ class AccountDaoTest : DbFixture() {
 
         accounts.setAuth(id, AuthKind.DEVICE, null, "me@gmail.com")
         accounts.setState(id, AccountState.SIGN_IN_NEEDED, "Sign-in needed")
-        accounts.setCaps(id, "IMAP4REV1 IDLE")
         accounts.setServerKeepalive(id, 120)
         accounts.setQuota(id, 10, 1000)
         val c = accounts.get(id)!!
@@ -53,7 +52,8 @@ class AccountDaoTest : DbFixture() {
         assertEquals("me@gmail.com", c.deviceAccount)
         assertEquals(AccountState.SIGN_IN_NEEDED, c.state)
         assertEquals("Sign-in needed", c.stateText)
-        assertEquals(listOf("IMAP4REV1 IDLE", 120, 10L, 1000L), listOf(c.caps, c.serverKeepaliveS, c.quotaUsed, c.quotaLimit))
+        assertEquals(120, c.serverKeepaliveS)
+        assertEquals(listOf(10L, 1000L), listOf(c.quotaUsed, c.quotaLimit))
         accounts.setSecret(id, byteArrayOf(1))
         assertContentEquals(byteArrayOf(1), accounts.secret(id))
         accounts.setServerKeepalive(id, null)
@@ -103,6 +103,8 @@ class AccountDaoTest : DbFixture() {
         val draft = drafts.create(NewDraft(gone, "gone@riseup.net"))
         val outFile = files.newOutboxFile(draft, "a.txt").apply { writeText("z") }
         ops.insert(NewOp(gone, OpKind.FLAGS, listOf(goneMsg)))
+        ContactDao(db).touch(listOf(Address("Ann", "ann@example.org")))
+        TrustDao(db).setTrusted("news@example.org", true)
 
         accounts.purge(gone, files)
 
@@ -117,7 +119,16 @@ class AccountDaoTest : DbFixture() {
         for ((table, n) in left) assertEquals(n, count("SELECT count(*) FROM $table"), table)
         assertEquals(1, count("SELECT count(*) FROM message_fts"))
         assertEquals(0, count("SELECT count(*) FROM message_fts WHERE message_fts MATCH 'confidential'"))
+        // Shared by the accounts: kept while one is left, gone with the last one.
+        assertEquals(1, count("SELECT count(*) FROM contact"))
+        assertEquals(1, count("SELECT count(*) FROM trusted_sender"))
+
         files.deleteAttachments(keepMsg)
+
+        accounts.purge(keep, files)
+        for (table in listOf("account", "message", "contact", "trusted_sender", "message_fts")) {
+            assertEquals(0, count("SELECT count(*) FROM $table"), table)
+        }
     }
 
     @Test
@@ -148,6 +159,8 @@ class AccountDaoTest : DbFixture() {
         assertEquals(emptyList(), contacts.suggest("%"))
         assertEquals(emptyList(), contacts.suggest("  "))
         assertEquals(1, contacts.suggest("a", limit = 1).size)
+        assertTrue(contacts.isKnown("ANNA@example.org"))
+        assertFalse(contacts.isKnown("zed@example.org"))
 
         assertFalse(trust.isTrusted("news@example.org"))
         trust.setTrusted("News@Example.org", true)

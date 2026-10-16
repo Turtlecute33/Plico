@@ -5,7 +5,9 @@ import app.plico.data.AuthKind
 import app.plico.data.Prefs
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.push.Grants
 import app.plico.push.PushStatus
+import app.plico.sync.GmailSync
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,11 +20,10 @@ class SettingsModelTest {
         pausedByUser = false,
         stoppedBySystem = false,
         hasNetwork = true,
-        notificationsAllowed = true,
-        batteryUnrestricted = true,
-        exactAlarms = true,
-        backgroundRestricted = false,
+        grants = Grants(notifications = true, batteryUnrestricted = true, exactAlarms = true, backgroundRestricted = false),
     )
+
+    private fun PushStatus.with(change: Grants.() -> Grants) = copy(grants = grants.change())
 
     @Test
     fun choicesFollowTheSpec() {
@@ -30,7 +31,6 @@ class SettingsModelTest {
         assertEquals(listOf(0, 1, 5, 30), Choices.LOCK_TIMEOUT_MINUTES)
         assertEquals(listOf(15, 30, 60), Choices.POLL_MINUTES)
         assertEquals(listOf(30, 90, 365, 0), Choices.BODY_DAYS)
-        assertEquals(5, Choices.GMAIL_CATEGORIES.size)
     }
 
     @Test
@@ -38,7 +38,8 @@ class SettingsModelTest {
         assertDistinct(PushMode.entries.map { it.title() })
         assertDistinct(PushMode.entries.map { it.description() })
         assertDistinct(Prefs.Swipe.entries.map { it.title() })
-        assertDistinct(Choices.GMAIL_CATEGORIES.map(::gmailCategoryTitle))
+        // Every category that the sync filter knows has a title: one list for both (GmailSync.CATEGORIES).
+        assertDistinct(GmailSync.CATEGORIES.map(::gmailCategoryTitle))
         assertDistinct(PushState.entries.map { it.text })
         assertDistinct(IdentityProblem.entries.map { it.text })
         assertDistinct(PushCheck.entries.flatMap { listOf(it.texts(true), it.texts(false)) }.toSet().map { it.first })
@@ -138,6 +139,8 @@ class SettingsModelTest {
         assertNull(ClientIds.normalize("123-abc.apps.googleusercontent.com.evil.example"))
         assertNull(ClientIds.normalize("123-ABC.apps.googleusercontent.com"))
         assertNull(ClientIds.normalize("https://accounts.google.com"))
+        // Setup saves with this rule too (it accepted upper case before, which Settings then refused).
+        assertNull(ClientIds.normalize("GOCSPX-secret"))
     }
 
     @Test
@@ -171,7 +174,7 @@ class SettingsModelTest {
 
     @Test
     fun exactAlarmsAreAskedOnlyWithoutTheExemption() {
-        val optimized = healthy.copy(batteryUnrestricted = false)
+        val optimized = healthy.with { copy(batteryUnrestricted = false) }
         assertEquals(
             listOf(PushCheck.NOTIFICATIONS to true, PushCheck.BATTERY to false, PushCheck.EXACT_ALARMS to true),
             pushChecks(optimized),
@@ -183,13 +186,13 @@ class SettingsModelTest {
                 PushCheck.EXACT_ALARMS to false,
                 PushCheck.MAY_STOP to false,
             ),
-            pushChecks(optimized.copy(exactAlarms = false)),
+            pushChecks(optimized.with { copy(exactAlarms = false) }),
         )
     }
 
     @Test
     fun restrictedComesFirst() {
-        val checks = pushChecks(healthy.copy(backgroundRestricted = true, notificationsAllowed = false))
+        val checks = pushChecks(healthy.with { copy(backgroundRestricted = true, notifications = false) })
         assertEquals(PushCheck.RESTRICTED to false, checks.first())
         assertTrue(PushCheck.NOTIFICATIONS to false in checks)
     }
@@ -199,7 +202,7 @@ class SettingsModelTest {
         assertEquals(PushState.NO_ACCOUNTS, pushState(healthy.copy(pausedByUser = true), hasAccounts = false))
         assertEquals(PushState.PAUSED, pushState(healthy.copy(pausedByUser = true, stoppedBySystem = true), true))
         assertEquals(PushState.STOPPED, pushState(healthy.copy(running = false, stoppedBySystem = true), true))
-        assertEquals(PushState.RESTRICTED, pushState(healthy.copy(backgroundRestricted = true), true))
+        assertEquals(PushState.RESTRICTED, pushState(healthy.with { copy(backgroundRestricted = true) }, true))
         assertEquals(PushState.NOT_RUNNING, pushState(healthy.copy(running = false, hasNetwork = false), true))
         assertEquals(PushState.NO_NETWORK, pushState(healthy.copy(hasNetwork = false), true))
     }
@@ -226,11 +229,6 @@ class SettingsModelTest {
         assertFalse(certificateTransparency(35))
         assertTrue(certificateTransparency(36))
         assertTrue(certificateTransparency(37))
-    }
-
-    @Test
-    fun channelIdOfAnAccount() {
-        assertEquals("mail_7", mailChannelId(7))
     }
 
     private fun assertDistinct(values: List<Any?>) {

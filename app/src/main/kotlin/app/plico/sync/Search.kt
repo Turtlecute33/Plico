@@ -6,12 +6,13 @@ import app.plico.data.FolderRole
 import app.plico.data.NewMessage
 import app.plico.mail.imap.Command
 import app.plico.mail.imap.UidSet
+import app.plico.push.policy.NotifyRule
 
 /**
  * Server search (DESIGN.md §7.7): Gmail `X-GM-RAW` in All Mail, Riseup `UID SEARCH TEXT` in the open folder
  * (INBOX for the unified view). `CHARSET UTF-8` is added for non-ASCII queries (protocol PS16). Hits that are
- * not stored yet are fetched as header rows (`notified = 1`, so they never notify) with their bodies, so that
- * the local search finds them.
+ * not stored yet are fetched as header rows with their bodies, so that the local search finds them. They do not
+ * notify (`notified = 1`), except new mail above the folder's UIDNEXT, which the notification rule decides.
  */
 object Search {
     /** At most this many unknown hits are fetched per search, newest first. */
@@ -20,10 +21,7 @@ object Search {
     /** Bodies of new hits fetched per search (the local index needs the text). */
     private const val MAX_BODIES = 25
 
-    /** Server search (DESIGN §7.7); inserts missing hits as header rows; returns local message ids. */
-    suspend fun server(ctx: SyncContext, query: String, folder: Folder?): List<Long> =
-        server(SessionOpContext(ctx), query, folder)
-
+    /** Server search (DESIGN §7.7); inserts missing hits as header rows; returns local message ids, newest first. */
     internal fun server(ctx: OpContext, query: String, folder: Folder?): List<Long> {
         val store = ctx.store
         val account = ctx.account
@@ -58,10 +56,11 @@ object Search {
         val wanted = uids.toSet()
         val rows = LinkedHashMap<Long, NewMessage>()
         ctx.client.uidFetch(UidSet.of(uids), items) { item ->
-            // Unsolicited FETCH responses carry no header section.
-            if (item.uid !in wanted || item.sections.keys.none { it.startsWith("HEADER", ignoreCase = true) }) return@uidFetch
+            if (item.uid !in wanted || !HeaderParser.hasHeaderFields(item)) return@uidFetch
             val labels = if (gmail) Ops.labelIds(store, ctx.account.id, item.gmLabels.orEmpty()) else null
-            rows[item.uid] = HeaderParser.newMessage(item, ctx.account.id, mailbox.id, gmail, labels, notified = true, now = store.now())
+            // A hit at or above UIDNEXT is new mail that the new-UID fetch has not reached: the rule of §9 decides.
+            val notified = NotifyRule.insertNotified(fromNewUidFetch = item.uid >= mailbox.uidNext, uidNextBefore = mailbox.uidNext)
+            rows[item.uid] = HeaderParser.newMessage(item, ctx.account.id, mailbox.id, gmail, labels, notified, store.now())
         }
         if (rows.isEmpty()) return emptyMap()
         return rows.keys.zip(store.messages.upsert(rows.values.toList())).toMap()

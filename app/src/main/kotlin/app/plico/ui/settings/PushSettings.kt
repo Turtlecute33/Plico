@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.plico.R
 import app.plico.app
 import app.plico.ui.components.Icons
+import app.plico.ui.components.SystemPages
 
 /**
  * Settings → Push & battery (DESIGN §8.2): push on or paused, and every grant that push needs, each
@@ -39,7 +40,7 @@ internal fun PushGroup(hasAccounts: Boolean) {
         if (!granted && blocked) SystemPages.appNotifications(context)
         push.refreshStatus()
     }
-    val fixNotifications = {
+    val fixNotifications: () -> Unit = {
         val permission = Manifest.permission.POST_NOTIFICATIONS
         if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
             // Allowed, but notifications were turned off on the system page.

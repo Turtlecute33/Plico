@@ -54,11 +54,7 @@ internal class NetworkWatcher(
     @Synchronized
     fun start() {
         if (callback != null) return
-        charging = context.getSystemService(BatteryManager::class.java).isCharging
-        network = connectivity.activeNetwork
-        link = network?.let { connectivity.getNetworkCapabilities(it) }?.let(Link::of)
-        dns = network?.let { connectivity.getLinkProperties(it) }?.dnsServers.orEmpty()
-        blocked = false
+        load()
         state.value = build()
         lastHandle = state.value?.handle
 
@@ -97,6 +93,17 @@ internal class NetworkWatcher(
         }.also(connectivity::registerDefaultNetworkCallback)
     }
 
+    /**
+     * Reads the network directly, for a wake without network (the 30-min backstop, push PB5). A reading that
+     * differs from the state means a missed callback: it runs the normal debounce. No effect while stopped.
+     */
+    fun recheck() = update {
+        // Null: no network, or a blocked one. The callbacks report both, and a blocked network keeps its raw data.
+        val active = connectivity.activeNetwork ?: return@update false
+        load(active)
+        build() != state.value
+    }
+
     @Synchronized
     fun stop() {
         callback?.let(connectivity::unregisterNetworkCallback)
@@ -105,6 +112,15 @@ internal class NetworkWatcher(
         powerReceiver = null
         generation++
         lock.release()
+    }
+
+    // The raw data from a direct reading; activeNetwork is null while the default network is blocked.
+    private fun load(active: Network? = connectivity.activeNetwork) {
+        charging = context.getSystemService(BatteryManager::class.java).isCharging
+        network = active
+        link = active?.let(connectivity::getNetworkCapabilities)?.let(Link::of)
+        dns = active?.let(connectivity::getLinkProperties)?.dnsServers.orEmpty()
+        blocked = false
     }
 
     private fun setNetwork(next: Network?) {

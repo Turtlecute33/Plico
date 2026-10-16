@@ -6,7 +6,6 @@
     <string name="mailbox_close_search">Close search</string>
     <string name="mailbox_clear_search">Clear search</string>
     <string name="mailbox_account_settings">Account settings</string>
-    <string name="mailbox_more_options">More options</string>
     <string name="mailbox_search_start">Search subjects, people and text of the mail on this phone.</string>
     <string name="mailbox_search_empty">No messages found</string>
     <string name="mailbox_search_empty_text">Search on the server to find older mail.</string>
@@ -39,8 +38,6 @@
     </plurals>
 
     <!-- Message rows -->
-    <string name="mailbox_no_subject">(no subject)</string>
-    <string name="mailbox_no_sender">(no sender)</string>
     <string name="mailbox_draft">Draft</string>
     <string name="mailbox_unread">Unread</string>
     <string name="mailbox_has_attachments">Has attachments</string>
@@ -70,7 +67,7 @@
     </plurals>
 
     <!-- Results of actions -->
-    <string name="mailbox_undo">Undo</string>
+    <string name="mailbox_undo_too_late">Too late to undo. The change was made.</string>
     <plurals name="mailbox_done_archived">
         <item quantity="one">%d message archived</item>
         <item quantity="other">%d messages archived</item>
@@ -111,11 +108,15 @@
 
     <!-- Banners -->
     <string name="mailbox_banner_sign_in">Sign-in needed for %1$s</string>
-    <string name="mailbox_sign_in">Sign in</string>
     <string name="mailbox_banner_tls">The secure connection to %1$s failed. Plico tries again later.</string>
     <string name="mailbox_banner_setup">%1$s: %2$s</string>
     <string name="mailbox_banner_setup_default">%1$s needs attention. Open the account settings.</string>
     <string name="mailbox_account">Account</string>
+    <plurals name="mailbox_banner_unsent">
+        <item quantity="one">%2$s: %1$d message was not sent</item>
+        <item quantity="other">%2$s: %1$d messages were not sent</item>
+    </plurals>
+    <string name="mailbox_view_drafts">View</string>
     <string name="mailbox_banner_guard">Many messages in %1$s are gone on the server. Plico stopped the sync of this folder.</string>
     <string name="mailbox_resync">Resync</string>
     <string name="mailbox_banner_push_paused">Push is paused. New mail does not come in.</string>
@@ -135,6 +136,7 @@
     <string name="mailbox_empty_spam">No spam</string>
     <string name="mailbox_empty_folder">No messages</string>
     <string name="mailbox_empty_pull">Pull down to check for new mail.</string>
+    <string name="mailbox_loading">Loading mail…</string>
 
     <!-- Local drafts -->
     <string name="mailbox_draft_to">To: %1$s</string>
@@ -158,11 +160,8 @@
 
     <!-- Errors -->
     <string name="mailbox_error_sign_in">Sign-in needed. Sign in again in the account settings.</string>
-    <string name="mailbox_error_tls">The secure connection to the server failed.</string>
     <string name="mailbox_error_network">No connection to the mail server.</string>
-    <string name="mailbox_error_busy">The server is busy. Try again later.</string>
     <string name="mailbox_error_server">The server refused: %1$s</string>
-    <string name="mailbox_error_too_large">The message is too large.</string>
     <string name="mailbox_error_detail">%1$s</string>
     <string name="mailbox_error_failed">That did not work. Try again.</string>
 </resources>

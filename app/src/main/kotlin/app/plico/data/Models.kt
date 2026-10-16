@@ -1,7 +1,8 @@
 package app.plico.data
 
-enum class Provider(val id: String) {
-    RISEUP("riseup"), GMAIL("gmail");
+/** [brand] is the provider's name, the same in every language (default account labels, notifications). */
+enum class Provider(val id: String, val brand: String) {
+    RISEUP("riseup", "Riseup"), GMAIL("gmail", "Gmail");
 
     companion object {
         fun of(id: String) = entries.first { it.id == id }
@@ -63,17 +64,30 @@ data class Account(
     val signature: String,
     val state: AccountState,
     val stateText: String?,
-    val caps: String?,
     val serverKeepaliveS: Int?,
     val quotaUsed: Long?,
     val quotaLimit: Long?,
     val sort: Int,
 ) {
     val isGmail: Boolean get() = provider == Provider.GMAIL
-    val domain: String get() = email.substringAfterLast('@')
 }
 
 data class Identity(val id: Long, val accountId: Long, val email: String, val name: String)
+
+/**
+ * What an account allows (DESIGN §7.3): Delete and Spam move to Trash and Spam. A Gmail account whose Trash or
+ * Spam is hidden from IMAP has no such mailbox, so Delete or Spam is off; Riseup creates them on first use.
+ */
+data class AccountAbilities(val canDelete: Boolean = true, val canSpam: Boolean = true) {
+    companion object {
+        fun of(account: Account, folders: List<Folder>): AccountAbilities {
+            if (!account.isGmail) return AccountAbilities()
+            fun has(role: FolderRole) =
+                folders.any { it.accountId == account.id && it.kind == FolderKind.MAILBOX && it.role == role }
+            return AccountAbilities(canDelete = has(FolderRole.TRASH), canSpam = has(FolderRole.JUNK))
+        }
+    }
+}
 
 enum class FolderRole(val id: String) {
     INBOX("inbox"), SENT("sent"), DRAFTS("drafts"), TRASH("trash"), JUNK("junk"),
@@ -134,6 +148,8 @@ data class MessageSummary(
     val draft: Boolean,
     val attachments: Boolean,
     val snippet: String,
+    /** Stored `to_list` form; the list shows the first recipient for mail the user sent. */
+    val toList: String = "",
 )
 
 object Auth {
@@ -221,6 +237,12 @@ object DraftState {
     const val SENDING = 2
     const val FAILED = 3
     const val SENT = 4
+
+    /** Failed, but it may have been sent (no reply to the final dot, or the process died while sending). */
+    const val UNCERTAIN = 5
+
+    /** A send that did not go: the user can edit it or try again. */
+    fun failed(state: Int): Boolean = state == FAILED || state == UNCERTAIN
 }
 
 /** A draft attachment; [file] is a safe name inside filesDir/outbox/<draftId>/. */

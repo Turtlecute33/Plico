@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.plico.R
 import app.plico.data.Folder
+import app.plico.data.FolderRole
 import app.plico.data.MailView
 import app.plico.ui.components.Icons
 import app.plico.ui.components.SectionHeader
@@ -67,6 +68,7 @@ internal fun MailDrawer(
     unifiedUnread: Int,
     onOpen: (MailView) -> Unit,
     onNotify: (Folder, Boolean) -> Unit,
+    onLocalDrafts: (accountId: Long) -> Unit,
     onSettings: () -> Unit,
 ) {
     val currentFolder = (current as? MailView.InFolder)?.folderId
@@ -107,7 +109,23 @@ internal fun MailDrawer(
                         SectionHeader(section.account.label)
                     }
                 }
-                items(section.main, key = { "folder:${it.folder.id}" }) { entry ->
+                // Local drafts without a Drafts mailbox take the place of Drafts: after Inbox and Sent.
+                val split = section.main.indexOfFirst { it.role != FolderRole.INBOX && it.role != FolderRole.SENT }
+                    .takeIf { it >= 0 } ?: section.main.size
+                items(section.main.take(split), key = { "folder:${it.folder.id}" }) { entry ->
+                    FolderEntry(entry, gmail, entry.folder.id == currentFolder, onOpen, onNotify)
+                }
+                if (section.localDrafts > 0) {
+                    item(key = "drafts:$accountId") {
+                        DrawerEntry(
+                            icon = Icons.Draft,
+                            label = stringResource(R.string.mailbox_folder_drafts),
+                            selected = false,
+                            onClick = { onLocalDrafts(accountId) },
+                        )
+                    }
+                }
+                items(section.main.drop(split), key = { "folder:${it.folder.id}" }) { entry ->
                     FolderEntry(entry, gmail, entry.folder.id == currentFolder, onOpen, onNotify)
                 }
                 if (section.more.isNotEmpty()) {
@@ -115,7 +133,7 @@ internal fun MailDrawer(
                     val open = holdsCurrent != (accountId in toggled)
                     item(key = "more:$accountId") {
                         DrawerEntry(
-                            icon = ExpandMore,
+                            icon = Icons.ExpandMore,
                             iconRotation = if (open) 180f else 0f,
                             label = stringResource(if (open) R.string.mailbox_less else R.string.mailbox_more),
                             selected = false,

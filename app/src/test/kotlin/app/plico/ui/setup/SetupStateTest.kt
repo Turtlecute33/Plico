@@ -183,6 +183,6 @@ class SetupStateTest {
         id = 7, provider = provider, email = "jane@gmail.com", senderName = "", label = "Gmail", color = 0,
         auth = auth, deviceAccount = null, bodyDays = 30, pushMode = PushMode.INSTANT, pollMinutes = 15,
         gmailCategories = setOf("primary"), archiveFolder = null, signature = "", state = AccountState.SIGN_IN_NEEDED,
-        stateText = null, caps = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = 0,
+        stateText = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = 0,
     )
 }

@@ -25,6 +25,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
@@ -32,7 +33,6 @@ import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -56,6 +56,9 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,6 +67,7 @@ import app.plico.R
 import app.plico.app
 import app.plico.data.Account
 import app.plico.data.Draft
+import app.plico.data.DraftState
 import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.MailView
@@ -74,8 +78,13 @@ import app.plico.ui.components.BannerKind
 import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.EmptyState
 import app.plico.ui.components.Icons
+import app.plico.ui.components.MenuEntry
+import app.plico.ui.components.SystemPages
+import app.plico.ui.components.UndoWindow
 import app.plico.ui.components.rememberDateFormats
 import app.plico.ui.components.rememberPref
+import app.plico.ui.components.showUndo
+import app.plico.ui.components.text
 import app.plico.ui.message.MessageUndo
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
@@ -98,7 +107,8 @@ private data class PickerRequest(
  */
 @Composable
 fun MailboxScreen(view: MailView, nav: Navigator) {
-    val app = LocalContext.current.app
+    val context = LocalContext.current
+    val app = context.app
     val vm = viewModel { MailboxViewModel(app, view) }
     val accounts by vm.accounts.collectAsStateWithLifecycle()
     val folders by vm.folders.collectAsStateWithLifecycle()
@@ -111,6 +121,8 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val selected by vm.selected.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val serverSearch by vm.serverSearch.collectAsStateWithLifecycle()
+    val opening by vm.opening.collectAsStateWithLifecycle()
+    val localDrafts by vm.localDrafts.collectAsStateWithLifecycle()
     val push by remember(app) { app.push.status }.collectAsStateWithLifecycle()
     // NONE until read, so that no swipe acts before the user's choice is known.
     val swipeStart by rememberPref(Prefs.Swipe.NONE) { swipeStart }
@@ -119,32 +131,49 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val dates = rememberDateFormats()
 
     val rows = messages.orEmpty()
-    val context = remember(accounts, folders) { ListContext(accounts, folders) }
-    val infos = remember(rows, context) { rows.associate { it.id to context.info(it) } }
+    val shownView = listView ?: view
+    // Gmail rows carry \Inbox for sure only in the inbox views; elsewhere Archive could change nothing.
+    val inboxView = shownView == MailView.Unified || folder?.role == FolderRole.INBOX && shownView is MailView.InFolder
+    val listContext = remember(accounts, folders, inboxView) { ListContext(accounts, folders, inboxView) }
+    val infos = remember(rows, listContext) { rows.associate { it.id to listContext.info(it) } }
     val viewAccount: Account? = when (view) {
-        is MailView.InFolder -> folder?.let { context.accounts[it.accountId] }
-        is MailView.Starred -> view.accountId?.let(context.accounts::get)
+        is MailView.InFolder -> folder?.let { listContext.accounts[it.accountId] }
+        is MailView.Starred -> view.accountId?.let(listContext.accounts::get)
         else -> null
     }
-    val crossAccount = accounts.size > 1 && when (val shown = listView ?: view) {
+    val crossAccount = accounts.size > 1 && when (val shown = shownView) {
         MailView.Unified -> true
         is MailView.Starred -> shown.accountId == null
         is MailView.Search -> shown.accountId == null
         is MailView.InFolder -> false
     }
-    val sections = remember(accounts, folders, unread) { MailboxFolders.sections(accounts, folders, unread) }
+    val sections = remember(accounts, folders, unread, localDrafts) {
+        MailboxFolders.sections(accounts, folders, unread, localDrafts.groupingBy { it.accountId }.eachCount())
+    }
+    // Failed sends, except in the Drafts view that lists them.
+    val unsent = remember(localDrafts, folder) {
+        localDrafts.filter { DraftState.failed(it.state) && !(folder?.role == FolderRole.DRAFTS && folder?.accountId == it.accountId) }
+            .groupingBy { it.accountId }.eachCount()
+    }
     val banners = MailboxBanners.of(
         shown = viewAccount?.let(::listOf) ?: accounts,
         all = accounts,
         guarded = MailboxBanners.guarded(folder, folders),
         status = push,
         gmailIpNoteShown = gmailIpNoteShown,
+        unsent = unsent,
     )
     val selectedInfos = selected.mapNotNull(infos::get)
     val selection = if (selectedInfos.isEmpty()) null else RowActions.selection(selectedInfos)
 
     val searchBar = rememberSearchBarState(if (vm.searching) SearchBarValue.Expanded else SearchBarValue.Collapsed)
     val listState = rememberLazyListState()
+    // Banners and rows come from several flows. A list at its top stays at its top, so that a banner that comes
+    // later shows at once instead of above the screen (the list keeps its first item in place otherwise).
+    val atTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
+    }
+    if (atTop) listState.requestScrollToItem(0)
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -153,6 +182,25 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     var confirmEmpty by remember { mutableStateOf<Folder?>(null) }
     var confirmRetry by remember { mutableStateOf<Draft?>(null) }
     var picker by remember { mutableStateOf<PickerRequest?>(null) }
+
+    /**
+     * A result in the snackbar. An Undo replaces what shows now and stays until 1 s before its change runs
+     * ([UndoWindow]); other texts wait their turn, so that they never cut an Undo short.
+     */
+    fun notify(text: String, undo: (() -> Unit)? = null, since: Long = 0, long: Boolean = false) {
+        scope.launch {
+            if (undo == null) {
+                snackbar.showSnackbar(
+                    text,
+                    withDismissAction = long,
+                    duration = if (long) SnackbarDuration.Long else SnackbarDuration.Short,
+                )
+            } else {
+                snackbar.currentSnackbarData?.dismiss()
+                if (snackbar.showUndo(text, resources.getString(R.string.ui_undo), UndoWindow.actionLeft(since))) undo()
+            }
+        }
+    }
 
     fun act(ids: List<Long>, action: RowAction) {
         if (action == RowAction.DELETE_FOREVER) confirmDelete = ids else vm.apply(action, ids)
@@ -182,47 +230,24 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
         vm.events.collect { event ->
             when (event) {
                 is MailboxEvent.Open -> nav.go(event.route)
-                is MailboxEvent.Done -> launch {
-                    // A new result replaces the old one at once, so that its Undo stays within the op delay.
-                    snackbar.currentSnackbarData?.dismiss()
-                    val result = snackbar.showSnackbar(
-                        message = resources.getQuantityString(event.text, event.count, event.count),
-                        actionLabel = event.undo?.let { resources.getString(R.string.mailbox_undo) },
-                        duration = SnackbarDuration.Short,
-                    )
-                    if (result == SnackbarResult.ActionPerformed) event.undo?.let(vm::undo)
-                }
-                is MailboxEvent.Failed -> launch {
-                    snackbar.currentSnackbarData?.dismiss()
-                    snackbar.showSnackbar(event.error.text(resources))
-                }
+                is MailboxEvent.Done -> notify(
+                    text = resources.getQuantityString(event.text, event.count, event.count),
+                    undo = event.undo?.let { undo -> { vm.undo(undo) } },
+                    since = event.since,
+                )
+                is MailboxEvent.Failed -> notify(event.error.text(resources))
             }
         }
     }
-    // The Undo of an action that closed the message screen above (MessageUndo).
+    // The Undo of an action that closed the message screen above (MessageUndo); none once its time is over.
     LaunchedEffect(Unit) {
         MessageUndo.notice.filterNotNull().collect {
             val notice = MessageUndo.take() ?: return@collect
-            launch {
-                snackbar.currentSnackbarData?.dismiss()
-                val result = snackbar.showSnackbar(
-                    message = resources.getString(notice.text),
-                    actionLabel = resources.getString(R.string.mailbox_undo),
-                    duration = SnackbarDuration.Short,
-                )
-                if (result == SnackbarResult.ActionPerformed) vm.undo(notice.undo)
-            }
+            notify(resources.getString(notice.text), undo = { vm.undo(notice.undo) }, since = notice.since)
         }
     }
     // Changes the server refused and sends that failed (DESIGN §7.4, §7.5).
-    LaunchedEffect(app) {
-        app.mail.failures.collect { failure ->
-            launch {
-                snackbar.currentSnackbarData?.dismiss()
-                snackbar.showSnackbar(failure.text, withDismissAction = true, duration = SnackbarDuration.Long)
-            }
-        }
-    }
+    LaunchedEffect(app) { app.mail.failures.collect { notify(it.text, long = true) } }
     LaunchedEffect(searchBar) {
         snapshotFlow { searchBar.targetValue == SearchBarValue.Expanded }.collect(vm::followSearchBar)
     }
@@ -251,6 +276,12 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                 unifiedUnread = unifiedUnread,
                 onOpen = ::openView,
                 onNotify = { f, on -> vm.setNotify(f.id, on) },
+                onLocalDrafts = { accountId ->
+                    scope.launch {
+                        drawerState.close()
+                        nav.go(Route.Drafts(accountId))
+                    }
+                },
                 onSettings = {
                     scope.launch {
                         drawerState.close()
@@ -349,10 +380,21 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                                 .animateItem(),
                             onSignIn = { nav.go(Route.Reauth(it.id)) },
+                            onDrafts = { account ->
+                                val drafts = MailboxFolders.byRole(account, folders, FolderRole.DRAFTS)
+                                nav.go(drafts?.let { Route.Mailbox(MailView.InFolder(it.id)) } ?: Route.Drafts(account.id))
+                            },
                             onAccount = { nav.go(Route.AccountSettings(it.id)) },
                             onResync = { vm.resync(it.id) },
                             onResume = app.push::resume,
-                            onFix = { nav.go(Route.Settings) },
+                            // The one system prompt that fixes it; Settings has the same rows at its end.
+                            onFix = { problem ->
+                                if (problem == PushProblem.RESTRICTED) {
+                                    SystemPages.appDetails(context)
+                                } else {
+                                    SystemPages.batteryExemption(context)
+                                }
+                            },
                             onDismissIpNote = vm::dismissGmailIpNote,
                         )
                     }
@@ -368,11 +410,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                                 date = dates.list(draft.updated),
                                 onOpen = { nav.go(Route.Compose(draft.id)) },
                                 onRetry = {
-                                    if (draft.error == resources.getString(R.string.data_error_may_have_been_sent)) {
-                                        confirmRetry = draft
-                                    } else {
-                                        vm.retrySend(draft.id)
-                                    }
+                                    if (draft.mayHaveBeenSent) confirmRetry = draft else vm.retrySend(draft.id)
                                 },
                                 modifier = Modifier.animateItem(),
                             )
@@ -380,7 +418,11 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                     }
                     if (messages != null && rows.isEmpty() && (vm.searching || drafts.isEmpty())) {
                         item(key = "empty") {
-                            ListEmptyState(vm.view, listView, folder?.role, Modifier.fillParentMaxWidth())
+                            if (listView?.let { MailboxFolders.firstSyncPending(it, accounts, folders) } == true) {
+                                FirstSync(Modifier.fillParentMaxWidth())
+                            } else {
+                                ListEmptyState(vm.view, listView, folder?.role, Modifier.fillParentMaxWidth())
+                            }
                         }
                     }
                     items(rows, key = { it.id }) { row ->
@@ -393,8 +435,9 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                             date = dates.list(row.date),
                             selected = row.id in selected,
                             selecting = selection != null,
-                            colorIndex = if (crossAccount) context.accounts[row.accountId]?.color else null,
+                            account = if (crossAccount) listContext.accounts[row.accountId] else null,
                             draft = info?.place == Place.DRAFTS,
+                            sent = info?.sent == true,
                             onOpen = ::open,
                             onSelect = vm::toggleSelected,
                             onAction = { id, action -> act(listOf(id), action) },
@@ -402,6 +445,8 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                         )
                     }
                 }
+                // A server draft may wait for its body and files before Compose opens: the tap was taken.
+                if (opening) LinearWavyProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
             }
         }
     }
@@ -429,13 +474,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
         )
     }
     confirmRetry?.let { draft ->
-        ConfirmDialog(
-            title = stringResource(R.string.mailbox_send_again_title),
-            text = draft.error,
-            confirmLabel = stringResource(R.string.mailbox_send_again),
-            onConfirm = { vm.retrySend(draft.id) },
-            onDismiss = { confirmRetry = null },
-        )
+        SendAgainDialog(draft, onConfirm = { vm.retrySend(draft.id) }, onDismiss = { confirmRetry = null })
     }
     picker?.let { request ->
         FolderPicker(
@@ -474,6 +513,7 @@ private fun MailboxBanner.key(): String = when (this) {
     is MailboxBanner.SignIn -> "signin:${account.id}"
     is MailboxBanner.Tls -> "tls:${account.id}"
     is MailboxBanner.Setup -> "setup:${account.id}"
+    is MailboxBanner.Unsent -> "unsent:${account.id}"
     is MailboxBanner.Note -> "note:${account.id}"
     is MailboxBanner.Guard -> "guard:${folder.id}"
     is MailboxBanner.Push -> "push"
@@ -485,10 +525,11 @@ private fun MailboxBannerItem(
     banner: MailboxBanner,
     modifier: Modifier,
     onSignIn: (Account) -> Unit,
+    onDrafts: (Account) -> Unit,
     onAccount: (Account) -> Unit,
     onResync: (Folder) -> Unit,
     onResume: () -> Unit,
-    onFix: () -> Unit,
+    onFix: (PushProblem) -> Unit,
     onDismissIpNote: () -> Unit,
 ) {
     when (banner) {
@@ -496,7 +537,7 @@ private fun MailboxBannerItem(
             text = stringResource(R.string.mailbox_banner_sign_in, banner.account.label),
             modifier = modifier,
             kind = BannerKind.ERROR,
-            actionLabel = stringResource(R.string.mailbox_sign_in),
+            actionLabel = stringResource(R.string.ui_sign_in),
             onAction = { onSignIn(banner.account) },
         )
         is MailboxBanner.Tls -> Banner(
@@ -512,6 +553,13 @@ private fun MailboxBannerItem(
             kind = BannerKind.ERROR,
             actionLabel = stringResource(R.string.mailbox_account),
             onAction = { onAccount(banner.account) },
+        )
+        is MailboxBanner.Unsent -> Banner(
+            text = pluralStringResource(R.plurals.mailbox_banner_unsent, banner.count, banner.count, banner.account.label),
+            modifier = modifier,
+            kind = BannerKind.ERROR,
+            actionLabel = stringResource(R.string.mailbox_view_drafts),
+            onAction = { onDrafts(banner.account) },
         )
         is MailboxBanner.Note -> Banner(
             text = stringResource(R.string.mailbox_banner_setup, banner.account.label, banner.account.stateText.orEmpty()),
@@ -536,7 +584,7 @@ private fun MailboxBannerItem(
                 modifier = modifier,
                 kind = BannerKind.WARN,
                 actionLabel = stringResource(if (resume) R.string.mailbox_resume else R.string.mailbox_fix),
-                onAction = if (resume) onResume else onFix,
+                onAction = if (resume) onResume else ({ onFix(banner.problem) }),
             )
         }
         MailboxBanner.GmailIp -> Banner(
@@ -576,10 +624,10 @@ private fun ServerSearchRow(state: ServerSearch, onSearch: () -> Unit, onCancel:
         }
         is ServerSearch.Done -> Row(modifier, verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (state.hits == 0) {
+                text = if (state.ids.isEmpty()) {
                     stringResource(R.string.mailbox_search_server_none)
                 } else {
-                    pluralStringResource(R.plurals.mailbox_search_server_done, state.hits, state.hits)
+                    pluralStringResource(R.plurals.mailbox_search_server_done, state.ids.size, state.ids.size)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -631,5 +679,23 @@ private fun ListEmptyState(view: MailView, shown: MailView?, role: FolderRole?, 
                 modifier = padded,
             )
         }
+    }
+}
+
+/** Instead of "Your inbox is empty" while the first sync of a new account runs. */
+@Composable
+private fun FirstSync(modifier: Modifier) {
+    Column(
+        modifier = modifier.padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        LoadingIndicator()
+        Text(
+            text = stringResource(R.string.mailbox_loading),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
     }
 }

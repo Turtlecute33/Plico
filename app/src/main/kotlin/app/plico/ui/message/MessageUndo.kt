@@ -7,8 +7,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 
-/** An undoable action that closed the message screen, e.g. "Archived · Undo". */
-data class UndoNotice(@StringRes val text: Int, val undo: Undo)
+/**
+ * An undoable action that closed the message screen, e.g. "Archived · Undo". [since] is when the action started
+ * (elapsedRealtime): a notice that waited too long shows no Undo ([app.plico.ui.components.UndoWindow]).
+ */
+data class UndoNotice(@StringRes val text: Int, val undo: Undo, val since: Long)
 
 /**
  * Hands the Undo of Archive, Delete, Move and Spam from the message screen to the screen below it, which

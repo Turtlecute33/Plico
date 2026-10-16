@@ -43,8 +43,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.plico.R
 import app.plico.app
 import app.plico.data.Folder
+import app.plico.ui.components.ErrorText
 import app.plico.ui.components.Icons
 import app.plico.ui.components.PrivateTextInput
+import app.plico.ui.components.text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -206,7 +208,7 @@ private fun NewFolderDialog(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = ErrorText.of(e)
+                error = actionError(e)
             } finally {
                 busy = false
             }

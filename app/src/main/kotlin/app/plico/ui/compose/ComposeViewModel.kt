@@ -22,6 +22,7 @@ import app.plico.data.Contact
 import app.plico.data.DraftAttachment
 import app.plico.data.DraftState
 import app.plico.mail.mime.Address
+import app.plico.sync.DraftMime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,7 @@ internal enum class Notice(@StringRes val text: Int) {
     NOT_SENDABLE(R.string.compose_not_sendable),
     ATTACH_FAILED(R.string.compose_attach_failed),
     NO_PICKER(R.string.compose_no_picker),
+    BEING_SENT(R.string.compose_undo_too_late),
 }
 
 /** A file that is being copied into the draft. */
@@ -63,8 +65,16 @@ internal data class Suggestions(val field: RecipientField?, val contacts: List<C
  * [onCleared] is the moment the user leaves: the draft is then saved and its server copy queued, or deleted
  * when it is empty. Every write to the draft runs in order under one lock, off the main thread.
  */
-internal class ComposeViewModel(private val app: PlicoApp, private val draftId: Long) : ViewModel() {
-    enum class Phase { LOADING, EDITING, QUEUED, GONE }
+internal class ComposeViewModel(
+    private val app: PlicoApp,
+    private val draftId: Long,
+    private val fresh: Boolean,
+) : ViewModel() {
+    /**
+     * [QUEUED]: the user tapped Send here; Undo, then the screen closes. [WAITING]: the draft was queued already
+     * when it opened; it stays read-only until the user cancels the send.
+     */
+    enum class Phase { LOADING, EDITING, QUEUED, WAITING, GONE }
 
     var phase by mutableStateOf(Phase.LOADING)
         private set
@@ -102,10 +112,10 @@ internal class ComposeViewModel(private val app: PlicoApp, private val draftId: 
 
     val notices: Flow<Notice> get() = noticeChannel.receiveAsFlow()
 
-    /** Estimated size on the wire (DESIGN §13). */
+    /** Estimated size on the wire (DESIGN §13); Send uses the same estimate. */
     val encodedSize by derivedStateOf {
         val text = DraftRules.utf8Length(subject) + DraftRules.utf8Length(body.text)
-        DraftRules.encodedSize(text + attachments.sumOf { it.size })
+        DraftMime.estimatedSize(text + attachments.sumOf { it.size })
     }
     val sizeLimit by derivedStateOf { from?.let { Providers.of(it.provider).maxMessageBytes } }
     val tooLarge by derivedStateOf { sizeLimit?.let { encodedSize > it } == true }
@@ -302,9 +312,9 @@ internal class ComposeViewModel(private val app: PlicoApp, private val draftId: 
         }
     }
 
-    /** Undo send: back to editing, or [onTooLate] when sending has started. */
+    /** Undo send (or Cancel send): back to editing, or [onTooLate] when sending has started. */
     fun undoSend(onTooLate: () -> Unit) {
-        if (phase != Phase.QUEUED) return
+        if (phase != Phase.QUEUED && phase != Phase.WAITING) return
         viewModelScope.launch {
             val back = write {
                 app.mail.cancelSend(draftId)
@@ -334,7 +344,7 @@ internal class ComposeViewModel(private val app: PlicoApp, private val draftId: 
         if (phase != Phase.EDITING || closed || sending) return
         val content = content()
         val empty = content.isEmpty() && attachments.isEmpty() && adding.isEmpty()
-        when (DraftRules.leave(edited, empty)) {
+        when (DraftRules.leave(edited, empty, fresh)) {
             DraftRules.Leave.KEEP -> Unit
             DraftRules.Leave.DISCARD -> background { app.mail.discardDraft(draftId) }
             DraftRules.Leave.SAVE -> {
@@ -355,7 +365,8 @@ internal class ComposeViewModel(private val app: PlicoApp, private val draftId: 
         }
         val (draft, options, undo) = data
         val sender = draft?.let { DraftRules.pickSender(options, it.accountId, it.fromEmail) }
-        if (draft == null || sender == null || draft.state != DraftState.EDITING && draft.state != DraftState.FAILED) {
+        val opened = draft?.let { DraftRules.openPhase(it.state) } ?: Phase.GONE
+        if (draft == null || sender == null || opened == Phase.GONE) {
             phase = Phase.GONE
             return
         }
@@ -368,14 +379,14 @@ internal class ComposeViewModel(private val app: PlicoApp, private val draftId: 
         subject = draft.subject
         body = TextFieldValue(draft.body, TextRange.Zero)
         attachments = draft.attachments
-        failure = draft.error?.takeIf { draft.state == DraftState.FAILED }
+        failure = draft.error?.takeIf { DraftState.failed(draft.state) }
         undoSeconds = undo
-        phase = Phase.EDITING
+        phase = opened
         app.drafts.observe(draftId).collect { row ->
             when {
                 // A removal waits for the lock; until then the row still lists the file.
                 row != null -> attachments = row.attachments.filterNot { it.file in removed }
-                phase == Phase.EDITING && !closed -> phase = Phase.GONE
+                (phase == Phase.EDITING || phase == Phase.WAITING) && !closed -> phase = Phase.GONE
             }
         }
     }

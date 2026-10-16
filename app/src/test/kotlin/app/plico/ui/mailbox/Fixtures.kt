@@ -9,6 +9,7 @@ import app.plico.data.FolderRole
 import app.plico.data.MessageSummary
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.push.Grants
 import app.plico.push.PushStatus
 
 fun account(
@@ -21,7 +22,7 @@ fun account(
     id = id, provider = provider, email = "user$id@example.org", senderName = "", label = "Account $id",
     color = id.toInt(), auth = AuthKind.PASSWORD, deviceAccount = null, bodyDays = 30, pushMode = PushMode.INSTANT,
     pollMinutes = 15, gmailCategories = setOf("primary"), archiveFolder = archiveFolder, signature = "",
-    state = state, stateText = stateText, caps = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null,
+    state = state, stateText = stateText, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null,
     sort = id.toInt(),
 )
 
@@ -35,10 +36,11 @@ fun folder(
     notify: Boolean = false,
     guard: Boolean = false,
     delimiter: String? = "/",
+    backfillUid: Long = 1,
 ) = Folder(
     id = id, accountId = accountId, path = path, name = path.substringAfterLast('/'), role = role, kind = kind,
     delimiter = delimiter, hidden = hidden, notify = notify, guard = guard, uidValidity = 1, uidNext = 1, modSeq = 0,
-    backfillUid = 1, syncedAt = 0,
+    backfillUid = backfillUid, syncedAt = 0,
 )
 
 fun summary(
@@ -62,6 +64,5 @@ fun pushStatus(
     restricted: Boolean = false,
 ) = PushStatus(
     running = true, pausedByUser = paused, stoppedBySystem = stopped, hasNetwork = true,
-    notificationsAllowed = notifications, batteryUnrestricted = battery, exactAlarms = exact,
-    backgroundRestricted = restricted,
+    grants = Grants(notifications, battery, exact, restricted),
 )

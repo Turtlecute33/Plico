@@ -48,5 +48,5 @@ object OAuthResume {
 
     /** The login hint of a sign-in whose redirect arrived ("" without a hint), or null. */
     private fun pendingEmail(app: PlicoApp): String? =
-        GoogleOAuth.Pending.parse(app.prefs.getString(GoogleOAuth.PENDING_KEY))?.takeIf { it.done }?.email
+        GoogleOAuth.Pending.parse(app.prefs.get(GoogleOAuth.PENDING_KEY))?.takeIf { it.done }?.email
 }

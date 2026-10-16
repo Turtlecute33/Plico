@@ -56,6 +56,7 @@ import app.plico.data.AccountState
 import app.plico.data.MailView
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.sync.GmailSync
 import app.plico.ui.components.AccountColors
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.Banner
@@ -63,7 +64,8 @@ import app.plico.ui.components.BannerKind
 import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.Icons
 import app.plico.ui.components.PrivateTextInput
-import app.plico.ui.components.formatFileSize
+import app.plico.ui.components.SystemPages
+import app.plico.ui.components.fileSize
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
 
@@ -129,7 +131,7 @@ private fun AccountHeader(account: Account, onSignIn: () -> Unit) {
                 .fillMaxWidth()
                 .padding(top = 8.dp),
             kind = BannerKind.ERROR,
-            actionLabel = stringResource(R.string.settings_sign_in)
+            actionLabel = stringResource(R.string.ui_sign_in)
                 .takeIf { account.state == AccountState.SIGN_IN_NEEDED },
             onAction = onSignIn,
         )
@@ -467,7 +469,7 @@ private fun NotificationsGroup(account: Account, vm: AccountSettingsViewModel) {
     }
     if (account.isGmail) {
         SettingsGroup(stringResource(R.string.settings_categories)) {
-            Choices.GMAIL_CATEGORIES.forEach { category ->
+            GmailSync.CATEGORIES.forEach { category ->
                 item {
                     val on = category in account.gmailCategories
                     CheckboxRow(
@@ -555,8 +557,8 @@ private fun QuotaRow(shapes: ListItemShapes, account: Account) {
                     Text(
                         stringResource(
                             R.string.settings_quota_used,
-                            formatFileSize(account.quotaUsed!!),
-                            formatFileSize(account.quotaLimit!!),
+                            fileSize(account.quotaUsed!!),
+                            fileSize(account.quotaLimit!!),
                         ),
                     )
                     LinearProgressIndicator(

@@ -1,6 +1,7 @@
 package app.plico.sync
 
 import app.plico.data.FolderRole
+import app.plico.data.NewOp
 import app.plico.data.OpKind
 import org.json.JSONObject
 import kotlin.test.Test
@@ -52,6 +53,14 @@ class OpArgsTest {
         assertNull(OpArg.decode(OpKind.MOVE, "{}"))
         assertNull(OpArg.decode(OpKind.APPEND, "{\"draft\":1,\"role\":\"nope\"}"))
         assertNull(OpArg.decode(OpKind.LABELS, "{\"add\":[]}"))
+    }
+
+    @Test
+    fun anArgumentBecomesItsOpRow() {
+        val arg = OpArg.Flags("\\Answered", true)
+        val op = arg.toNewOp(3, runAt = 99, ids = listOf(7))
+        assertEquals(NewOp(3, OpKind.FLAGS, listOf(7), OpArg.encode(arg), 99), op)
+        assertEquals(emptyList(), OpArg.DeleteDraft("<m@x>").toNewOp(3, 0).messageIds)
     }
 
     @Test

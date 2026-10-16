@@ -30,14 +30,15 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
 
     /**
      * Steps 3 and 4: SELECT (or [selected], a SELECT the caller has just done), the UIDVALIDITY check, then the
-     * new UIDs. Returns the updated row, or null when the folder does not sync now (guard, gone).
+     * new UIDs. Returns the updated row, or null when the folder does not sync now (guard, gone). The message
+     * count for the STATUS skip is kept only after step 6, so that an expunge check that fails is not skipped.
      */
     fun newMail(folder: Folder, report: SyncReport, selected: SelectResult? = null): Folder? {
         if (!folder.syncable) return null
         val sel = selected ?: select(folder, report) ?: return null
         val valid = validate(folder, sel, report) ?: return null
         fetchNew(valid, sel, report)
-        return env.folders.get(valid.id)?.also(::remember)
+        return env.folders.get(valid.id)
     }
 
     /** Steps 5 and 6. Uses the selected mailbox, or SELECTs it again when another one is selected. */
@@ -117,7 +118,10 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
         }
     }
 
-    /** Step 4. A first sync takes the newest 200 by sequence number; later syncs `UID FETCH <uidnext>:*`. */
+    /**
+     * Step 4. A first sync takes the newest 200 by sequence number; later syncs `UID FETCH <uidnext>:*`. Items
+     * without the header section are unsolicited flag updates (DESIGN §4.3) and are left out.
+     */
     private fun fetchNew(folder: Folder, sel: SelectResult, report: SyncReport) {
         val notified = NotifyRule.insertNotified(fromNewUidFetch = true, uidNextBefore = folder.uidNext)
         if (folder.backfillUid == 0L) {
@@ -126,6 +130,7 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
             if (start != null) {
                 insert(folder, notified, newMail = true, report) { each ->
                     env.client.fetch("$start:*", items(folder)) { item ->
+                        if (!HeaderParser.hasHeaderFields(item)) return@fetch
                         lowest = minOf(lowest ?: item.uid, item.uid)
                         each(item)
                     }
@@ -145,7 +150,7 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
         insert(folder, notified, newMail = true, report) { each ->
             env.client.uidFetch(UidSet.range(from), items(folder)) { item ->
                 // `n:*` always returns the last message, also when it is older than n (protocol PS10).
-                if (item.uid >= from) {
+                if (item.uid >= from && HeaderParser.hasHeaderFields(item)) {
                     highest = maxOf(highest, item.uid)
                     each(item)
                 }
@@ -156,7 +161,9 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
 
     private fun fetchRange(folder: Folder, range: LongRange, report: SyncReport): Int =
         insert(folder, notified = true, newMail = false, report) { each ->
-            env.client.uidFetch(UidSet.range(range.first, range.last), items(folder)) { if (it.uid in range) each(it) }
+            env.client.uidFetch(UidSet.range(range.first, range.last), items(folder)) {
+                if (it.uid in range && HeaderParser.hasHeaderFields(it)) each(it)
+            }
         }
 
     /** Stores the rows that [fetch] yields in batches; returns their number. */

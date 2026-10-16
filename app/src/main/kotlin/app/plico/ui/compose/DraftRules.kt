@@ -1,6 +1,7 @@
 package app.plico.ui.compose
 
 import app.plico.data.Account
+import app.plico.data.DraftState
 import app.plico.data.Identity
 import app.plico.data.Provider
 
@@ -26,21 +27,27 @@ internal object DraftRules {
         /** Save it and queue the server copy ([app.plico.sync.MailActions.leaveDraft]). */
         SAVE,
 
-        /** Nothing in it: delete it. */
+        /** Nothing in it, or a [fresh] draft the user did not touch (a Reply tapped by mistake): delete it. */
         DISCARD,
     }
 
-    fun leave(edited: Boolean, empty: Boolean): Leave = when {
+    /** [fresh]: the draft was made for this screen ([app.plico.ui.nav.Route.Compose]). */
+    fun leave(edited: Boolean, empty: Boolean, fresh: Boolean): Leave = when {
         empty -> Leave.DISCARD
         edited -> Leave.SAVE
+        fresh -> Leave.DISCARD
         else -> Leave.KEEP
     }
 
     /**
-     * The size on the wire: raw size x 1.37 for base64 and its line breaks (simplicity EM18). The server
-     * checks the real size at send time.
+     * How Compose opens a draft in [state] (DraftState): editing and failed ones for editing, a queued one
+     * read-only (opening must not stop its send), the others are gone (being sent, sent).
      */
-    fun encodedSize(rawBytes: Long): Long = (rawBytes * 137 + 99) / 100
+    fun openPhase(state: Int): ComposeViewModel.Phase = when (state) {
+        DraftState.EDITING, DraftState.FAILED, DraftState.UNCERTAIN -> ComposeViewModel.Phase.EDITING
+        DraftState.QUEUED -> ComposeViewModel.Phase.WAITING
+        else -> ComposeViewModel.Phase.GONE
+    }
 
     /** Bytes of [s] in UTF-8, without a copy. */
     fun utf8Length(s: CharSequence): Long {

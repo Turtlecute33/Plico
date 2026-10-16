@@ -43,11 +43,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.plico.R
+import app.plico.data.Account
 import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.MessageSummary
 import app.plico.mail.mime.Addresses
 import app.plico.ui.components.Avatar
+import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.Icons
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -62,7 +64,8 @@ private const val REMOVE_GRACE_MS = 700L
 /**
  * One message of the list (DESIGN §13) with swipe actions (apis AF4): the state is remembered per
  * message id (not saveable, so that an undone row starts fresh), `onDismiss` captures only the id,
- * and toggles reset the row before they change the message.
+ * and toggles reset the row before they change the message. [account] is set in lists of several
+ * accounts: the avatar takes its colour. A [sent] row shows its first recipient instead of the sender.
  */
 @Composable
 internal fun MessageRow(
@@ -71,8 +74,9 @@ internal fun MessageRow(
     date: String,
     selected: Boolean,
     selecting: Boolean,
-    colorIndex: Int?,
+    account: Account?,
     draft: Boolean,
+    sent: Boolean,
     onOpen: (MessageSummary) -> Unit,
     onSelect: (Long) -> Unit,
     onAction: (Long, RowAction) -> Unit,
@@ -112,7 +116,7 @@ internal fun MessageRow(
         gesturesEnabled = !selecting,
         onDismiss = onDismiss,
     ) {
-        RowContent(row, swipe, date, selected, selecting, colorIndex, draft, onOpen, onSelect, onAction)
+        RowContent(row, swipe, date, selected, selecting, account, draft, sent, onOpen, onSelect, onAction)
     }
 }
 
@@ -161,17 +165,21 @@ private fun RowContent(
     date: String,
     selected: Boolean,
     selecting: Boolean,
-    colorIndex: Int?,
+    account: Account?,
     draft: Boolean,
+    sent: Boolean,
     onOpen: (MessageSummary) -> Unit,
     onSelect: (Long) -> Unit,
     onAction: (Long, RowAction) -> Unit,
 ) {
+    val recipient = remember(row.toList, sent) { if (sent) firstRecipient(row.toList) else null }
     val scheme = MaterialTheme.colorScheme
     val type = MaterialTheme.typography
     val unread = !row.seen
     val weight = if (unread) FontWeight.Bold else FontWeight.Normal
-    val unreadText = stringResource(R.string.mailbox_unread)
+    // In lists of several accounts the avatar colour shows the account; TalkBack says its name (WCAG 1.4.1).
+    val stateText = listOfNotNull(stringResource(R.string.mailbox_unread).takeIf { unread }, account?.label)
+        .joinToString(", ")
     val selectLabel = stringResource(if (selected) R.string.mailbox_deselect else R.string.mailbox_select)
     // Swipes are gestures only; TalkBack users get the same actions here.
     val a11yActions = listOfNotNull(swipe.start, swipe.end).distinct().map { action ->
@@ -192,13 +200,13 @@ private fun RowContent(
                 )
                 .semantics {
                     if (selecting) this.selected = selected
-                    if (unread) stateDescription = unreadText
+                    if (stateText.isNotEmpty()) stateDescription = stateText
                     customActions = a11yActions
                 }
                 .padding(start = 16.dp, top = 12.dp, end = 4.dp, bottom = 8.dp),
         ) {
             Box(Modifier.padding(top = 2.dp)) {
-                if (selected) SelectedMark() else Avatar(row.fromName.ifBlank { row.fromEmail }, colorIndex = colorIndex)
+                if (selected) SelectedMark() else Avatar(recipient ?: row.fromName.ifBlank { row.fromEmail }, colorIndex = account?.color)
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
@@ -206,7 +214,8 @@ private fun RowContent(
                     Text(
                         text = when {
                             draft -> stringResource(R.string.mailbox_draft)
-                            else -> row.fromName.ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.mailbox_no_sender) }
+                            recipient != null -> stringResource(R.string.mailbox_draft_to, recipient)
+                            else -> row.fromName.ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.ui_no_sender) }
                         },
                         color = if (draft) scheme.error else scheme.onSurface,
                         style = type.bodyLarge,
@@ -237,7 +246,7 @@ private fun RowContent(
                 Row {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = row.subject.ifBlank { stringResource(R.string.mailbox_no_subject) },
+                            text = row.subject.ifBlank { stringResource(R.string.ui_no_subject) },
                             color = scheme.onSurface,
                             style = type.bodyMedium,
                             fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
@@ -338,7 +347,7 @@ internal fun LocalDraftRow(
                 )
             }
             Text(
-                text = draft.subject.ifBlank { stringResource(R.string.mailbox_no_subject) },
+                text = draft.subject.ifBlank { stringResource(R.string.ui_no_subject) },
                 style = type.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -352,7 +361,7 @@ internal fun LocalDraftRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (draft.state == DraftState.FAILED) {
+            if (DraftState.failed(draft.state)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = draft.error.orEmpty(),
@@ -374,7 +383,8 @@ private fun DraftStateLabel(state: Int) {
     val (text, container, content) = when (state) {
         DraftState.QUEUED -> Triple(R.string.mailbox_draft_queued, scheme.secondaryContainer, scheme.onSecondaryContainer)
         DraftState.SENDING -> Triple(R.string.mailbox_draft_sending, scheme.secondaryContainer, scheme.onSecondaryContainer)
-        DraftState.FAILED -> Triple(R.string.mailbox_draft_failed, scheme.errorContainer, scheme.onErrorContainer)
+        DraftState.FAILED, DraftState.UNCERTAIN ->
+            Triple(R.string.mailbox_draft_failed, scheme.errorContainer, scheme.onErrorContainer)
         else -> Triple(R.string.mailbox_draft, Color.Transparent, scheme.error)
     }
     Text(
@@ -385,5 +395,24 @@ private fun DraftStateLabel(state: Int) {
         modifier = Modifier
             .background(container, MaterialTheme.shapes.small)
             .padding(horizontal = if (container == Color.Transparent) 0.dp else 8.dp, vertical = 2.dp),
+    )
+}
+
+/** The name, else the address, of the first recipient in a stored `to_list`; null when there is none. */
+internal fun firstRecipient(toList: String): String? =
+    Addresses.parseList(toList).firstOrNull()?.let { it.name?.takeIf(String::isNotBlank) ?: it.email }
+
+/** True when a failed send may have gone out (DESIGN §7.5): Retry asks first. */
+internal val Draft.mayHaveBeenSent: Boolean get() = state == DraftState.UNCERTAIN
+
+/** "Send again?" before Retry of a send that may have gone out; the text is the draft's error. */
+@Composable
+internal fun SendAgainDialog(draft: Draft, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    ConfirmDialog(
+        title = stringResource(R.string.mailbox_send_again_title),
+        text = draft.error,
+        confirmLabel = stringResource(R.string.mailbox_send_again),
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
     )
 }

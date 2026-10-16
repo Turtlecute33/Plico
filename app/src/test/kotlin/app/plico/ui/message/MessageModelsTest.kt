@@ -16,6 +16,7 @@ import app.plico.html.testPsl
 import app.plico.mail.mime.Address
 import app.plico.sync.DraftPrefill
 import app.plico.ui.components.BannerKind
+import app.plico.ui.components.ErrorText
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -285,6 +286,8 @@ class MessageModelsTest {
         val server = "[NONEXISTENT] gone"
         assertEquals(ErrorText(R.string.message_error_server, server), errorText(MailError.Server(server)))
         assertEquals(ErrorText(R.string.message_error_generic), errorText(IllegalStateException()))
+        // The texts that the mailbox uses too.
+        assertEquals(ErrorText(R.string.ui_error_busy), errorText(MailError.Throttled("slow down")))
     }
 
     @Test

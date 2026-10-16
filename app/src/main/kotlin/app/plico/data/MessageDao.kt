@@ -18,9 +18,10 @@ class MessageDao(private val db: Db) {
 
     /**
      * The newest [limit] rows of [view], newest first. Hidden rows and server copies of local drafts
-     * (`protocol PS7`) are left out. Starred leaves out Trash and Spam; Search uses the local index.
+     * (`protocol PS7`) are left out. Starred leaves out Trash and Spam; Search uses the local index and adds
+     * [serverHits] (the first [MAX_SERVER_HITS] ids of a server search, DESIGN §7.7).
      */
-    fun observeList(view: MailView, limit: Int): Flow<List<MessageSummary>> {
+    fun observeList(view: MailView, limit: Int, serverHits: List<Long> = emptyList()): Flow<List<MessageSummary>> {
         val (where, args) = when (view) {
             MailView.Unified -> "m.id IN (SELECT mf.message_id FROM message_folder mf " +
                 "JOIN folder f ON f.id = mf.folder_id WHERE f.role = 'inbox')" to emptyList()
@@ -31,8 +32,10 @@ class MessageDao(private val db: Db) {
                 listOfNotNull(view.accountId)
             is MailView.Search -> {
                 val match = ftsQuery(view.query) ?: return flowOf(emptyList())
-                "m.id IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)" + accountFilter(view.accountId) to
-                    listOfNotNull(match, view.accountId)
+                // Numbers only, so inlining them cannot inject SQL.
+                val hits = serverHits.take(MAX_SERVER_HITS).sqlList()
+                "(m.id IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) OR m.id IN ($hits))" +
+                    accountFilter(view.accountId) to listOfNotNull(match, view.accountId)
             }
         }
         val tables = when (view) {
@@ -122,18 +125,38 @@ class MessageDao(private val db: Db) {
         folderId, from, to,
     )!!.toInt()
 
-    /**
-     * Rows of the account without a body, dated >= [since] (0 = all), newest first. Hidden rows and rows
-     * of hidden or guarded folders are skipped.
-     */
-    fun needingBodies(accountId: Long, since: Long, limit: Int): List<MessageRef> = db.sql.list(
-        """
-        SELECT id, folder_id, uid FROM message WHERE account_id = ? AND body = 0 AND hidden = 0 AND date >= ?
-          AND folder_id IN (SELECT id FROM folder WHERE hidden = 0 AND guard = 0)
-        ORDER BY date DESC LIMIT $limit
-        """,
-        accountId, since, row = ::refOf,
+    /** The newest [limit] visible rows of [folderId] without a body, dated >= [since] (0 = all). */
+    fun needingBodies(folderId: Long, since: Long, limit: Int): List<MessageRef> = db.sql.list(
+        "SELECT id, folder_id, uid FROM message WHERE folder_id = ? AND body = 0 AND hidden = 0 AND date >= ? " +
+            "ORDER BY date DESC LIMIT $limit",
+        folderId, since, row = ::refOf,
     )
+
+    /** The ids among [ids] that are members of [folderId] (source mailbox or label view). */
+    fun memberIds(folderId: Long, ids: Collection<Long>): Set<Long> = ids.batches().flatMapTo(HashSet()) { batch ->
+        db.sql.list(
+            "SELECT message_id FROM message_folder WHERE folder_id = ? AND message_id IN (${batch.sqlList()})",
+            folderId,
+        ) { it.getLong(0) }
+    }
+
+    /** The Gmail label views of each of [ids]; an id without labels, or without a row, maps to an empty set. */
+    fun labelIds(ids: Collection<Long>): Map<Long, Set<Long>> {
+        val labels = ids.associateWithTo(HashMap()) { HashSet<Long>() }
+        for (batch in ids.batches()) {
+            db.sql.list(
+                "SELECT mf.message_id, mf.folder_id FROM message_folder mf JOIN folder f ON f.id = mf.folder_id " +
+                    "WHERE f.kind = ${FolderKind.LABEL} AND mf.message_id IN (${batch.sqlList()})",
+            ) { it.getLong(0) to it.getLong(1) }.forEach { (message, label) -> labels[message]?.add(label) }
+        }
+        return labels
+    }
+
+    /** True when a row other than [exceptId] from [email] (any case) is dated before [before]. */
+    fun hasEarlierFrom(email: String, before: Long, exceptId: Long): Boolean = db.sql.long(
+        "SELECT 1 FROM message WHERE from_email = ? COLLATE NOCASE AND date < ? AND id != ? LIMIT 1",
+        email, before, exceptId,
+    ) != null
 
     // ---- Sync writes
 
@@ -392,8 +415,11 @@ class MessageDao(private val db: Db) {
         private const val NOTIFY_RULE = "m.account_id = ? AND m.notified = 0 AND m.seen = 0 AND m.date >= ? " +
             "AND $VISIBLE AND $NOTIFY_SCOPE"
 
+        /** Server hits beyond this are not listed: the statement stays small. */
+        const val MAX_SERVER_HITS = 1_000
+
         private const val SUMMARY_COLS = "m.id, m.account_id, m.folder_id, m.subject, m.from_name, m.from_email, " +
-            "m.date, m.seen, m.flagged, m.draft, m.attachments, m.snippet"
+            "m.date, m.seen, m.flagged, m.draft, m.attachments, m.snippet, m.to_list"
 
         private const val MESSAGE_COLS = "id, account_id, folder_id, uid, gm_msgid, message_id, in_reply_to, refs, " +
             "subject, from_name, from_email, to_list, cc_list, bcc_list, reply_to, date, size, seen, flagged, " +
@@ -416,6 +442,7 @@ class MessageDao(private val db: Db) {
             draft = c.bool(9),
             attachments = c.getInt(10) > 0,
             snippet = c.str(11),
+            toList = c.str(12),
         )
 
         private fun messageOf(c: Cursor) = Message(

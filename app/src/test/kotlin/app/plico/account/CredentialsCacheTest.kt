@@ -72,7 +72,6 @@ class CredentialsCacheTest {
         signature = "",
         state = AccountState.OK,
         stateText = null,
-        caps = null,
         serverKeepaliveS = null,
         quotaUsed = null,
         quotaLimit = null,

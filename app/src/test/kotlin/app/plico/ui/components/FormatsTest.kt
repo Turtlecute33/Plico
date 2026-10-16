@@ -89,47 +89,4 @@ class FormatsTest {
         val odd = DateFormats(Locale.US, zone, patterns.copy(time = "h:mm b"))
         assertTrue(odd.list(now, now).startsWith("3:30"))
     }
-
-    // The formatter puts a no-break space between number and unit.
-    private fun size(bytes: Long, locale: Locale) = formatFileSize(bytes, locale).replace('\u00A0', ' ')
-
-    @Test
-    fun numberAndUnitDoNotBreakApart() {
-        assertEquals("1.2\u00A0kB", formatFileSize(1_234, Locale.US))
-    }
-
-    @Test
-    fun bytesBelowOneKilobyte() {
-        assertEquals("0 B", size(0, Locale.US))
-        assertEquals("999 B", size(999, Locale.US))
-        assertEquals("0 B", size(-5, Locale.US))
-    }
-
-    @Test
-    fun oneDecimalBelowTenThenWholeNumbers() {
-        assertEquals("1.0 kB", size(1_000, Locale.US))
-        assertEquals("1.2 kB", size(1_234, Locale.US))
-        assertEquals("9.9 kB", size(9_949, Locale.US))
-        assertEquals("10 kB", size(9_950, Locale.US))
-        assertEquals("34 kB", size(34_499, Locale.US))
-        assertEquals("26 MB", size(25_600_000, Locale.US))
-        assertEquals("1.5 GB", size(1_500_000_000, Locale.US))
-    }
-
-    @Test
-    fun roundingNeverShowsAThousand() {
-        assertEquals("999 kB", size(999_499, Locale.US))
-        assertEquals("1.0 MB", size(999_500, Locale.US))
-        assertEquals("1.0 GB", size(999_999_999, Locale.US))
-    }
-
-    @Test
-    fun hugeSizesStayInTerabytes() {
-        assertTrue(size(Long.MAX_VALUE, Locale.US).endsWith(" TB"))
-    }
-
-    @Test
-    fun sizesUseTheLocaleSeparator() {
-        assertEquals("1,2 MB", size(1_234_567, Locale.GERMANY))
-    }
 }

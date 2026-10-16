@@ -3,6 +3,7 @@ package app.plico.data
 import android.content.Context
 import android.content.SharedPreferences
 import app.plico.BuildConfig
+import app.plico.push.policy.KeyValueStore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -10,8 +11,11 @@ import kotlinx.coroutines.flow.conflate
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
-/** Non-secret settings (SharedPreferences). Defaults follow DESIGN.md §5 and §12. */
-class Prefs(context: Context) {
+/**
+ * Non-secret settings (SharedPreferences). Defaults follow DESIGN.md §5 and §12. As a [KeyValueStore] it also
+ * holds raw strings for components that own their format (learned keepalive intervals, pending OAuth, notes).
+ */
+class Prefs(context: Context) : KeyValueStore {
     enum class Swipe { ARCHIVE, DELETE, READ, STAR, NONE }
 
     private val sp: SharedPreferences = context.getSharedPreferences("plico", Context.MODE_PRIVATE)
@@ -50,11 +54,10 @@ class Prefs(context: Context) {
     var pushStoppedBySystemUi: Boolean by bool("push_stopped_by_system_ui", false)
     var gmailIpNoteShown: Boolean by bool("gmail_ip_note_shown", false)
 
-    /** Raw string storage for components that own their own format (e.g. learned keepalive intervals). */
-    fun getString(key: String): String? = sp.getString(key, null)
+    override fun get(key: String): String? = sp.getString(key, null)
 
     /** Stores [value]; null removes the key. */
-    fun putString(key: String, value: String?): Unit = edit { if (value == null) remove(key) else putString(key, value) }
+    override fun put(key: String, value: String?): Unit = edit { if (value == null) remove(key) else putString(key, value) }
 
     /** Emits once now and after every change of any setting. */
     fun changes(): Flow<Unit> = callbackFlow {

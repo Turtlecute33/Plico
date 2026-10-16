@@ -77,8 +77,13 @@ object MailErrors {
             it is CertificateException || it is CertPathValidatorException || it is SSLPeerUnverifiedException
         }
 
-    private fun isThrottle(code: String?, t: Throwable) =
-        code in THROTTLE_CODES || THROTTLE_TEXT.containsMatchIn(t.message.orEmpty())
+    private fun isThrottle(code: String?, t: Throwable) = code in THROTTLE_CODES || isThrottleText(t.message.orEmpty())
+
+    /**
+     * Gmail's "bandwidth limits" and "too many simultaneous connections" refusals and Dovecot's connection
+     * limit: a refusal without a throttle code is a throttle only by this text.
+     */
+    fun isThrottleText(text: String): Boolean = THROTTLE_TEXT.containsMatchIn(text)
 
     private fun text(t: Throwable): String = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
 

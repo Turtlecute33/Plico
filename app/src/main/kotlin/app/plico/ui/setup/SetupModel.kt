@@ -83,8 +83,8 @@ data class Problem(val kind: Kind, val detail: String? = null) {
                 is MailError.Network -> Problem(Kind.NETWORK)
                 is MailError.Tls -> Problem(Kind.TLS)
                 is MailError.Throttled -> Problem(Kind.THROTTLED)
-                is MailError.Server -> Problem(Kind.SERVER, e.message?.ifBlank { null })
-                is MailError.TooLarge -> Problem(Kind.SERVER)
+                // MailError.Server, with the server's text.
+                else -> Problem(Kind.SERVER, e.message?.ifBlank { null })
             }
     }
 }
@@ -209,9 +209,6 @@ data class SetupState(
 object SetupInput {
     const val RISEUP_DOMAIN = "riseup.net"
 
-    // Google: "<project number>-<32 letters and digits>.apps.googleusercontent.com".
-    private val CLIENT_ID = Regex("""\d+-[0-9a-z]+\.apps\.googleusercontent\.com""", RegexOption.IGNORE_CASE)
-
     /** Trimmed and lower-case (account.email is UNIQUE with case); a bare Riseup user name gets "@riseup.net". */
     fun normalizeEmail(provider: Provider, raw: String): String {
         val address = raw.trim().lowercase(Locale.ROOT)
@@ -233,7 +230,4 @@ object SetupInput {
     /** A password is required; Gmail app passwords count without their spaces. */
     fun checkPassword(provider: Provider, password: CharSequence): InputError? =
         if (PasswordCredentials.normalize(provider, password.toString()).isEmpty()) InputError.REQUIRED else null
-
-    /** An empty value is valid: it removes the client ID. */
-    fun isValidClientId(id: String): Boolean = id.isEmpty() || CLIENT_ID.matches(id)
 }

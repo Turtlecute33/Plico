@@ -56,8 +56,7 @@ internal object DraftAttachments {
             }
             if (file.length() > limit) throw tooLarge(store, limit)
             val attachment = DraftAttachment(file.name, shown, mime, file.length())
-            val current = store.drafts.get(draftId)
-            if (current == null || !store.drafts.update(current.copy(attachments = current.attachments + attachment))) {
+            if (!store.updateDraft(draftId) { it.copy(attachments = it.attachments + attachment) }) {
                 throw ActionError(store.text(R.string.ops_error_draft_locked))
             }
             created -= file

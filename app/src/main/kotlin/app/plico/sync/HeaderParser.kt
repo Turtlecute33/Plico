@@ -5,7 +5,6 @@ import app.plico.data.NewMessage
 import app.plico.data.ServerFlags
 import app.plico.html.AuthResults
 import app.plico.mail.imap.FetchItem
-import app.plico.mail.mime.Address
 import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.ContentType
 import app.plico.mail.mime.Dates
@@ -23,7 +22,6 @@ internal object HeaderParser {
 
     private const val SECTION = "HEADER.FIELDS"
     private const val ONE_CLICK = "List-Unsubscribe=One-Click"
-    private const val SPECIALS = "()<>[]:;@\\,.\""
 
     /**
      * FETCH items for new rows. [modSeq] only with CONDSTORE; [gmMsgId] and [gmLabels] only on Gmail (labels only
@@ -36,6 +34,9 @@ internal object HeaderParser {
         if (gmMsgId) append(" X-GM-MSGID")
         if (gmLabels) append(" X-GM-LABELS")
     }
+
+    /** True when [item] has the header section; unsolicited FETCH responses (flag updates) have none (DESIGN §4.3). */
+    fun hasHeaderFields(item: FetchItem): Boolean = item.sections.keys.any { it.startsWith(SECTION, ignoreCase = true) }
 
     /** FETCH items for a flags update. */
     fun flagItems(gmLabels: Boolean): String = if (gmLabels) "UID FLAGS X-GM-LABELS" else "UID FLAGS"
@@ -101,26 +102,14 @@ internal object HeaderParser {
         )
     }
 
-    /**
-     * Address list as stored in `to_list` and similar: decoded, comma-separated, a name in quotes when it holds
-     * specials, so that [Addresses.parseList] reads it back.
-     */
-    fun format(list: List<Address>): String = list.joinToString(", ") { a ->
-        val email = HeaderSafety.clean(a.email)
-        val name = HeaderSafety.clean(a.name.orEmpty())
-        when {
-            name.isEmpty() -> email
-            name.any { it in SPECIALS } -> "\"" + name.replace("\\", "\\\\").replace("\"", "\\\"") + "\" <$email>"
-            else -> "$name <$email>"
-        }
-    }
-
     private fun headerBytes(item: FetchItem): ByteArray =
         item.sections.entries.firstOrNull { it.key.startsWith(SECTION, ignoreCase = true) }?.value ?: ByteArray(0)
 
     private fun FetchItem.has(flag: String) = flags.orEmpty().any { it.equals(flag, ignoreCase = true) }
 
-    private fun addresses(value: String?): String = value?.let { format(Addresses.parseList(it)) }.orEmpty()
+    /** Stored `*_list` form: decoded, so that [Addresses.parseList] reads it back. */
+    private fun addresses(value: String?): String =
+        value?.let { Addresses.format(Addresses.parseList(it), encode = false) }.orEmpty()
 
     private fun ids(value: String?): String? =
         value?.let(HeaderSafety::messageIds)?.takeIf { it.isNotEmpty() }?.joinToString(" ")

@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="sync_gmail_size_limit">Gmail shows only some of your mail to Plico. In Gmail on the web, go to Settings → Forwarding and POP/IMAP and set \"Folder size limits\" to \"Do not limit\".</string>
-    <string name="sync_gmail_mailbox_hidden">Gmail does not show this folder to IMAP. In Gmail on the web, go to Settings → Labels and turn on \"Show in IMAP\" for it.</string>
 </resources>

@@ -52,32 +52,43 @@ internal class FakeOpContext(
         return client.select(folder.path).also { last = it }
     }
 
-    override suspend fun smtp(): SmtpClient = SmtpClient(smtpServers.removeAt(0)).also { it.start() }
+    /** Runs when the sender opens its SMTP connection. */
+    var beforeSmtp: () -> Unit = {}
+
+    override suspend fun smtp(): SmtpClient {
+        beforeSmtp()
+        return SmtpClient(smtpServers.removeAt(0)).also { it.start() }
+    }
 
     override suspend fun syncFolder(folder: Folder) {
         synced += folder
     }
 
-    override fun progress() = Unit
+    override fun progress(timeoutMs: Long) = Unit
 
     override val workPending = false
 }
 
-/** Records kicks and notification refreshes; runs requests on [context]. */
+/** Records kicks, syncs and notification refreshes; runs requests on [context]. */
 internal class RecordingHost : ActionHost {
     var context: OpContext? = null
     val kicks = ArrayList<Long>()
+    val syncs = ArrayList<Long>()
     val refreshes = ArrayList<Long>()
 
     override fun kick(accountId: Long) {
         kicks += accountId
     }
 
+    override fun refresh(accountId: Long) {
+        syncs += accountId
+    }
+
     override fun messagesChanged(accountId: Long) {
         refreshes += accountId
     }
 
-    override suspend fun <T> request(accountId: Long, block: suspend OpContext.() -> T): T =
+    override suspend fun <T> request(accountId: Long, closeOnCancel: Boolean, block: suspend OpContext.() -> T): T =
         (context ?: throw AssertionError("No server for this test")).block()
 
     override val undoSendSeconds = 0

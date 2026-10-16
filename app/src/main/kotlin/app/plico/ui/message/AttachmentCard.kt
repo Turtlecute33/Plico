@@ -19,13 +19,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import app.plico.R
 import app.plico.data.Attachment
 import app.plico.ui.components.Icons
-import app.plico.ui.components.formatFileSize
+import app.plico.ui.components.fileSize
 import java.io.File
 
 /**
@@ -41,7 +43,7 @@ fun AttachmentCard(
     modifier: Modifier = Modifier,
 ) {
     val name = revealBidi(attachment.name).ifBlank { stringResource(R.string.message_attachment) }
-    val size = formatFileSize(decodedSize(attachment.size, attachment.encoding))
+    val size = fileSize(decodedSize(attachment.size, attachment.encoding))
     val meta = listOf(size, typeLabel(attachment.name, attachment.mime)).filter { it.isNotEmpty() }.joinToString(" · ")
     val image = attachment.mime.startsWith("image/", ignoreCase = true)
     OutlinedCard(onClick = onOpen, enabled = progress == null, modifier = modifier.fillMaxWidth()) {
@@ -68,7 +70,13 @@ fun AttachmentCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onSave, enabled = progress == null) { Text(stringResource(R.string.message_save)) }
+            // TalkBack reads each Save with its file, so that several attachments can be told apart.
+            val saveLabel = stringResource(R.string.message_save_named, name)
+            TextButton(
+                onClick = onSave,
+                enabled = progress == null,
+                modifier = Modifier.semantics { contentDescription = saveLabel },
+            ) { Text(stringResource(R.string.ui_save)) }
         }
         if (progress != null) {
             if (progress > 0f) {

@@ -1,12 +1,8 @@
 package app.plico.ui.setup
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
+import android.content.pm.PackageManager.PERMISSION_GRANTED
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,7 +30,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.plico.R
+import app.plico.push.Grants
 import app.plico.ui.components.Icons
+import app.plico.ui.components.SystemPages
 
 /**
  * The power grants of DESIGN §8.2: notifications, the battery exemption and, only after the user refused
@@ -44,22 +42,22 @@ import app.plico.ui.components.Icons
 internal fun PermissionsPage(onDone: () -> Unit) {
     val context = LocalContext.current
     val activity = LocalActivity.current
-    var grants by remember { mutableStateOf(Grants.of(context)) }
+    var grants by remember { mutableStateOf(Grants.read(context)) }
     var notificationsBlocked by rememberSaveable { mutableStateOf(false) }
     var batteryRefused by rememberSaveable { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
-        grants = Grants.of(context)
+        grants = Grants.read(context)
         onPauseOrDispose {}
     }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // After the second refusal Android shows no dialog; only the app's notification settings remain.
         notificationsBlocked = !granted &&
             activity?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == false
-        grants = Grants.of(context)
+        grants = Grants.read(context)
     }
     val battery = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        grants = Grants.of(context)
-        batteryRefused = !grants.battery
+        grants = Grants.read(context)
+        batteryRefused = !grants.batteryUnrestricted
     }
 
     PageColumn {
@@ -73,8 +71,10 @@ internal fun PermissionsPage(onDone: () -> Unit) {
                 if (notificationsBlocked) R.string.setup_permission_settings else R.string.setup_permission_allow,
             ),
         ) {
-            if (notificationsBlocked) {
-                start(context, notificationSettings(context))
+            // Allowed but turned off on the system page, or refused twice: only that page can turn them on.
+            val allowed = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PERMISSION_GRANTED
+            if (notificationsBlocked || allowed) {
+                SystemPages.appNotifications(context)
             } else {
                 notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -83,23 +83,23 @@ internal fun PermissionsPage(onDone: () -> Unit) {
             icon = Icons.Battery,
             title = stringResource(R.string.setup_permission_battery),
             text = stringResource(R.string.setup_permission_battery_text),
-            granted = grants.battery,
+            granted = grants.batteryUnrestricted,
             action = stringResource(R.string.setup_permission_allow),
         ) {
             try {
-                battery.launch(batteryExemption(context))
+                battery.launch(SystemPages.batteryExemptionIntent(context))
             } catch (_: ActivityNotFoundException) {
                 batteryRefused = true
             }
         }
         if (grants.offersExactAlarms(batteryRefused)) {
             GrantCard(
-                icon = SetupIcons.Alarm,
+                icon = Icons.Alarm,
                 title = stringResource(R.string.setup_permission_alarms),
                 text = stringResource(R.string.setup_permission_alarms_text),
                 granted = grants.exactAlarms,
                 action = stringResource(R.string.setup_permission_allow),
-            ) { start(context, Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, packageUri(context))) }
+            ) { SystemPages.exactAlarms(context) }
         }
         Button(
             onClick = onDone,
@@ -129,7 +129,7 @@ private fun GrantCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = SetupIcons.CheckCircle,
+                    imageVector = Icons.CheckCircle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp),
@@ -146,12 +146,9 @@ private fun GrantCard(
     }
 }
 
-// Push needs a background connection (DESIGN §8.2 step 2); Plico is sideloaded, the manifest declares the permission.
-@SuppressLint("BatteryLife")
-private fun batteryExemption(context: Context) =
-    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri(context))
+/** Nothing left to ask (DESIGN §8.2): notifications, plus the battery exemption or its fallback, exact alarms. */
+internal val Grants.complete: Boolean get() = notifications && (batteryUnrestricted || exactAlarms)
 
-private fun notificationSettings(context: Context) =
-    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-
-private fun packageUri(context: Context): Uri = Uri.fromParts("package", context.packageName, null)
+/** Exact alarms are offered only after the user refused the battery exemption (§8.2 step 3). */
+internal fun Grants.offersExactAlarms(batteryRefused: Boolean): Boolean =
+    !batteryUnrestricted && (batteryRefused || exactAlarms)

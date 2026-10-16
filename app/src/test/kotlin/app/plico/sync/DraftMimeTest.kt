@@ -74,6 +74,7 @@ class DraftMimeTest {
     @Test
     fun sizeEstimateCountsBase64() {
         val d = draft(attachments = listOf(DraftAttachment("f", "f", "image/png", 1_000_000)))
-        assertEquals((4_096L + 6 + 1_000_000) * 137 / 100, DraftMime.estimatedSize(d))
+        assertEquals(4L + 6 + 1_000_000, DraftMime.rawSize(d), "subject, body and files")
+        assertEquals((4_096L + 4 + 6 + 1_000_000) * 137 / 100, DraftMime.estimatedSize(DraftMime.rawSize(d)))
     }
 }

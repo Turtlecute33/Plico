@@ -27,11 +27,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.plico.R
-import app.plico.data.Provider
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.Icons
-import app.plico.ui.components.formatFileSize
+import app.plico.ui.components.fileSize
 
 /**
  * The draft's files (DESIGN §13): cards with remove, a progress card for each file being copied, the
@@ -47,7 +46,7 @@ internal fun AttachmentSection(vm: ComposeViewModel, modifier: Modifier = Modifi
             AttachmentCard(
                 name = a.name,
                 icon = if (a.mime.startsWith("image/")) Icons.Image else Icons.Attach,
-                detail = formatFileSize(a.size) +
+                detail = fileSize(a.size) +
                     if (vm.isOriginal(a)) " · " + stringResource(R.string.compose_attachment_metadata_kept) else "",
                 busy = busy,
                 onRemove = if (vm.editing && !busy) ({ vm.removeAttachment(a) }) else null,
@@ -86,13 +85,13 @@ internal fun AttachmentSection(vm: ComposeViewModel, modifier: Modifier = Modifi
             )
         }
         if (vm.tooLarge && limit != null) {
-            val provider = vm.from?.provider?.let(::providerName).orEmpty()
+            val provider = vm.from?.provider?.brand.orEmpty()
             Banner(
                 text = stringResource(
                     R.string.compose_too_large,
-                    formatFileSize(vm.encodedSize),
+                    fileSize(vm.encodedSize),
                     provider,
-                    formatFileSize(limit),
+                    fileSize(limit),
                 ),
                 kind = BannerKind.WARN,
                 modifier = Modifier.fillMaxWidth(),
@@ -154,10 +153,4 @@ private fun AttachmentCard(
             }
         }
     }
-}
-
-/** Brand names; not translated. */
-private fun providerName(provider: Provider): String = when (provider) {
-    Provider.RISEUP -> "Riseup"
-    Provider.GMAIL -> "Gmail"
 }

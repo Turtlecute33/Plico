@@ -9,8 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -58,6 +55,7 @@ import app.plico.ui.components.Icons
 import app.plico.ui.components.PrivateTextInput
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
+import app.plico.ui.nav.sharedAxis
 
 /**
  * Adds an account (DESIGN §13 Setup): Welcome → credentials or Gmail methods → connection test →
@@ -123,7 +121,7 @@ private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = fals
                 navigationIcon = {
                     if (showBack) {
                         IconButton(onClick = { if (!vm.back()) nav.back() }) {
-                            Icon(Icons.Back, contentDescription = stringResource(R.string.setup_back))
+                            Icon(Icons.Back, contentDescription = stringResource(R.string.ui_back))
                         }
                     }
                 },
@@ -131,8 +129,9 @@ private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = fals
         },
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
-        val shift = with(LocalDensity.current) { 48.dp.roundToPx() }
         val motion = MaterialTheme.motionScheme
+        val forward = sharedAxis<SetupState>(forward = true)
+        val backward = sharedAxis<SetupState>(forward = false)
         PrivateTextInput {
             // Each page keeps the state it was shown with, so that a page that animates out does not change.
             AnimatedContent(
@@ -151,13 +150,10 @@ private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = fals
                     val to = targetState.shown(reauth).page
                     if (from == null || to == null || from == to) {
                         fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec())
+                    } else if (to > from) {
+                        forward()
                     } else {
-                        val sign = if (to > from) 1 else -1
-                        val enter = slideInHorizontally(motion.defaultSpatialSpec()) { sign * shift } +
-                            fadeIn(motion.defaultEffectsSpec())
-                        val exit = slideOutHorizontally(motion.defaultSpatialSpec()) { -sign * shift } +
-                            fadeOut(motion.fastEffectsSpec())
-                        enter togetherWith exit
+                        backward()
                     }
                 },
                 contentKey = { it.shown(reauth) },
@@ -177,7 +173,7 @@ private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = fals
                         Page.OPTIONS -> OptionsPage(vm, shownState)
                         Page.PERMISSIONS -> PermissionsPage(onDone = vm::finish)
                         Page.SIGNED_IN -> EmptyState(
-                            icon = SetupIcons.CheckCircle,
+                            icon = Icons.CheckCircle,
                             title = stringResource(R.string.setup_reauth_done, shownState.signedIn?.email.orEmpty()),
                             modifier = Modifier.fillMaxSize(),
                             actionLabel = stringResource(R.string.setup_done),
@@ -230,6 +226,6 @@ private fun BusyView(busy: Busy, onCancel: () -> Unit) {
             )
         }
         Spacer(Modifier.height(32.dp))
-        OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.setup_cancel)) }
+        OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.ui_cancel)) }
     }
 }

@@ -237,6 +237,15 @@ class AddressesTest {
     }
 
     @Test
+    fun formatWithoutEncodingKeepsNonAscii() {
+        val list = listOf(Address("Novák, Jan", "jan@x.example"), Address("Zoë", "z@x.example"), Address(null, "a@x.example"))
+        val f = Addresses.format(list, encode = false)
+        assertEquals("\"Novák, Jan\" <jan@x.example>, Zoë <z@x.example>, a@x.example", f)
+        assertEquals(list, parse(f))
+        assertEquals("x y <a@x.example>", Addresses.format(listOf(Address("x\r\ny", "a@x.example")), encode = false))
+    }
+
+    @Test
     fun formatNeutralisesInjection() {
         val f = Addresses.format(
             listOf(

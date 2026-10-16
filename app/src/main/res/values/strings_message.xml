@@ -2,18 +2,6 @@
 <!-- Strings of app.plico.ui.message: the message screen, link sheet, attachments and headers. -->
 <resources>
     <!-- Top bar and menu -->
-    <string name="message_back">Back</string>
-    <string name="message_archive">Archive</string>
-    <string name="message_delete">Delete</string>
-    <string name="message_delete_forever">Delete forever</string>
-    <string name="message_mark_unread">Mark as unread</string>
-    <string name="message_more">More options</string>
-    <string name="message_move">Move to…</string>
-    <string name="message_labels">Labels…</string>
-    <string name="message_spam">Report spam</string>
-    <string name="message_not_spam">Not spam</string>
-    <string name="message_star">Add star</string>
-    <string name="message_unstar">Remove star</string>
     <string name="message_important">Mark as important</string>
     <string name="message_not_important">Mark as not important</string>
     <string name="message_unsubscribe">Unsubscribe</string>
@@ -22,8 +10,6 @@
     <string name="message_view_headers">View headers</string>
 
     <!-- Header -->
-    <string name="message_no_subject">(No subject)</string>
-    <string name="message_no_sender">(No sender)</string>
     <string name="message_me">me</string>
     <string name="message_to_summary">to %1$s</string>
     <plurals name="message_and_more">
@@ -53,13 +39,9 @@
     <!-- Body -->
     <string name="message_render_failed">This message could not be shown. This is its text.</string>
     <string name="message_retry">Try again</string>
-    <string name="message_sign_in">Sign in</string>
     <string name="message_error_network">Plico cannot connect to the server.</string>
     <string name="message_error_sign_in">Sign in again to load this message.</string>
-    <string name="message_error_tls">The secure connection to the server failed.</string>
-    <string name="message_error_busy">The server is busy. Try again later.</string>
     <string name="message_error_server">The server refused the request.</string>
-    <string name="message_error_too_large">The message is too large.</string>
     <string name="message_error_setup">The account has a problem. Look at its settings.</string>
     <string name="message_error_generic">The message could not be loaded.</string>
 
@@ -69,7 +51,8 @@
         <item quantity="other">%d attachments</item>
     </plurals>
     <string name="message_attachment">Attachment</string>
-    <string name="message_save">Save</string>
+    <!-- 1: the file name. What TalkBack reads for the Save button of an attachment. -->
+    <string name="message_save_named">Save %1$s</string>
     <string name="message_open_file_title">Open this file?</string>
     <string name="message_open_anyway">Open anyway</string>
     <string name="message_no_app_file">No app on this phone can open this file.</string>

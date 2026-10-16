@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
+import android.util.Log
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import app.plico.MainActivity
@@ -19,17 +20,15 @@ import app.plico.PlicoApp
 import app.plico.R
 import app.plico.account.MailError
 import app.plico.data.Account
-import app.plico.data.FolderKind
-import app.plico.data.FolderRole
 import app.plico.data.Message
 import app.plico.data.MessageDao
-import app.plico.data.Provider
 import app.plico.data.Tables
 import app.plico.notify.NotificationBook.Item
 import app.plico.push.PushService
 import app.plico.push.StartPolicy
 import app.plico.sync.NotificationAction
 import app.plico.ui.nav.MessageLink
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,7 +44,12 @@ import kotlinx.coroutines.launch
  */
 class Notifier(private val app: PlicoApp) {
     private val nm = app.getSystemService(NotificationManager::class.java)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // A failure in one task must not end the process; only the class name is logged (DESIGN §12).
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.e(LOG_TAG, "notify: ${e.javaClass.simpleName}")
+        },
+    )
 
     // Guarded by lock.
     private val lock = Any()
@@ -73,12 +77,6 @@ class Notifier(private val app: PlicoApp) {
     fun ensureChannels(accounts: List<Account>) {
         nm.createNotificationChannels(sharedChannels() + accounts.map(::mailChannelOf))
         sharedChannelsReady = true
-    }
-
-    /** Account removed: its notifications and its channel go. */
-    fun deleteChannel(accountId: Long) {
-        cancelAccount(accountId)
-        nm.deleteNotificationChannel(mailChannel(accountId))
     }
 
     /** Deletes the new-mail channels of accounts that are gone. */
@@ -123,6 +121,7 @@ class Notifier(private val app: PlicoApp) {
         startLocked()
         clearLocked(accountId)
         clearProblem(accountId)
+        nm.cancel(UNSENT_PREFIX + accountId, ALERT_ID)
     }
 
     /**
@@ -148,6 +147,20 @@ class Notifier(private val app: PlicoApp) {
     fun clearProblem(accountId: Long) {
         nm.cancel(SIGN_IN_PREFIX + accountId, ALERT_ID)
         nm.cancel(PROBLEM_PREFIX + accountId, ALERT_ID)
+    }
+
+    /**
+     * From process start: a send that fails while the app is not on screen posts "Message not sent" (DESIGN
+     * §7.5); on screen, the mailbox shows it. One alert per account, with no message content (privacy PS11).
+     */
+    fun watchSendFailures() {
+        scope.launch {
+            app.mail.failures.collect { failure ->
+                if (failure.draftId == null || app.push.appVisible) return@collect
+                val account = app.accounts.get(failure.accountId) ?: return@collect
+                postAlert(UNSENT_PREFIX + account.id, account, R.string.push_unsent_title, R.string.push_unsent_text, openApp)
+            }
+        }
     }
 
     /** The foreground-service notification with a privacy-neutral [text]. */
@@ -281,7 +294,7 @@ class Notifier(private val app: PlicoApp) {
         book.touch(id, now)
         lastUpdate[id] = now
         if (hide) return
-        val canDelete = !account.isGmail || app.folders.byRole(id, FolderRole.TRASH, FolderKind.MAILBOX) != null
+        val canDelete = app.folders.abilities(account).canDelete
         for (item in post) {
             val message = rows[item.id] ?: continue
             nm.notify(Texts.childTag(item.id), CHILD_ID, childOf(account, message, canDelete))
@@ -512,12 +525,7 @@ class Notifier(private val app: PlicoApp) {
         }
     }
 
-    private fun labelOf(account: Account) = account.label.ifBlank {
-        when (account.provider) {
-            Provider.RISEUP -> "Riseup"
-            Provider.GMAIL -> "Gmail"
-        }
-    }
+    private fun labelOf(account: Account) = account.label.ifBlank { account.provider.brand }
 
     /** Rows read once per post. */
     private class Rows(private val messages: MessageDao) {
@@ -540,6 +548,8 @@ class Notifier(private val app: PlicoApp) {
         private const val SILENT_GROUP = "silent"
         private const val SIGN_IN_PREFIX = "signin:"
         private const val PROBLEM_PREFIX = "problem:"
+        private const val UNSENT_PREFIX = "unsent:"
+        private const val LOG_TAG = "Plico"
 
         private const val EXTRA_ACCOUNT = "app.plico.account"
         private const val EXTRA_IDS = "app.plico.ids"

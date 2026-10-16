@@ -50,6 +50,15 @@ class MailboxBannersTest {
     }
 
     @Test
+    fun failedSendsOfShownAccountsGetABanner() {
+        val riseup = account(1)
+        val gmail = account(2, Provider.GMAIL)
+        val banners = MailboxBanners.of(listOf(riseup), listOf(riseup, gmail), emptyList(), null, true, mapOf(1L to 2, 2L to 1))
+        assertEquals(listOf<MailboxBanner>(MailboxBanner.Unsent(riseup, 2)), banners)
+        assertEquals(emptyList(), MailboxBanners.of(listOf(riseup), listOf(riseup), emptyList(), null, true, mapOf(1L to 0)))
+    }
+
+    @Test
     fun accountStatesMapToTheirBanners() {
         val tls = account(1, state = AccountState.TLS_PROBLEM)
         val setup = account(2, state = AccountState.SETUP_PROBLEM, stateText = "Show All Mail in IMAP")

@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ui_cancel">Cancel</string>
+    <string name="ui_back">Back</string>
+    <string name="ui_save">Save</string>
+    <string name="ui_undo">Undo</string>
+    <string name="ui_sign_in">Sign in</string>
+    <string name="ui_more_options">More options</string>
+    <string name="ui_no_subject">(no subject)</string>
+    <string name="ui_no_sender">(no sender)</string>
+
+    <!-- Errors -->
+    <string name="ui_error_tls">The secure connection to the server failed.</string>
+    <string name="ui_error_busy">The server is busy. Try again later.</string>
 
     <!-- App lock -->
     <string name="ui_lock_title">Plico is locked</string>

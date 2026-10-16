@@ -22,6 +22,10 @@ class ContactDao(private val db: Db) {
         }
     }
 
+    /** True when [email] (any case) is a learned contact. */
+    fun isKnown(email: String): Boolean =
+        db.sql.long("SELECT 1 FROM contact WHERE email = ?", email.lowercase()) != null
+
     /** Contacts whose address, or a word of whose name, starts with [prefix]; most used, then most recent first. */
     fun suggest(prefix: String, limit: Int = 8): List<Contact> {
         val like = likePrefix(prefix.trim()) ?: return emptyList()

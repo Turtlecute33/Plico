@@ -38,16 +38,9 @@
     <string name="push_setup_text">%s: open Plico to fix the account settings.</string>
     <string name="push_problem_title">Problem with an account</string>
     <string name="push_problem_text">%s: open Plico to see the problem.</string>
+    <string name="push_unsent_title">Message not sent</string>
+    <string name="push_unsent_text">%s: a message could not be sent. Open Plico to see it in Drafts.</string>
     <string name="push_stopped_title">Push stopped</string>
     <string name="push_stopped_text">Plico does not check for new mail now.</string>
     <string name="push_action_resume">Resume</string>
-
-    <!-- Push state in the app (banner, Push &amp; battery) -->
-    <string name="push_health_paused">Push is paused</string>
-    <string name="push_health_stopped">Push stopped</string>
-    <string name="push_health_restricted">Push off: battery usage is Restricted</string>
-    <string name="push_health_notifications_off">Notifications are off for Plico</string>
-    <string name="push_health_no_network">Waiting for network</string>
-    <string name="push_health_unreliable">Push stops if Android closes the app</string>
-    <string name="push_health_ok">Push is on</string>
 </resources>

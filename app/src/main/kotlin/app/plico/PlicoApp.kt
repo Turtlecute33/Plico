@@ -2,6 +2,7 @@ package app.plico
 
 import android.app.Application
 import android.content.Context
+import app.plico.account.GoogleOAuth
 import app.plico.data.AccountDao
 import app.plico.data.ContactDao
 import app.plico.data.Db
@@ -16,9 +17,9 @@ import app.plico.data.Vault
 import app.plico.notify.Notifier
 import app.plico.push.Power
 import app.plico.push.PushEngine
-import app.plico.push.policy.KeyValueStore
 import app.plico.push.policy.LearnedIntervals
 import app.plico.sync.MailActions
+import app.plico.sync.Sender
 import app.plico.sync.Sessions
 import app.plico.ui.lock.AppLock
 import kotlin.concurrent.thread
@@ -51,17 +52,19 @@ class PlicoApp : Application() {
     val appLock by lazy { AppLock(prefs) }
 
     /** Keepalive intervals learned per provider and network, shared by all sessions. */
-    val learnedIntervals by lazy {
-        LearnedIntervals(object : KeyValueStore {
-            override fun get(key: String) = prefs.getString(key)
-            override fun put(key: String, value: String?) = prefs.putString(key, value)
-        })
-    }
+    val learnedIntervals by lazy { LearnedIntervals(prefs) }
 
     override fun onCreate() {
         super.onCreate()
-        // DESIGN §11.5: cached attachment files older than 1 h are deleted at start.
-        thread(name = "prune-attachments") { files.pruneAttachmentCache() }
+        // On the main thread, so that it cannot race with a sign-in that the UI starts at once.
+        GoogleOAuth.dropStale(prefs)
+        notifier.watchSendFailures()
+        thread(name = "start-cleanup") {
+            // DESIGN §7.5: interrupted sends become failed before the first send of this process.
+            Sender.onProcessStart(this)
+            // DESIGN §11.5: cached attachment files older than 1 h are deleted at start.
+            files.pruneAttachmentCache()
+        }
     }
 }
 

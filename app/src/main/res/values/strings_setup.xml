@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="setup_back">Back</string>
-    <string name="setup_cancel">Cancel</string>
     <string name="setup_done">Done</string>
     <string name="setup_open_in_browser">%1$s (opens in your browser)</string>
     <string name="setup_copy">Copy %1$s</string>
@@ -18,7 +16,6 @@
     <string name="setup_app_password_hint">16 letters. Spaces are not important.</string>
     <string name="setup_show_password">Show password</string>
     <string name="setup_hide_password">Hide password</string>
-    <string name="setup_sign_in">Sign in</string>
     <string name="setup_error_required">Fill in this field.</string>
     <string name="setup_error_address">Enter a full email address, for example name@example.org.</string>
     <string name="setup_error_not_riseup">Enter your address at riseup.net. You cannot sign in with an alias.</string>
@@ -60,7 +57,6 @@
     <string name="setup_field_client_id">Client ID</string>
     <string name="setup_client_id_hint">Ends with .apps.googleusercontent.com</string>
     <string name="setup_error_client_id">This is not an OAuth client ID. A client ID ends with .apps.googleusercontent.com.</string>
-    <string name="setup_client_save">Save</string>
 
     <!-- Work in progress -->
     <string name="setup_busy_testing">Testing the connection…</string>

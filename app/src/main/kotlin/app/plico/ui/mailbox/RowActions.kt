@@ -1,6 +1,7 @@
 package app.plico.ui.mailbox
 
 import androidx.compose.ui.state.ToggleableState
+import app.plico.data.AccountAbilities
 import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.MessageSummary
@@ -24,10 +25,11 @@ internal enum class RowAction(val removesRow: Boolean = false) {
     NOT_SPAM(removesRow = true),
 }
 
-/** What an account allows: Gmail without a visible Trash or Spam turns Delete or Spam off (DESIGN §7.3). */
-internal data class AccountAbilities(val canDelete: Boolean = true, val canSpam: Boolean = true)
-
-/** One list row with what the actions need to know about it. */
+/**
+ * One list row with what the actions need to know about it. Gmail Archive removes `\Inbox`, so [canArchive] is
+ * off for Gmail rows outside the inbox views, where a row may not have it. [sent]: mail the user sent (in Sent, or
+ * from the account's address); the row shows its recipient.
+ */
 internal data class RowInfo(
     val id: Long,
     val accountId: Long,
@@ -36,7 +38,11 @@ internal data class RowInfo(
     val place: Place,
     val gmail: Boolean,
     val abilities: AccountAbilities = AccountAbilities(),
-)
+    val canArchive: Boolean = true,
+    val sent: Boolean = false,
+) {
+    val archivable: Boolean get() = place == Place.NORMAL && canArchive
+}
 
 /** The actions of the multi-select bar for the selected rows; null or false hides an action. */
 internal data class SelectionActions(
@@ -75,7 +81,7 @@ internal object RowActions {
 
     /** The action of a swipe set to [choice] on [row]; null turns that swipe direction off. */
     fun swipe(choice: Prefs.Swipe, row: RowInfo): RowAction? = when (choice) {
-        Prefs.Swipe.ARCHIVE -> RowAction.ARCHIVE.takeIf { row.place == Place.NORMAL }
+        Prefs.Swipe.ARCHIVE -> RowAction.ARCHIVE.takeIf { row.archivable }
         Prefs.Swipe.DELETE -> when (row.place) {
             Place.TRASH, Place.SPAM -> RowAction.DELETE_FOREVER
             else -> RowAction.DELETE.takeIf { row.abilities.canDelete }
@@ -103,7 +109,7 @@ internal object RowActions {
             else -> null
         }
         return SelectionActions(
-            archive = rows.all { it.place == Place.NORMAL },
+            archive = rows.all { it.archivable },
             delete = delete,
             read = if (rows.any { !it.seen }) RowAction.MARK_READ else RowAction.MARK_UNREAD,
             star = if (rows.any { !it.flagged }) RowAction.STAR else RowAction.UNSTAR,

@@ -202,6 +202,31 @@ class ImapClientTest {
     }
 
     @Test
+    fun listStatusReadsEveryMailboxInOneRoundTrip() {
+        dovecot()
+        fake.client("A2 LIST \"\" \"*\" RETURN (STATUS (MESSAGES UIDNEXT UIDVALIDITY HIGHESTMODSEQ))").server(
+            "* LIST (\\HasNoChildren) \".\" INBOX",
+            "* STATUS INBOX (MESSAGES 12 UIDNEXT 40 UIDVALIDITY 3 HIGHESTMODSEQ 99)",
+            "* LIST (\\HasNoChildren \\Junk) \".\" Spam",
+            "* STATUS Spam (MESSAGES 0 UIDNEXT 1 UIDVALIDITY 5 HIGHESTMODSEQ 0)",
+            "* LIST (\\HasNoChildren) \".\" \"Gr&APw-n\"",
+            "* STATUS \"Gr&APw-n\" (MESSAGES 1 UIDNEXT 2 UIDVALIDITY 6 HIGHESTMODSEQ 4)",
+            "* STATUS Broken (UIDNEXT 2)",
+            "A2 OK List completed",
+        )
+        assertEquals(
+            mapOf(
+                "INBOX" to MailboxStatus(12, 40, 3, 99),
+                "Spam" to MailboxStatus(0, 1, 5, null),
+                "Grün" to MailboxStatus(1, 2, 6, 4),
+            ),
+            client.listStatus(),
+            "names decoded from modified UTF-7; incomplete entries left out",
+        )
+        fake.finish()
+    }
+
+    @Test
     fun statusWithoutCondstore() {
         fake.server("* OK [CAPABILITY IMAP4rev1] ready")
         client.conn.greeting()

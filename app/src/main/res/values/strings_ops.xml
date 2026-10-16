@@ -21,6 +21,9 @@
     <string name="ops_error_invalid_address">An address is not correct.</string>
     <string name="ops_error_no_recipient">Add a recipient.</string>
     <string name="ops_error_attachment_missing">An attachment is missing. Remove it and attach the file again.</string>
+    <!-- %1$s: the From address of the draft. -->
+    <string name="ops_error_unknown_sender">Plico did not send the message. %1$s is not an address of this account. Select a different From address.</string>
+    <string name="ops_error_resync_dropped">Plico downloads this folder again. Your last changes to it are not on the server.</string>
 
     <string name="ops_error_no_account">Add an account first.</string>
     <string name="ops_error_message_gone">This message is not available now.</string>

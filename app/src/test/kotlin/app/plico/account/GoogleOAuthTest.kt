@@ -187,6 +187,16 @@ class GoogleOAuthTest {
     }
 
     @Test
+    fun `app start drops only entries that can no longer complete`() {
+        val pending = Pending("s", "v", "me@gmail.com", createdAt = 1_000)
+        assertFalse(GoogleOAuth.isStale(pending.toJson(), 1_000 + MAX_AGE_MS))
+        assertFalse(GoogleOAuth.isStale(pending.copy(code = "4/0Ab").toJson(), 2_000), "a redirect waits for setup")
+        assertTrue(GoogleOAuth.isStale(pending.toJson(), 1_001 + MAX_AGE_MS), "abandoned in the browser")
+        assertTrue(GoogleOAuth.isStale(pending.toJson(), 999), "after a reboot")
+        assertTrue(GoogleOAuth.isStale("not json", 1_000))
+    }
+
+    @Test
     fun `redirect with matching state stores the code once`() {
         val pending = Pending("s1", "v", "e", createdAt = 0)
         val done = pending.redirected("s1", "4/0Ab", null, now = 60_000)

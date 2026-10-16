@@ -19,17 +19,17 @@ import app.plico.data.Message
 import app.plico.data.MessageDetail
 import app.plico.data.NewAccount
 import app.plico.data.NewDraft
-import app.plico.data.NewFolder
-import app.plico.data.NewOp
+import app.plico.data.OpKind
 import app.plico.data.Tables
-import app.plico.data.list
 import app.plico.html.HtmlSanitizer
+import app.plico.html.ListUnsubscribe
 import app.plico.html.RemoteFetcher
 import app.plico.html.SenderCheck
 import app.plico.mail.imap.UidSet
 import app.plico.mail.mime.Address
 import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderSafety
+import app.plico.mail.mime.MessageBuilder
 import app.plico.mail.mime.TransferDecoding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -65,8 +65,11 @@ data class DraftPrefill(
     val body: String = "",
 )
 
-/** A change the server refused (Plico undid it locally) or a send that failed; [text] is for a snackbar. */
-data class ActionFailure(val accountId: Long, val text: String)
+/**
+ * A change the server refused (Plico undid it locally) or a send that failed; [text] is for a snackbar.
+ * [draftId] is set for a send that failed: the draft is in the account's Drafts with state failed.
+ */
+data class ActionFailure(val accountId: Long, val text: String, val draftId: Long? = null)
 
 /** An action that cannot run; [message] is a text for the user. */
 class ActionError(message: String) : Exception(message)
@@ -78,8 +81,14 @@ internal interface ActionHost {
     /** Messages became seen, archived or deleted: refresh the notifications of the account. */
     fun messagesChanged(accountId: Long)
 
-    /** Runs [block] on the account's session loop with a connected client. */
-    suspend fun <T> request(accountId: Long, block: suspend OpContext.() -> T): T
+    /**
+     * Runs [block] on the account's session loop with a connected client. A cancelled caller gets no result;
+     * with [closeOnCancel] the connection also closes, which stops the block (server search, DESIGN §7.7).
+     */
+    suspend fun <T> request(accountId: Long, closeOnCancel: Boolean = false, block: suspend OpContext.() -> T): T
+
+    /** Syncs every mailbox of the account now, as a pull to refresh does. */
+    fun refresh(accountId: Long)
 
     val undoSendSeconds: Int
 
@@ -105,7 +114,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
     // ---- List actions (DESIGN §7.3, §7.4)
 
     /** Gmail removes `\Inbox`; Riseup moves to the archive folder (created on first use). */
-    fun archive(ids: List<Long>, fromView: MailView): Undo? = archive(ids, store.now() + UNDO_MS)
+    fun archive(ids: List<Long>): Undo? = archive(ids, store.now() + UNDO_MS)
 
     /** To Trash; inside Trash/Spam use [deleteForever] (the UI confirms). */
     fun delete(ids: List<Long>): Undo? = delete(ids, store.now() + UNDO_MS)
@@ -209,17 +218,27 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val uids = store.messages.uids(folder.id)
         val upTo = uids.lastOrNull() ?: return
         store.db.tx(Tables.MESSAGE, Tables.OP) {
+            // A restore out of this folder that waits for its undo window runs first (ops run in id order).
+            val restores = store.ops.byAccount(folder.accountId).filter { op ->
+                op.kind == OpKind.MOVE && store.messages.refs(op.messageIds).any { it.folderId == folder.id }
+            }
+            val runAt = maxOf(store.now(), restores.maxOfOrNull { it.runAt } ?: 0L)
             store.messages.setHidden(store.messages.idsByUid(folder.id, uids).values, true)
-            queue(folder.accountId, emptyList(), OpArg.Expunge(folder.id, upTo), store.now())
+            queue(folder.accountId, emptyList(), OpArg.Expunge(folder.id, upTo), runAt)
         }
         host.messagesChanged(folder.accountId)
         host.kick(folder.accountId)
     }
 
-    /** Deletes the ops of [undo] that have not run and restores their rows. */
-    fun undo(undo: Undo) {
-        val accounts = store.db.tx(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.OP) {
-            val pending = undo.opIds.mapNotNull(store.ops::get)
+    /**
+     * Deletes the ops of [undo] that have not started and restores their rows. An op is still undoable only
+     * before its run_at: the loop takes nothing earlier, and in one transaction nothing can take it between the
+     * check and the delete. Returns false when an op was too late (it runs or ran); its change stays.
+     */
+    fun undo(undo: Undo): Boolean {
+        val (accounts, all) = store.db.tx(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.OP) {
+            val now = store.now()
+            val pending = undo.opIds.mapNotNull(store.ops::get).filter { it.attempts == 0 && it.runAt > now }
             pending.forEach { store.ops.delete(it.id) }
             val ids = pending.flatMapTo(HashSet()) { it.messageIds }
             store.messages.setHidden(ids, false)
@@ -227,9 +246,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 store.messages.addToFolder(members.filter { it in ids }, label)
                 store.messages.removeFromFolder(ids - members, label)
             }
-            pending.map { it.accountId }.distinct()
+            pending.map { it.accountId }.distinct() to (pending.size == undo.opIds.size)
         }
         accounts.forEach(host::messagesChanged)
+        return all
     }
 
     /** A notification button: same as the list action but with run_at = now (no undo), then kick. */
@@ -250,21 +270,28 @@ class MailActions internal constructor(private val store: OpStore, private val h
         if (path.isEmpty()) throw ActionError(store.text(R.string.ops_error_folder_name))
         return host.request(accountId) {
             client.create(path)
-            val delimiter = if (account.isGmail) "/" else store.folders.byAccount(account.id).firstNotNullOfOrNull { it.delimiter }
-            val kind = if (account.isGmail) FolderKind.LABEL else FolderKind.MAILBOX
-            val leaf = if (delimiter.isNullOrEmpty()) path else path.substringAfterLast(delimiter)
-            store.folders.get(store.folders.upsert(NewFolder(account.id, kind, path, leaf, null, delimiter)))!!
+            store.folders.get(store.folders.upsert(Ops.createdFolder(store, account, path, null)))!!
         }
     }
 
     fun setFolderNotify(folderId: Long, notify: Boolean): Unit = store.folders.setNotify(folderId, notify)
 
-    /** Drops the rows of a guarded folder and resyncs it (DESIGN §7.2 step 6). */
+    /**
+     * Drops the rows of a guarded folder and syncs it again now (DESIGN §7.2 step 6). Changes that wait for the
+     * folder cannot run without their rows: the user is told, and ops with no other rows are dropped.
+     */
     fun resyncFolder(folderId: Long) {
         val folder = store.folders.get(folderId) ?: return
-        store.folders.resync(folderId)
+        val dropped = store.db.tx(Tables.FOLDER, Tables.OP, *Tables.MESSAGE_OWNED) {
+            val waiting = store.ops.byAccount(folder.accountId).associateWith { op -> store.messages.refs(op.messageIds) }
+                .filterValues { refs -> refs.any { it.folderId == folderId } }
+            waiting.filterValues { refs -> refs.all { it.folderId == folderId } }.keys.forEach { store.ops.delete(it.id) }
+            store.folders.resync(folderId)
+            waiting.isNotEmpty()
+        }
+        if (dropped) Ops.report(folder.accountId, store.text(R.string.ops_error_resync_dropped))
         host.messagesChanged(folder.accountId)
-        host.kick(folder.accountId)
+        host.refresh(folder.accountId)
     }
 
     // ---- Online reads
@@ -299,15 +326,19 @@ class MailActions internal constructor(private val store: OpStore, private val h
         }
     }
 
-    /** Returns the number of hits. Riseup searches [folderId] (INBOX for the unified view), Gmail All Mail. */
-    suspend fun searchServer(query: String, accountId: Long?, folderId: Long?): Int {
+    /**
+     * The local ids of the server hits, every one stored now, so that the list can show them next to the local
+     * matches. Riseup searches [folderId] (INBOX for the unified view), Gmail All Mail. Cancelling closes the
+     * connection (DESIGN §7.7).
+     */
+    suspend fun searchServerIds(query: String, accountId: Long?, folderId: Long?): List<Long> {
         val (folder, accounts) = withContext(Dispatchers.IO) {
             val folder = folderId?.let(store.folders::get)
             folder to (folder?.let { listOf(it.accountId) } ?: accountId?.let { listOf(it) } ?: allAccounts().map { it.id })
         }
         return forAll(accounts) { id ->
-            host.request(id) { Search.server(this, query, folder?.takeIf { it.accountId == id }).size }
-        }.sum()
+            host.request(id, closeOnCancel = true) { Search.server(this, query, folder?.takeIf { it.accountId == id }) }
+        }.flatten().distinct()
     }
 
     /** Pull to refresh / folder opened: syncs the mailboxes of the view now. */
@@ -331,7 +362,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val message = store.messages.get(messageId) ?: return@withContext false
         val account = store.accounts.get(message.accountId) ?: return@withContext false
         val inJunk = store.folders.get(message.folderId)?.role == FolderRole.JUNK
-        val url = unsubscribeUrl(message.unsubscribe)
+        val url = ListUnsubscribe.parse(message.unsubscribe)?.oneClick
         val allowed = SenderCheck.trust(account.isGmail, message.auth, inJunk).oneClickUnsubscribe
         url != null && message.unsubscribePost && allowed && RemoteFetcher.unsubscribe(url)
     }
@@ -366,8 +397,8 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 NewDraft(
                     accountId = account.id,
                     fromEmail = ReplyRules.from(source, account.email, identities),
-                    toList = HeaderParser.format(recipients.to),
-                    ccList = HeaderParser.format(recipients.cc),
+                    toList = Addresses.format(recipients.to, encode = false),
+                    ccList = Addresses.format(recipients.cc, encode = false),
                     subject = ReplyRules.replySubject(message.subject),
                     body = ReplyRules.replyBody(account.signature, attribution, bodyText(detail)),
                     inReplyTo = message.messageId,
@@ -433,26 +464,33 @@ class MailActions internal constructor(private val store: OpStore, private val h
         return draftId
     }
 
-    /** Saves the draft locally; a new From of another account moves the draft to that account. */
+    /**
+     * Saves the draft locally. The row is read in the same transaction as the update, so an attachment added
+     * meanwhile stays. A new From of another account moves the draft to that account. A From with another
+     * domain gets a new Message-ID of that domain, because the old one would link the two addresses for every
+     * recipient (privacy). In both cases the copies under the old account or Message-ID are deleted.
+     */
     fun saveDraft(draftId: Long, fromEmail: String, to: String, cc: String, bcc: String, subject: String, body: String) {
-        val draft = store.drafts.get(draftId) ?: return
-        val accountId = accountOf(fromEmail) ?: draft.accountId
-        val changed = draft.copy(
-            accountId = accountId, fromEmail = fromEmail, toList = to, ccList = cc, bccList = bcc, subject = subject,
-            body = body,
-        )
-        if (changed == draft) return
-        val moved = accountId != draft.accountId
-        val saved = store.db.tx(Tables.DRAFT, Tables.OP) {
-            val saved = store.drafts.update(changed)
-            // The copy on the old account's server goes.
-            if (saved && moved && (Drafts.dropUploads(store, draft.accountId, draftId) || draft.onServer)) {
-                Drafts.queueDelete(store, draft.accountId, draft.messageId)
-                store.drafts.setOnServer(draftId, false)
+        val target = accountOf(fromEmail)
+        val oldAccount = store.db.tx(Tables.DRAFT, Tables.OP, Tables.MESSAGE) {
+            val draft = store.drafts.get(draftId) ?: return@tx null
+            val changed = draft.copy(
+                accountId = target ?: draft.accountId, fromEmail = fromEmail, toList = to, ccList = cc, bccList = bcc,
+                subject = subject, body = body,
+            )
+            if (changed == draft || !store.drafts.update(changed)) return@tx null
+            val moved = changed.accountId != draft.accountId
+            val newDomain = !domain(fromEmail).equals(domain(draft.fromEmail), ignoreCase = true)
+            if (!moved && !newDomain) return@tx null
+            val deleted = Drafts.dropUploads(store, draft.accountId, draftId) || draft.onServer
+            if (deleted) Drafts.queueDelete(store, draft.accountId, draft.messageId)
+            when {
+                newDomain -> store.drafts.setMessageId(draftId, MessageBuilder.newMessageId(domain(fromEmail)))
+                deleted -> store.drafts.setOnServer(draftId, false)
             }
-            saved
+            draft.accountId.takeIf { deleted }
         }
-        if (saved && moved) host.kick(draft.accountId)
+        oldAccount?.let(host::kick)
     }
 
     /**
@@ -461,7 +499,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
      */
     fun leaveDraft(draftId: Long) {
         val draft = store.drafts.get(draftId) ?: return
-        if (draft.state != DraftState.EDITING && draft.state != DraftState.FAILED) return
+        if (draft.state != DraftState.EDITING && !DraftState.failed(draft.state)) return
         val account = store.accounts.get(draft.accountId) ?: return
         val empty = draft.toList.isBlank() && draft.ccList.isBlank() && draft.bccList.isBlank() &&
             draft.subject.isBlank() && draft.attachments.isEmpty() &&
@@ -494,7 +532,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val account = store.accounts.get(draft.accountId) ?: return false
         val recipients = DraftMime.addresses(draft)
         val valid = recipients.isNotEmpty() && (recipients.map { it.email } + draft.fromEmail).all(Addresses::isValidAddrSpec)
-        if (!valid || DraftMime.estimatedSize(draft) > Providers.of(account.provider).maxMessageBytes) return false
+        if (!valid || DraftMime.estimatedSize(DraftMime.rawSize(draft)) > Providers.of(account.provider).maxMessageBytes) return false
         if (!store.drafts.queue(draftId, store.now() + host.undoSendSeconds * 1000L)) return false
         host.kick(account.id)
         return true
@@ -506,7 +544,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     fun retrySend(draftId: Long) {
         val draft = store.drafts.get(draftId) ?: return
-        if (draft.state == DraftState.FAILED && store.drafts.queue(draftId, store.now())) host.kick(draft.accountId)
+        if (DraftState.failed(draft.state) && store.drafts.queue(draftId, store.now())) host.kick(draft.accountId)
     }
 
     /** Copies [uri] into the outbox (IncomingUris rules, image re-encoding per DESIGN §10). */
@@ -514,10 +552,13 @@ class MailActions internal constructor(private val store: OpStore, private val h
         withContext(Dispatchers.IO) { DraftAttachments.add(store, draftId, uri, originalQuality) }
 
     fun removeAttachment(draftId: Long, file: String) {
-        val draft = store.drafts.get(draftId) ?: return
-        val kept = draft.attachments.filterNot { it.file == file }
-        if (kept.size == draft.attachments.size || !store.drafts.update(draft.copy(attachments = kept))) return
-        Files.inside(store.files.outboxDir(draftId), file).delete()
+        var removed = false
+        store.updateDraft(draftId) { draft ->
+            val kept = draft.attachments.filterNot { it.file == file }
+            removed = kept.size < draft.attachments.size
+            draft.copy(attachments = kept)
+        }
+        if (removed) Files.inside(store.files.outboxDir(draftId), file).delete()
     }
 
     // ---- Accounts
@@ -561,14 +602,9 @@ class MailActions internal constructor(private val store: OpStore, private val h
             folders.values.firstOrNull { it.kind == FolderKind.MAILBOX && it.role == role }?.let { Target(it.path, role) }
                 ?: fallback?.let { Target(it, role) }
 
-        /** Riseup (protocol PS5): the chosen folder, the \Archive mailbox, "Archive" or "Archives", else a new "Archive". */
-        fun archiveTarget(): Target {
-            val boxes = folders.values.filter { it.kind == FolderKind.MAILBOX }
-            val folder = boxes.firstOrNull { it.id == account.archiveFolder }
-                ?: boxes.firstOrNull { it.role == FolderRole.ARCHIVE }
-                ?: boxes.firstOrNull { it.path.equals(ARCHIVE, true) || it.path.equals("Archives", true) }
-            return Target(folder?.path ?: ARCHIVE, FolderRole.ARCHIVE)
-        }
+        /** Riseup (protocol PS5): the archive of [FolderRules.archiveOf], else a new "Archive". */
+        fun archiveTarget(): Target =
+            Target(FolderRules.archiveOf(account, folders.values.toList())?.path ?: ARCHIVE, FolderRole.ARCHIVE)
 
         /** The Gmail label a view shows (`\Inbox` for the inboxes); null for All Mail, Starred and search. */
         fun viewLabel(view: MailView): Folder? = when (view) {
@@ -647,15 +683,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
     }
 
     private fun queue(accountId: Long, ids: List<Long>, arg: OpArg, runAt: Long): Long =
-        store.ops.insert(NewOp(accountId, arg.kind, ids, OpArg.encode(arg), runAt))
+        store.ops.insert(arg.toNewOp(accountId, runAt, ids))
 
     /** The ids among [ids] that are in label view [folderId]. */
-    private fun members(folderId: Long, ids: List<Long>): Set<Long> = ids.chunked(500).flatMapTo(HashSet()) { batch ->
-        store.db.sql.list(
-            "SELECT message_id FROM message_folder WHERE folder_id = ? AND message_id IN (${batch.joinToString(",")})",
-            folderId,
-        ) { it.getLong(0) }
-    }
+    private fun members(folderId: Long, ids: List<Long>): Set<Long> = store.messages.memberIds(folderId, ids)
 
     private fun isTrashOrJunk(folder: Folder) = folder.role == FolderRole.TRASH || folder.role == FolderRole.JUNK
 
@@ -664,6 +695,8 @@ class MailActions internal constructor(private val store: OpStore, private val h
     /** The mailbox that holds a view's mail: Gmail All Mail, Riseup INBOX. */
     private fun mainMailbox(accountId: Long, gmail: Boolean): Folder? =
         store.mailbox(accountId, if (gmail) FolderRole.ALL else FolderRole.INBOX)
+
+    private fun domain(email: String) = email.substringAfterLast('@')
 
     /** The account whose address or identity is [email]. */
     private fun accountOf(email: String): Long? = store.accounts.byEmail(email)?.id
@@ -721,8 +754,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 }
             }
             withContext(Dispatchers.IO) {
-                val draft = store.drafts.get(draftId) ?: throw gone()
-                store.drafts.update(draft.copy(attachments = draft.attachments + copies))
+                if (!store.updateDraft(draftId) { it.copy(attachments = it.attachments + copies) }) throw gone()
             }
         } catch (e: Throwable) {
             withContext(NonCancellable + Dispatchers.IO) { discardDraft(draftId) }
@@ -735,7 +767,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
         items.map { async { block(it) } }.map { runCatching { it.await() } }.map { it.getOrThrow() }
     }
 
-    private fun addressList(value: String) = HeaderParser.format(Addresses.parseList(value))
+    private fun addressList(value: String) = Addresses.format(Addresses.parseList(value), encode = false)
 
     private fun gone() = ActionError(store.text(R.string.ops_error_message_gone))
 
@@ -744,8 +776,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
         override fun messagesChanged(accountId: Long) = app.notifier.refresh(accountId)
 
-        override suspend fun <T> request(accountId: Long, block: suspend OpContext.() -> T): T =
-            app.sessions[accountId].request { SessionOpContext(this).block() }
+        override suspend fun <T> request(accountId: Long, closeOnCancel: Boolean, block: suspend OpContext.() -> T): T =
+            app.sessions[accountId].request(closeOnCancel) { block() }
+
+        override fun refresh(accountId: Long) = app.sessions[accountId].kick(AccountSession.Reason.USER_REFRESH)
 
         override val undoSendSeconds: Int get() = app.prefs.undoSendSeconds
 
@@ -764,30 +798,27 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 // Best effort: a missing secret or no network leaves the grant for the user to remove.
             }
             app.accounts.purge(account.id, app.files)
+            GmailSync.forget(app.prefs, account.id)
+            // The channel goes in onAccountsChanged (removeStaleChannels).
             app.notifier.cancelAccount(account.id)
-            app.notifier.deleteChannel(account.id)
             forgetCredentials(account.id)
             app.push.onAccountsChanged()
         }
     }
 
-    private companion object {
-        /** The undo window of archive, delete, move and spam (DESIGN §7.4). */
-        const val UNDO_MS = 4_000L
-        const val BODY_WAIT_MS = 15_000L
-        const val SEEN = "\\Seen"
-        const val FLAGGED = "\\Flagged"
-        const val IMPORTANT = "\\Important"
-        const val INBOX = "INBOX"
-        const val ARCHIVE = "Archive"
-        const val TRASH = "Trash"
-        const val SPAM = "Spam"
+    companion object {
+        /**
+         * The undo window of archive, delete, move and spam (DESIGN §7.4): the op runs this long after the action.
+         * The Undo snackbar closes 1 s before, so that an Undo tap always comes in time.
+         */
+        const val UNDO_MS = 6_000L
+        private const val BODY_WAIT_MS = 15_000L
+        private const val SEEN = "\\Seen"
+        private const val FLAGGED = "\\Flagged"
+        private const val IMPORTANT = "\\Important"
+        private const val INBOX = "INBOX"
+        private const val ARCHIVE = "Archive"
+        private const val TRASH = "Trash"
+        private const val SPAM = "Spam"
     }
-}
-
-/** The https URL of a `List-Unsubscribe` value (`<https://…>, <mailto:…>`), or null. */
-internal fun unsubscribeUrl(value: String?): String? {
-    if (value.isNullOrBlank()) return null
-    Regex("""<\s*(https://[^>\s]+)\s*>""", RegexOption.IGNORE_CASE).find(value)?.let { return it.groupValues[1] }
-    return value.trim().takeIf { it.startsWith("https://", ignoreCase = true) && it.none(Char::isWhitespace) }
 }

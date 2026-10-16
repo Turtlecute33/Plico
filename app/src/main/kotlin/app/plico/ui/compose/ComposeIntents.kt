@@ -8,7 +8,6 @@ import app.plico.R
 import app.plico.html.IncomingUris
 import app.plico.html.Mailto
 import app.plico.mail.mime.Address
-import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderSafety
 import app.plico.sync.DraftPrefill
 import kotlinx.coroutines.CancellationException
@@ -67,7 +66,7 @@ object ComposeIntents {
             cc = recipients(mailto?.cc.orEmpty() + addresses(shared.cc)),
             bcc = recipients(mailto?.bcc.orEmpty() + addresses(shared.bcc)),
             subject = HeaderSafety.clean(mailto?.subject?.ifEmpty { null } ?: shared.subject.orEmpty()),
-            body = cleanBody(mailto?.body?.ifEmpty { null } ?: shared.text.orEmpty()),
+            body = Mailto.cleanBody(mailto?.body?.ifEmpty { null } ?: shared.text.orEmpty()),
         )
     }
 
@@ -120,15 +119,10 @@ object ComposeIntents {
         null
     }
 
-    private fun addresses(values: List<String>): List<Address> =
-        values.flatMap(Addresses::parseList).filter { Addresses.isValidAddrSpec(it.email) }
+    private fun addresses(values: List<String>): List<Address> = values.flatMap { Mailto.addresses(it) }
 
     private fun recipients(list: List<Address>): String =
         Recipients.format(Recipients.newOnes(emptyList(), list.map { Recipient.Valid(it) }))
-
-    /** CR LF and CR become LF; other controls except tab are dropped. */
-    private fun cleanBody(text: String): String =
-        text.replace("\r\n", "\n").replace('\r', '\n').filter { it == '\n' || it == '\t' || !it.isISOControl() }
 
     private suspend fun toast(app: PlicoApp, count: Int) = withContext(Dispatchers.Main) {
         val text = app.resources.getQuantityString(R.plurals.compose_share_failed, count, count)

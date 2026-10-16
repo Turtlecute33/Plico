@@ -5,6 +5,9 @@ import app.plico.data.DraftState
 import app.plico.data.FolderRole
 import app.plico.data.NewDraft
 import app.plico.data.OpKind
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.io.File
@@ -169,7 +172,7 @@ class SenderTest : OpFixture() {
         send(session(riseup, FakeImap(), server))
         server.finish()
         val draft = drafts.get(id)!!
-        assertEquals(DraftState.FAILED, draft.state)
+        assertEquals(DraftState.UNCERTAIN, draft.state)
         assertEquals(context.getString(R.string.data_error_may_have_been_sent), draft.error)
     }
 
@@ -189,7 +192,7 @@ class SenderTest : OpFixture() {
         drafts.markSending(id)
         send(session(riseup, FakeImap()))
         val draft = drafts.get(id)!!
-        assertEquals(DraftState.FAILED, draft.state)
+        assertEquals(DraftState.UNCERTAIN, draft.state)
         assertEquals(context.getString(R.string.data_error_may_have_been_sent), draft.error)
     }
 
@@ -200,6 +203,67 @@ class SenderTest : OpFixture() {
         val invalid = drafts.create(NewDraft(riseup, "user@riseup.net", toList = "\"Bob\" <bob@>"))
         assertFalse(actions.send(invalid))
         assertEquals(DraftState.EDITING, drafts.get(invalid)!!.state)
+    }
+
+    @Test
+    fun aFromThatIsNoAddressOfTheAccountIsNotSent() {
+        val id = queued(from = "someone@example.org")
+        val ctx = session(riseup, FakeImap()) // no SMTP connection
+        val failure = runBlocking {
+            val first = async(start = CoroutineStart.UNDISPATCHED) { Ops.failures.first { it.draftId == id } }
+            Sender.run(ctx)
+            first.await()
+        }
+        val draft = drafts.get(id)!!
+        assertEquals(DraftState.FAILED, draft.state)
+        assertEquals(context.getString(R.string.ops_error_unknown_sender, "someone@example.org"), draft.error)
+        assertEquals(draft.error, failure.text, "the failure names the draft, for a notification")
+    }
+
+    @Test
+    fun anIdentityOfTheAccountSends() {
+        accounts.addIdentity(riseup, "Alias@riseup.net", "Alias")
+        val id = queued(from = "alias@riseup.net", bcc = "")
+        val server = smtp("alias@riseup.net")
+            .expect("RCPT TO:<bob@example.org>", "250 ok")
+            .expect("DATA", "354 go on")
+            .expect(".", "250 2.0.0 queued")
+            .expect("QUIT", "221 bye")
+        send(session(riseup, FakeImap(), server))
+        server.finish()
+        assertEquals(DraftState.SENT, drafts.get(id)!!.state)
+    }
+
+    @Test
+    fun aSendWhoseDraftIsGoneLeavesNoFiles() {
+        val id = queued()
+        val ctx = session(riseup, FakeImap(), smtp().expect("RCPT TO:<bob@example.org>", "250 ok")
+            .expect("RCPT TO:<hidden@example.org>", "250 ok")
+            .expect("DATA", "354 go on")
+            .expect(".", "250 2.0.0 queued")
+            .expect("QUIT", "221 bye"))
+        // The account is removed while the message goes out.
+        ctx.beforeSmtp = { drafts.delete(id) }
+        send(ctx)
+        assertFalse(File(context.filesDir, "outbox/$id").exists(), "no Sent copy with the Bcc stays behind")
+        assertTrue(ops.byAccount(riseup).isEmpty())
+    }
+
+    @Test
+    fun sentDraftsThatADeadProcessLeftAreCleanedAtStart() {
+        val done = drafts.create(NewDraft(riseup, "user@riseup.net", toList = "bob@example.org", messageId = "<done@riseup.net>"))
+        val copying = drafts.create(NewDraft(riseup, "user@riseup.net", toList = "bob@example.org"))
+        for (id in listOf(done, copying)) {
+            drafts.queue(id, 0)
+            drafts.markSending(id)
+            drafts.markSent(id)
+            store.files.newOutboxFile(id, "message.eml").writeText("x")
+        }
+        ops.insert(OpArg.Append(copying, FolderRole.SENT, "sent.eml").toNewOp(riseup, Long.MAX_VALUE))
+        send(session(riseup, FakeImap()))
+        assertNull(drafts.get(done), "its Message-ID would hide the sent message (protocol PS7)")
+        assertFalse(File(context.filesDir, "outbox/$done").exists())
+        assertEquals(DraftState.SENT, drafts.get(copying)!!.state, "the Sent copy still needs it")
     }
 
     @Test

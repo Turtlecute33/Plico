@@ -2,8 +2,6 @@ package app.plico.sync
 
 import app.plico.data.Auth
 import app.plico.mail.imap.FetchItem
-import app.plico.mail.mime.Address
-import app.plico.mail.mime.Addresses
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -76,13 +74,6 @@ class HeaderParserTest {
     }
 
     @Test
-    fun storedAddressListsReadBack() {
-        val list = listOf(Address("Doe, Jane", "jane@example.org"), Address("Zoë", "z@example.org"), Address(null, "x@example.org"))
-        assertEquals(list, Addresses.parseList(HeaderParser.format(list)))
-        assertEquals("Zoë <z@example.org>", HeaderParser.format(listOf(list[1])), "decoded, not RFC 2047")
-    }
-
-    @Test
     fun dateFallsBackToTheHeaderThenNow() {
         assertEquals(1_792_142_043_000, parse("Date: Thu, 16 Oct 2026 09:14:03 +0000\n\n", internalDate = null).date)
         assertEquals(5, parse("Subject: x\n\n", internalDate = null).date)
@@ -118,6 +109,15 @@ class HeaderParserTest {
         assertFalse(m.unsubscribePost)
         val noSection = HeaderParser.newMessage(item("", key = "1"), 1, 2, false, null, true, 5)
         assertEquals("", noSection.subject)
+    }
+
+    @Test
+    fun onlyItemsWithTheHeaderSectionAreNewRows() {
+        assertTrue(HeaderParser.hasHeaderFields(item("From: a@example.org\n")))
+        assertTrue(HeaderParser.hasHeaderFields(item("", key = "header.fields (FROM)")))
+        // An unsolicited flag update during the fetch (DESIGN §4.3).
+        assertFalse(HeaderParser.hasHeaderFields(item("", flags = setOf("\\Seen")).copy(sections = emptyMap())))
+        assertFalse(HeaderParser.hasHeaderFields(item("x", key = "1")))
     }
 
     @Test

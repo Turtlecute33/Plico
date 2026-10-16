@@ -56,9 +56,8 @@ import app.plico.ui.components.Avatar
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.Icons
+import app.plico.ui.settings.Choices
 
-private const val MAX_LABEL = 40
-private const val MAX_NAME = 100
 private const val MAX_CLIENT_ID = 200
 private const val CLOUD_CONSOLE_URL = "https://console.cloud.google.com/apis/credentials"
 
@@ -152,7 +151,7 @@ internal fun RiseupPage(vm: SetupViewModel, state: SetupState) {
             error = state.passwordError,
             onDone = vm::signInWithPassword,
         )
-        WideButton(stringResource(R.string.setup_sign_in), onClick = vm::signInWithPassword)
+        WideButton(stringResource(R.string.ui_sign_in), onClick = vm::signInWithPassword)
     }
 }
 
@@ -176,7 +175,7 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
         for (method in state.methods) {
             when (method) {
                 Method.DEVICE -> SetupCard(
-                    icon = SetupIcons.Smartphone,
+                    icon = Icons.Smartphone,
                     title = stringResource(R.string.setup_method_device),
                     text = stringResource(R.string.setup_method_device_text),
                 ) {
@@ -185,7 +184,7 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
                     }
                 }
                 Method.BROWSER -> SetupCard(
-                    icon = SetupIcons.Browser,
+                    icon = Icons.Browser,
                     title = stringResource(R.string.setup_method_browser),
                     text = stringResource(R.string.setup_method_browser_text),
                 ) {
@@ -217,7 +216,7 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
 @Composable
 private fun AppPasswordCard(vm: SetupViewModel, state: SetupState) {
     SetupCard(
-        icon = SetupIcons.Key,
+        icon = Icons.Key,
         title = stringResource(R.string.setup_method_password),
         text = stringResource(R.string.setup_method_password_text),
     ) {
@@ -236,7 +235,7 @@ private fun AppPasswordCard(vm: SetupViewModel, state: SetupState) {
             hint = stringResource(R.string.setup_app_password_hint),
             onDone = vm::signInWithPassword,
         )
-        WideButton(stringResource(R.string.setup_sign_in), onClick = vm::signInWithPassword)
+        WideButton(stringResource(R.string.ui_sign_in), onClick = vm::signInWithPassword)
     }
 }
 
@@ -277,7 +276,7 @@ internal fun OwnClientPage(vm: SetupViewModel, state: SetupState) {
             ),
             onKeyboardAction = { vm.saveClientId() },
         )
-        WideButton(stringResource(R.string.setup_client_save), onClick = { vm.saveClientId() })
+        WideButton(stringResource(R.string.ui_save), onClick = { vm.saveClientId() })
     }
 }
 
@@ -307,7 +306,7 @@ internal fun OptionsPage(vm: SetupViewModel, state: SetupState) {
             label = { Text(stringResource(R.string.setup_field_label)) },
             supportingText = { Text(stringResource(R.string.setup_label_hint)) },
             lineLimits = TextFieldLineLimits.SingleLine,
-            inputTransformation = InputTransformation.maxLength(MAX_LABEL),
+            inputTransformation = InputTransformation.maxLength(Choices.LABEL_MAX),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Words,
                 imeAction = ImeAction.Next,
@@ -322,7 +321,7 @@ internal fun OptionsPage(vm: SetupViewModel, state: SetupState) {
             label = { Text(stringResource(R.string.setup_field_sender_name)) },
             supportingText = { Text(stringResource(R.string.setup_sender_name_hint)) },
             lineLimits = TextFieldLineLimits.SingleLine,
-            inputTransformation = InputTransformation.maxLength(MAX_NAME),
+            inputTransformation = InputTransformation.maxLength(Choices.NAME_MAX),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Words,
                 imeAction = ImeAction.Done,

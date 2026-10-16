@@ -1,11 +1,8 @@
 package app.plico.sync
 
-import app.plico.R
-import app.plico.account.MailError
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
-import app.plico.data.NewFolder
 import app.plico.push.policy.NotifyRule
 import app.plico.push.policy.UidNextCheck
 
@@ -105,33 +102,6 @@ internal class SyncAccount(val env: SyncEnv) {
     fun claimNew(): List<Long> {
         gmail?.filterCategories()
         return env.messages.claimNotifications(env.accountId, env.clock() - NotifyRule.MAX_AGE_MS).map { it.id }
-    }
-
-    /**
-     * The folder of [role]: a mailbox (kind 0) when there is one, else a Gmail label view. Riseup archive: the
-     * user's choice first.
-     */
-    fun folder(role: FolderRole): Folder? {
-        if (role == FolderRole.ARCHIVE && !env.gmail) {
-            val chosen = env.accounts.get(env.accountId)?.archiveFolder?.let(env.folders::get)
-            if (chosen != null && chosen.kind == FolderKind.MAILBOX) return chosen
-        }
-        return env.folders.byRole(env.accountId, role, FolderKind.MAILBOX)
-            ?: env.folders.byRole(env.accountId, role, FolderKind.LABEL)
-    }
-
-    /**
-     * The mailbox of [role], created on first use when it is missing (Riseup: `Archive`, exactly `Spam`, `Sent`,
-     * `Drafts`, `Trash`; protocol PS5). Gmail mailboxes are never created: a hidden one throws [MailError.Setup].
-     */
-    fun ensureFolder(role: FolderRole): Folder {
-        folder(role)?.takeIf { it.kind == FolderKind.MAILBOX }?.let { return it }
-        if (env.gmail) throw MailError.Setup(env.text(R.string.sync_gmail_mailbox_hidden))
-        val name = requireNotNull(FolderRules.createName(role)) { "No mailbox is created for $role" }
-        env.client.create(name)
-        val delimiter = env.folders.byAccount(env.accountId).firstOrNull { it.kind == FolderKind.MAILBOX }?.delimiter
-        val id = env.folders.upsert(NewFolder(env.accountId, FolderKind.MAILBOX, name, name, role, delimiter))
-        return checkNotNull(env.folders.get(id))
     }
 
     private fun inbox(): Folder? = env.folders.byRole(env.accountId, FolderRole.INBOX, FolderKind.MAILBOX)

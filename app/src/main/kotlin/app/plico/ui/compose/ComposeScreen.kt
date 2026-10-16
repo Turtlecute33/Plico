@@ -11,12 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -37,10 +37,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -79,20 +77,23 @@ import app.plico.ui.components.BannerKind
 import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.EmptyState
 import app.plico.ui.components.Icons
+import app.plico.ui.components.Menu
+import app.plico.ui.components.MenuEntry
 import app.plico.ui.components.PrivateTextInput
+import app.plico.ui.components.UndoWindow
 import app.plico.ui.components.rejectObscuredTouches
+import app.plico.ui.components.showUndo
 import app.plico.ui.nav.Navigator
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Edit and send draft [draftId] (DESIGN §13 Compose, §7.6). The draft saves itself while the user types and
  * when the app goes to the background; leaving the screen queues its server copy. Send waits for the undo
- * time with an Undo snackbar, then closes the screen.
+ * time with an Undo snackbar, then closes the screen. [fresh]: see [app.plico.ui.nav.Route.Compose].
  */
 @Composable
-fun ComposeScreen(draftId: Long, nav: Navigator) {
+fun ComposeScreen(draftId: Long, fresh: Boolean, nav: Navigator) {
     val app = LocalContext.current.app
-    val vm = viewModel { ComposeViewModel(app, draftId) }
+    val vm = viewModel { ComposeViewModel(app, draftId, fresh) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.saveNow() }
     when (vm.phase) {
         ComposeViewModel.Phase.LOADING -> Unit
@@ -100,10 +101,11 @@ fun ComposeScreen(draftId: Long, nav: Navigator) {
             icon = Icons.Draft,
             title = stringResource(R.string.compose_gone),
             modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-            actionLabel = stringResource(R.string.compose_back),
+            actionLabel = stringResource(R.string.ui_back),
             onAction = nav::back,
         )
-        ComposeViewModel.Phase.EDITING, ComposeViewModel.Phase.QUEUED -> ComposeContent(vm, nav)
+        ComposeViewModel.Phase.EDITING, ComposeViewModel.Phase.QUEUED, ComposeViewModel.Phase.WAITING ->
+            ComposeContent(vm, nav)
     }
 }
 
@@ -124,13 +126,10 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
     }
     if (vm.phase == ComposeViewModel.Phase.QUEUED) {
         val sending = stringResource(R.string.compose_sending)
-        val undo = stringResource(R.string.compose_undo)
+        val undo = stringResource(R.string.ui_undo)
         LaunchedEffect(Unit) {
             snackbar.currentSnackbarData?.dismiss()
-            val result = withTimeoutOrNull(vm.undoSeconds * 1000L) {
-                snackbar.showSnackbar(sending, actionLabel = undo, duration = SnackbarDuration.Indefinite)
-            }
-            if (result != SnackbarResult.ActionPerformed) {
+            if (!snackbar.showUndo(sending, undo, UndoWindow.sendMs(vm.undoSeconds))) {
                 nav.back()
                 return@LaunchedEffect
             }
@@ -154,6 +153,8 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        // With the keyboard: the snackbars ("Add a recipient", "Sending… Undo") show above it, not under it.
+        contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         PrivateTextInput {
             Column(
@@ -161,9 +162,17 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
                     .fillMaxSize()
                     .padding(padding)
                     .consumeWindowInsets(padding)
-                    .imePadding()
                     .verticalScroll(rememberScrollState()),
             ) {
+                if (vm.phase == ComposeViewModel.Phase.WAITING) {
+                    // Opened from the Drafts view while it waits to be sent: nothing changes unless the user asks.
+                    Banner(
+                        text = stringResource(R.string.compose_waiting),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        actionLabel = stringResource(R.string.compose_cancel_send),
+                        onAction = { vm.undoSend { vm.notice(Notice.BEING_SENT) } },
+                    )
+                }
                 vm.failure?.let {
                     Banner(
                         text = stringResource(R.string.compose_failed, it),
@@ -254,39 +263,23 @@ private fun ComposeTopBar(
     onFiles: () -> Unit,
     onDiscard: () -> Unit,
 ) {
-    var attachMenu by remember { mutableStateOf(false) }
-    var moreMenu by remember { mutableStateOf(false) }
     TopAppBar(
         title = { Text(stringResource(R.string.ui_compose), maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
             IconButton(onClick = onBack) {
-                Icon(Icons.Back, contentDescription = stringResource(R.string.compose_back))
+                Icon(Icons.Back, contentDescription = stringResource(R.string.ui_back))
             }
         },
         actions = {
-            Box {
-                IconButton(onClick = { attachMenu = true }, enabled = vm.editing) {
-                    Icon(Icons.Attach, contentDescription = stringResource(R.string.compose_attach))
-                }
-                DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.compose_attach_photos)) },
-                        leadingIcon = { Icon(Icons.Image, contentDescription = null) },
-                        onClick = {
-                            attachMenu = false
-                            onPhotos()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.compose_attach_files)) },
-                        leadingIcon = { Icon(Icons.Folder, contentDescription = null) },
-                        onClick = {
-                            attachMenu = false
-                            onFiles()
-                        },
-                    )
-                }
-            }
+            Menu(
+                entries = listOf(
+                    MenuEntry(stringResource(R.string.compose_attach_photos), Icons.Image, onPhotos),
+                    MenuEntry(stringResource(R.string.compose_attach_files), Icons.Folder, onFiles),
+                ),
+                icon = Icons.Attach,
+                description = stringResource(R.string.compose_attach),
+                enabled = vm.editing,
+            )
             Button(
                 onClick = vm::send,
                 enabled = vm.editing,
@@ -297,21 +290,10 @@ private fun ComposeTopBar(
                 Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                 Text(stringResource(R.string.compose_send))
             }
-            Box {
-                IconButton(onClick = { moreMenu = true }, enabled = vm.editing) {
-                    Icon(Icons.More, contentDescription = stringResource(R.string.compose_more))
-                }
-                DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.compose_discard)) },
-                        leadingIcon = { Icon(Icons.Delete, contentDescription = null) },
-                        onClick = {
-                            moreMenu = false
-                            onDiscard()
-                        },
-                    )
-                }
-            }
+            Menu(
+                entries = listOf(MenuEntry(stringResource(R.string.compose_discard), Icons.Delete, onDiscard)),
+                enabled = vm.editing,
+            )
         },
     )
 }

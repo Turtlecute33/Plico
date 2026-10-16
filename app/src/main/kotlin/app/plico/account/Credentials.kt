@@ -40,8 +40,6 @@ sealed class MailError(message: String, cause: Throwable? = null) : Exception(me
     /** Permanent server refusal with the server text. */
     class Server(message: String, cause: Throwable? = null) : MailError(message, cause)
 
-    class TooLarge(val limit: Long) : MailError("Message too large")
-
     /** Account setup problem the user must fix (e.g. Gmail All Mail hidden from IMAP, client not registered). */
     class Setup(message: String) : MailError(message)
 }

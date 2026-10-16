@@ -86,10 +86,10 @@ class PlatformTest {
         again.googleClientId = ""
         assertEquals("", again.googleClientId)
 
-        prefs.putString("keepalive", "{}")
-        assertEquals("{}", prefs.getString("keepalive"))
-        prefs.putString("keepalive", null)
-        assertEquals(null, prefs.getString("keepalive"))
+        prefs.put("keepalive", "{}")
+        assertEquals("{}", prefs.get("keepalive"))
+        prefs.put("keepalive", null)
+        assertEquals(null, prefs.get("keepalive"))
     }
 
     @Test

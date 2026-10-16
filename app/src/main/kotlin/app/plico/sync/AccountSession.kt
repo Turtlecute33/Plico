@@ -1,6 +1,7 @@
 package app.plico.sync
 
 import android.os.SystemClock
+import android.util.Log
 import app.plico.PlicoApp
 import app.plico.account.AndroidSocketHooks
 import app.plico.account.Credentials
@@ -12,20 +13,19 @@ import app.plico.data.Account
 import app.plico.data.AccountState
 import app.plico.mail.imap.IdleEvent
 import app.plico.mail.imap.IdleHooks
-import app.plico.mail.imap.ImapBadException
 import app.plico.mail.imap.ImapByeException
 import app.plico.mail.imap.ImapClient
-import app.plico.mail.imap.ImapNoException
 import app.plico.push.policy.Backoff
 import app.plico.push.policy.Coalescing
 import app.plico.push.policy.DueTimes
 import app.plico.push.policy.KeepalivePolicy
 import app.plico.push.policy.KeepalivePolicy.Action
-import app.plico.push.policy.KeyValueStore
 import app.plico.push.policy.NetworkRules
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -113,7 +114,12 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             host.reschedule()
         }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // A failure in a task must not end the process (and push); only the class name is logged (DESIGN §12).
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.e(LOG_TAG, "session: ${e.javaClass.simpleName}")
+        },
+    )
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private val workPending = AtomicBoolean()
 
@@ -158,10 +164,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     /** Server message counts per folder, kept across connections. */
     internal val knownMessages = ConcurrentHashMap<Long, Long>()
 
-    internal val notes = object : KeyValueStore {
-        override fun get(key: String) = app.prefs.getString(key)
-        override fun put(key: String, value: String?) = app.prefs.putString(key, value)
-    }
+    internal val store: OpStore by lazy { OpStore.of(app) }
 
     internal val isWorkPending: Boolean get() = workPending.get()
 
@@ -180,22 +183,24 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         wake()
     }
 
-    /** Engine wake (alarm, server byte on any session, network, app visible): runs due refresh/poll/reconnect. */
+    /**
+     * Engine wake (alarm, server byte on any session, network, app visible): runs due refresh/poll/reconnect.
+     * Synchronous and without I/O (it only sets flags and renews the session lock), so that the engine's `alarm`
+     * lock ends only after this session holds its own.
+     */
     fun onWake(now: Long) {
         if (closed) return
-        scope.launch {
-            when (val action = policy?.decide(now) ?: Action.NONE) {
-                Action.NONE -> Unit
-                Action.RECONNECT -> {
-                    synchronized(lock) { reconnect = true }
-                    wake()
-                }
-                else -> requestCheck(action)
+        when (val action = policy?.decide(now) ?: Action.NONE) {
+            Action.NONE -> Unit
+            Action.RECONNECT -> {
+                synchronized(lock) { reconnect = true }
+                wake()
             }
-            val pollDue = Coalescing.timing(now, lastPollAt + pollMs, pollMs, Coalescing.Kind.POLL)
-            if (mode == Mode.POLL && pollDue != Coalescing.Timing.LATER) requestPoll(now)
-            if (backoff.isDue(now) || workDueAt?.let { it <= now } == true) wake()
+            else -> requestCheck(action)
         }
+        val pollDue = Coalescing.timing(now, lastPollAt + pollMs, pollMs, Coalescing.Kind.POLL)
+        if (mode == Mode.POLL && pollDue != Coalescing.Timing.LATER) requestPoll(now)
+        if (backoff.isDue(now) || workDueAt?.let { it <= now } == true) wake()
     }
 
     fun onNetworkEvent(event: NetworkRules.Event, network: NetState?) {
@@ -221,18 +226,24 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     fun nextDueAt(): Long? {
         val now = elapsed()
         val pollAt = if (mode == Mode.POLL && !synchronized(lock) { poll }) lastPollAt + pollMs else null
+        val p = policy
+        // Between two IDLEs (a cycle runs) the policy has no due time; an alarm must stay armed all the same, so
+        // that a CPU that sleeps before the next IDLE arms it wakes up again (push PB4).
+        val keepalive = p?.nextDueAt() ?: p?.takeIf { mode == Mode.IDLE && connection != null }?.let { now + it.intervalMs }
         // Past times are left out: the wake that is due now handles them, and an alarm in the past would repeat.
         return DueTimes.min(
-            listOf(policy?.nextDueAt(), backoff.retryAt, pollAt, workDueAt).map { it?.takeIf { t -> t > now } },
+            listOf(keepalive, backoff.retryAt, pollAt, workDueAt).map { it?.takeIf { t -> t > now } },
         )
     }
 
     /**
      * Runs [block] on the loop with a connected, authenticated client (connects on demand), after due ops and
-     * sends. Exceptions of [block] reach the caller unchanged; a failed connect gives a [MailError]. Cancelling
-     * the caller while [block] runs closes the connection (DESIGN §7.7); the loop reconnects without a backoff.
+     * sends. Exceptions of [block] reach the caller unchanged; a failed connect gives a [MailError]. A caller
+     * that is cancelled while [block] runs gets no result, and the block runs to its end (a body or an
+     * attachment is stored for later); with [closeOnCancel] the connection closes instead (the Cancel of a
+     * server search, DESIGN §7.7), and the loop reconnects without a backoff.
      */
-    suspend fun <T> request(block: suspend SyncContext.() -> T): T {
+    internal suspend fun <T> request(closeOnCancel: Boolean = false, block: suspend SyncContext.() -> T): T {
         if (closed) throw CancellationException("Session closed")
         val request = Request(block)
         requests.add(request)
@@ -242,7 +253,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         } catch (e: CancellationException) {
             if (request.result.completeExceptionally(e)) {
                 requests.remove(request)
-                request.running?.let { drop(it, Close.CANCEL) }
+                if (closeOnCancel) request.running?.let { drop(it, Close.CANCEL) }
             }
             throw e
         }
@@ -267,7 +278,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         _status.value = Status.Offline
     }
 
-    internal fun progress() = wakeLock.renew()
+    internal fun progress(timeoutMs: Long = PROGRESS_MS) = wakeLock.renew(timeoutMs)
 
     /** The server announced new mail outside a SELECT: the loop runs the fast path again before IDLE. */
     internal fun onServerNewMail() {
@@ -291,7 +302,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     private fun ensureStarted() {
         if (loop != null || closed) return
         synchronized(lock) {
-            if (loop == null && !closed) loop = scope.launch { run() }
+            if (loop != null || closed) return
+            // Started after the assignment, so that the end of the loop, which clears it, always comes later.
+            loop = scope.launch(start = CoroutineStart.LAZY) { run() }.also { it.start() }
         }
     }
 
@@ -323,7 +336,31 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         wake()
     }
 
+    /**
+     * The loop. It ends when the session closes, the account is gone, or an error escapes (e.g. the database
+     * fails while an error is recorded); the next kick or wake then starts it again.
+     */
     private suspend fun run() {
+        try {
+            work()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            failRequests(e)
+            throw e
+        } finally {
+            // A connection that connect() opened while close() ran must not stay logged in.
+            connection?.let {
+                connection = null
+                it.client.close()
+            }
+            policy?.onIdleEnded()
+            wakeLock.release()
+            synchronized(lock) { loop = null }
+        }
+    }
+
+    private suspend fun work() {
         val first = app.accounts.get(accountId) ?: return
         policy = KeepalivePolicy(Providers.of(first.provider).idleStartMinutes, first.provider.id, app.learnedIntervals)
         authStopped = first.state == AccountState.SIGN_IN_NEEDED
@@ -404,7 +441,6 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             client.close()
             throw e
         }
-        app.accounts.setCaps(accountId, client.caps.sorted().joinToString(" "))
         val ctx = SyncContext(app, account, client, credentials, this)
         connection = Connection(client, ctx, credentials, network.handle, network.key)
         // Gmail setup states are decided by the folder list; a Riseup one could only be a missing capability.
@@ -426,10 +462,13 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         )
         val sync = c.ctx.sync
         val report = SyncReport()
-        wakeLock.hold(STEP_MAX_MS) {
+        // The lock stays held after the steps: only the blocking read of IDLE or the wait for work releases it,
+        // so the CPU cannot sleep before IDLE has started and the alarm is armed (push PB4).
+        wakeLock.renew()
+        withTimeout(STEP_MAX_MS) {
             if (plan.listFolders) {
                 relist = false
-                sync.refreshFolders()
+                listFolders(c)
                 lastListAt = now
             }
             if (plan.fastPath) {
@@ -437,11 +476,12 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                 publish(sync, report)
             }
             lastWorkRunAt = elapsed()
-            Ops.runDue(c.ctx)
-            Sender.runDue(c.ctx)
+            Ops.run(c.ctx)
+            Sender.run(c.ctx)
         }
         runRequests(c)
-        wakeLock.hold(STEP_MAX_MS) {
+        wakeLock.renew()
+        withTimeout(STEP_MAX_MS) {
             if (plan.fastPath) sync.idleMailboxFlags(plan.fullFlags, report)
             if (plan.notifySweep) sync.notifySweep(report)
             if (plan.allMailStatus) sync.checkAllMail(report)
@@ -456,9 +496,21 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         }
         if (trigger.poll) backoff.markHealthy()
         refreshWorkDue()
+        // Work that became due during the cycle (an undo window that ended, the follow-ups of a send) runs now.
+        if (workDueAt?.let { it <= elapsed() } == true) workPending.set(true)
         scheduleSoonWork()
         if (problemReported && app.accounts.get(accountId)?.state == AccountState.OK) clearProblem()
         host.reschedule()
+    }
+
+    /** LIST (step 1). A Gmail setup problem stops the sync, but SMTP needs no folder: due sends still go. */
+    private suspend fun listFolders(c: Connection) {
+        try {
+            c.ctx.sync.refreshFolders()
+        } catch (e: MailError.Setup) {
+            Sender.run(c.ctx)
+            throw e
+        }
     }
 
     private fun takeTriggers(c: Connection): SyncTrigger = synchronized(lock) {
@@ -489,7 +541,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                 if (c.closedBy != null) throw IOException("Request cancelled", e)
             } catch (e: Throwable) {
                 request.result.completeExceptionally(e)
-                if (c.closedBy != null || breaksConnection(e)) throw e
+                if (c.closedBy != null || OpErrors.endsConnection(e, c.client)) throw e
             } finally {
                 request.running = null
             }
@@ -581,6 +633,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             IdleEvent.Keepalive -> {
                 val p = policy ?: return
                 if (p.onKeepalive(elapsed()) == Action.RE_IDLE) requestCheck(Action.RE_IDLE)
+                // The engine may have armed the dead-peer alarm from the keepalive before this one.
+                host.reschedule()
                 val seconds = p.cadenceMs?.let { (it / SECOND_MS).toInt() }
                 if (seconds != savedCadence) {
                     savedCadence = seconds
@@ -739,7 +793,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     private fun refreshWorkDue() {
         val wall = System.currentTimeMillis()
         val now = elapsed()
-        val due = DueTimes.min(Ops.nextRunAt(app, accountId), Sender.nextSendAt(app, accountId))
+        val due = DueTimes.min(Ops.nextRunAt(store, accountId), app.drafts.nextSendAt(accountId))
             ?.let { now + (it - wall) }
         // An op that was due at the last run but did not run (e.g. its folder is guarded) must not loop.
         workDueAt = due?.takeIf { lastWorkRunAt == 0L || it > lastWorkRunAt }
@@ -753,12 +807,11 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         timers.incrementAndGet()
         wakeLock.renew(delayMs + SECOND_MS)
         soonTimer = scope.launch {
-            try {
-                delay(delayMs)
-            } finally {
-                timers.decrementAndGet()
-            }
+            delay(delayMs)
             wake()
+        }.also { job ->
+            // Also when the job is cancelled before it starts, which skips its body.
+            job.invokeOnCompletion { timers.decrementAndGet() }
         }
     }
 
@@ -838,7 +891,6 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
         fun isSessionExpiry(e: Throwable) = e is ImapByeException && SESSION_EXPIRED.containsMatchIn(e.message.orEmpty())
 
-        /** A NO or BAD ends one command; every other I/O error leaves the connection unusable. */
-        fun breaksConnection(e: Throwable) = e is IOException && e !is ImapNoException && e !is ImapBadException
+        const val LOG_TAG = "Plico"
     }
 }

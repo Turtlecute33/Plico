@@ -20,7 +20,12 @@ import app.plico.data.AccountState
 import app.plico.data.AuthKind
 import app.plico.data.NewAccount
 import app.plico.data.Provider
+import app.plico.push.Grants
 import app.plico.ui.components.AccountColors
+import app.plico.ui.settings.Choices
+import app.plico.ui.settings.ClientIds
+import app.plico.ui.settings.cleanLabel
+import app.plico.ui.settings.cleanLine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -71,8 +76,9 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
 
     /** Writes Prefs.googleClientId; an empty field removes it. False when the value is not a client ID. */
     fun saveClientId(): Boolean {
-        val id = clientId.text.trim().toString()
-        if (!SetupInput.isValidClientId(id)) {
+        // The same rule as Settings → Gmail sign-in, so that an ID saved here is valid there too.
+        val id = ClientIds.normalize(clientId.text.toString())
+        if (id == null) {
             _state.update { it.copy(clientIdError = true) }
             return false
         }
@@ -98,9 +104,9 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
         val typed = password.text.toString()
         test(provider, Method.PASSWORD) {
             checkIdentity(address)
-            val result = AccountProbe.probe(app, provider, PasswordCredentials(provider, address, typed))
+            val notes = AccountProbe.probe(app, provider, PasswordCredentials(provider, address, typed))
             val secret = encrypt(PasswordCredentials.normalize(provider, typed))
-            SignedIn(provider, address, AuthKind.PASSWORD, secret, null, result.notes)
+            SignedIn(provider, address, AuthKind.PASSWORD, secret, null, notes)
         }
     }
 
@@ -136,8 +142,8 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
             checkIdentity(address)
             DeviceGoogleAuth.consent(activity, accountName)
             _state.update { it.copy(busy = Busy.TESTING) }
-            val result = AccountProbe.probe(app, Provider.GMAIL, DeviceCredentials(app, accountName))
-            SignedIn(Provider.GMAIL, address, AuthKind.DEVICE, null, accountName, result.notes)
+            val notes = AccountProbe.probe(app, Provider.GMAIL, DeviceCredentials(app, accountName))
+            SignedIn(Provider.GMAIL, address, AuthKind.DEVICE, null, accountName, notes)
         }
     }
 
@@ -148,8 +154,9 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
         val current = _state.value
         val account = current.signedIn ?: return
         if (current.busy != null || current.reauth != null) return
-        val typedLabel = label.text.trim().toString()
-        val typedName = senderName.text.trim().toString()
+        // The rules of Settings: controls become spaces (privacy PS3), the same length limits.
+        val typedLabel = cleanLabel(label.text.toString())
+        val typedName = cleanLine(senderName.text.toString(), Choices.NAME_MAX)
         _state.update { it.start(Busy.SAVING) }
         work = viewModelScope.launch {
             try {
@@ -160,18 +167,18 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
                             provider = account.provider,
                             email = account.email,
                             senderName = typedName,
-                            label = typedLabel.ifEmpty { accounts.defaultLabel(account.provider) },
+                            label = typedLabel ?: accounts.defaultLabel(account.provider),
                             color = AccountColors.next(accounts.all().map { it.color }),
                             auth = account.auth,
                             secret = account.secret,
                             deviceAccount = account.deviceAccount,
-                            bodyDays = if (current.allOffline) 0 else DEFAULT_BODY_DAYS,
+                            bodyDays = if (current.allOffline) 0 else NewAccount.DEFAULT_BODY_DAYS,
                         ),
                     )
                 }
                 if (current.showIpNote) app.prefs.gmailIpNoteShown = true
                 _state.update { it.added() }
-                if (Grants.of(app).complete) finish()
+                if (Grants.read(app).complete) finish()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: SQLiteConstraintException) {
@@ -231,8 +238,8 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
             checkIdentity(address)
             val token = signIn.refreshToken
             val credentials = OAuthCredentials(signIn.email, { token }, GoogleOAuth(app), signIn.accessToken)
-            val result = AccountProbe.probe(app, Provider.GMAIL, credentials)
-            SignedIn(Provider.GMAIL, address, AuthKind.OAUTH, encrypt(token), null, result.notes)
+            val notes = AccountProbe.probe(app, Provider.GMAIL, credentials)
+            SignedIn(Provider.GMAIL, address, AuthKind.OAUTH, encrypt(token), null, notes)
         }
     }
 
@@ -309,8 +316,4 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
 
     /** Ends a test with a specific [problem]. */
     private class Rejected(val problem: Problem) : Exception()
-
-    private companion object {
-        const val DEFAULT_BODY_DAYS = 30
-    }
 }

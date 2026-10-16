@@ -8,8 +8,8 @@ import app.plico.push.StartPolicy.Source
 
 /**
  * Target of the single coalesced alarm (DESIGN §8.3; push PB3, apis AF2). AlarmManager holds its wake lock
- * until this returns, so the `alarm` lock is taken first; its timeout releases it after the sessions took
- * theirs. The next alarm is armed before returning.
+ * until this returns, so the `alarm` lock is taken first. While push runs, the engine releases it once the
+ * sessions took theirs and the next alarm is armed; the timeout covers a service start.
  */
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -19,7 +19,7 @@ class AlarmReceiver : BroadcastReceiver() {
         try {
             if (app.prefs.pushPaused || app.prefs.pushStoppedBySystemUi) return
             if (engine.running) {
-                engine.onWake()
+                engine.onAlarm()
             } else if (!PushService.start(context, Source.BACKGROUND)) {
                 app.notifier.pushStopped(silent = false)
             }
