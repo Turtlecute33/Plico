@@ -14,7 +14,7 @@ class AccessToken(val value: String, val expiresAt: Long) {
     override fun toString() = "AccessToken(expiresAt=$expiresAt)"
 }
 
-/** Google's token endpoint as [OAuthCredentials] uses it; [GoogleOAuth] is the real one. */
+/** The token endpoint of an OAuth issuer as [OAuthCredentials] uses it; [BrowserOAuth] is the real one. */
 interface TokenEndpoint {
     /** Throws [MailError.AuthRequired] for invalid_grant and [MailError.Setup] for a rejected client. */
     suspend fun refresh(refreshToken: String): AccessToken
@@ -28,6 +28,10 @@ interface TokenEndpoint {
  * token expires, so every IMAP login uses a token with at least 45 min left.
  *
  * [user] is the account address, which came from the id_token `email` claim.
+ *
+ * @param onRotated writes a new refresh token that the issuer sent in place of the old one.
+ * @param hosts the only mail servers that get a token (the hosts of the issuer).
+ * @param smtpOff the text for an account whose provider does not let apps send mail; null for Google.
  */
 class OAuthCredentials(
     private val user: String,
@@ -35,6 +39,9 @@ class OAuthCredentials(
     private val endpoint: TokenEndpoint,
     initial: AccessToken? = null,
     private val clock: () -> Long = SystemClock::elapsedRealtime,
+    private val onRotated: suspend (old: String, new: String) -> Unit = { _, _ -> },
+    private val hosts: Set<String> = emptySet(),
+    private val smtpOff: String? = null,
 ) : Credentials {
     private val mutex = Mutex()
 

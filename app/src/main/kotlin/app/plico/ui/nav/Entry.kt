@@ -1,7 +1,7 @@
 package app.plico.ui.nav
 
 import android.content.Intent
-import app.plico.account.GoogleOAuth
+import app.plico.account.BrowserOAuth
 import app.plico.notify.ReauthLink
 
 /**
@@ -23,7 +23,7 @@ sealed interface Entry {
 
     companion object {
         /** Sent by OAuthRedirectActivity to the running (singleTop) MainActivity. */
-        const val ACTION_OAUTH_DONE = GoogleOAuth.ACTION_DONE
+        const val ACTION_OAUTH_DONE = BrowserOAuth.ACTION_DONE
 
         /** The entry for [intent]; null for the launcher and for anything not trusted. */
         fun of(intent: Intent): Entry? = of(intent.action, intent.component?.className, intent.dataString, intent.flags)

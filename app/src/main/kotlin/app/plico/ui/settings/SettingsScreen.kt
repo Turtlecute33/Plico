@@ -44,6 +44,7 @@ fun SettingsScreen(nav: Navigator) {
         NotificationsGroup()
         PrivacyGroup()
         MailGroup()
+        ListLookGroup()
         PushGroup(hasAccounts = list.isNotEmpty())
         SettingsGroup(title = null) {
             item { ClickRow(it, stringResource(R.string.ui_about), { nav.go(Route.About) }, icon = Icons.Info) }

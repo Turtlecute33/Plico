@@ -19,7 +19,11 @@ fun credentialsFor(app: PlicoApp, account: Account): Credentials = cache.get(acc
     val secret: suspend () -> String = { storedSecret(app, account.id) }
     when (account.auth) {
         AuthKind.PASSWORD -> PasswordCredentials(account.provider, account.email, secret)
-        AuthKind.OAUTH -> OAuthCredentials(account.email, secret, GoogleOAuth(app))
+        AuthKind.OAUTH -> {
+            // Only Gmail accounts sign in with OAuth so far.
+            val issuer = OAuthIssuer.of(account.provider) ?: OAuthIssuer.GOOGLE
+            OAuthCredentials(account.email, secret, BrowserOAuth(app, issuer), hosts = issuer.hosts)
+        }
         AuthKind.DEVICE -> DeviceCredentials(app, account.deviceAccount ?: account.email)
     }
 }

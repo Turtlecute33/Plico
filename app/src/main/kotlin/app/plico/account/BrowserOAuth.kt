@@ -7,6 +7,7 @@ import android.os.SystemClock
 import app.plico.PlicoApp
 import app.plico.R
 import app.plico.data.Prefs
+import app.plico.data.Provider
 import app.plico.ui.components.SystemPages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,35 +21,108 @@ import java.security.SecureRandom
 import java.util.Base64
 import javax.net.ssl.HttpsURLConnection
 
-/** Result of a browser sign-in. [email] is the id_token `email` claim and the XOAUTH2 user. */
-class SignIn(val email: String, val refreshToken: String, val accessToken: AccessToken) {
+/**
+ * Result of a browser sign-in. [email] is the id_token `email` claim. [login] is the XOAUTH2 user when it differs
+ * from [email] (Microsoft work accounts without an `email` claim), else null.
+ */
+class SignIn(val email: String, val login: String?, val refreshToken: String, val accessToken: AccessToken) {
     override fun toString() = "SignIn"
 }
 
 /**
- * Browser OAuth for Gmail with the user's own client ID (DESIGN.md §6, privacy PS9/PS16, apis AF16):
- * PKCE S256, `state`, the default browser, redirect `<applicationId>:/oauth2redirect`.
+ * An issuer that [BrowserOAuth] signs in to. Microsoft always uses the authority `common`.
+ *
+ * @param brand the name of the issuer in texts; it is not translated.
+ * @param revokeUrl null when the issuer has no revoke endpoint for public clients.
+ * @param scopes the scopes of the authorization request.
+ * @param refreshScope the scopes of a refresh request; null sends none.
+ * @param mailScope the scope that gives access to mail; the granted scopes must contain it.
+ * @param hosts the only mail servers that get the tokens of this issuer.
+ */
+enum class OAuthIssuer(
+    val id: String,
+    val brand: String,
+    val authUrl: String,
+    val tokenUrl: String,
+    val revokeUrl: String?,
+    val scopes: String,
+    val refreshScope: String?,
+    val mailScope: String,
+    val redirectStyle: RedirectStyle,
+    val hosts: Set<String>,
+) {
+    GOOGLE(
+        "google", "Google", "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token",
+        "https://oauth2.googleapis.com/revoke", Providers.GMAIL_SCOPE + " openid email", null, Providers.GMAIL_SCOPE,
+        RedirectStyle.PATH, setOf("imap.gmail.com", "smtp.gmail.com"),
+    ),
+    MICROSOFT(
+        "microsoft", "Microsoft",
+        "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token", null,
+        "openid email profile offline_access https://outlook.office.com/IMAP.AccessAsUser.All " +
+            "https://outlook.office.com/SMTP.Send",
+        "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access",
+        "IMAP.AccessAsUser.All", RedirectStyle.AUTHORITY,
+        setOf("outlook.office365.com", "smtp-mail.outlook.com", "smtp.office365.com"),
+    ),
+    ;
+
+    /** PATH: `<applicationId>:/oauth2redirect`. AUTHORITY: `<applicationId>://oauth2redirect`. */
+    enum class RedirectStyle { PATH, AUTHORITY }
+
+    /** The user's own client ID for this issuer; empty when none is set. */
+    fun clientId(prefs: Prefs): String = when (this) {
+        GOOGLE -> prefs.googleClientId
+        MICROSOFT -> prefs.microsoftClientId
+    }.trim()
+
+    /** The redirect URI of this issuer for [applicationId]. The manifest registers the scheme. */
+    fun redirectUri(applicationId: String): String = when (redirectStyle) {
+        RedirectStyle.PATH -> "$applicationId:/$REDIRECT_NAME"
+        RedirectStyle.AUTHORITY -> "$applicationId://$REDIRECT_NAME"
+    }
+
+    companion object {
+        internal const val REDIRECT_NAME = "oauth2redirect"
+
+        /** The issuer with [id]; Google when it is missing or unknown (pending entries of older versions). */
+        fun of(id: String?): OAuthIssuer = entries.firstOrNull { it.id == id } ?: GOOGLE
+
+        /** The issuer of the OAuth sign-in of [provider]; null when the provider has none. */
+        fun of(provider: Provider): OAuthIssuer? = when (provider) {
+            Provider.GMAIL -> GOOGLE
+            Provider.MICROSOFT -> MICROSOFT
+            else -> null
+        }
+    }
+}
+
+/**
+ * Browser OAuth with the user's own client ID (DESIGN.md §6, privacy PS9/PS16, apis AF16): PKCE S256, `state`,
+ * the default browser, the redirect URI of [issuer].
  *
  * Flow: [start] stores the pending sign-in in Prefs and opens the browser. [OAuthRedirectActivity] calls
  * [onRedirect], which stores the code in that entry and opens MainActivity with [ACTION_DONE]. Setup then
  * calls [completePending]. The entry is used once and is valid for 10 min, also across process death.
  */
-class GoogleOAuth(private val context: Context, private val prefs: Prefs) : TokenEndpoint {
-    constructor(app: PlicoApp) : this(app, app.prefs)
+class BrowserOAuth(private val context: Context, private val prefs: Prefs, val issuer: OAuthIssuer) : TokenEndpoint {
+    constructor(app: PlicoApp, issuer: OAuthIssuer) : this(app, app.prefs, issuer)
 
-    /** `<applicationId>:/oauth2redirect`. The manifest registers the scheme. */
-    val redirectUri: String get() = redirectUri(context.packageName)
+    /** The redirect URI of [issuer] for this app. */
+    val redirectUri: String get() = issuer.redirectUri(context.packageName)
 
     /**
-     * Opens Google's consent page in the default browser. [email] is the login hint; the user can still pick
-     * another account, so the result's email comes from the id_token. Throws [MailError.Setup] without a client ID.
+     * Opens the consent page of [issuer] in the default browser. [email] is the login hint; the user can still
+     * pick another account, so the result's email comes from the id_token. Throws [MailError.Setup] without a
+     * client ID.
      */
     fun start(activity: Activity, email: String) {
-        val clientId = clientId()
+        val clientId = clientId(issuer)
         val verifier = randomToken()
         val state = randomToken()
-        prefs.put(PENDING_KEY, Pending(state, verifier, email, now()).toJson())
-        val url = authUrl(clientId, redirectUri, state, challenge(verifier), email)
+        prefs.put(PENDING_KEY, Pending(state, verifier, email, now(), issuer = issuer).toJson())
+        val url = authUrl(issuer, clientId, redirectUri, state, challenge(verifier), email)
         if (!SystemPages.browser(activity, url, toast = false)) {
             prefs.put(PENDING_KEY, null)
             throw MailError.Setup(context.getString(R.string.account_error_no_browser))
@@ -56,35 +130,19 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
     }
 
     /**
-     * Stores the code or error of a browser redirect in the pending entry. Only the URI is read, never extras.
-     * Returns false when the redirect does not match the pending sign-in (path, state, age or a second use).
-     */
-    fun onRedirect(uri: Uri): Boolean {
-        val ours = uri.scheme == context.packageName && uri.authority.isNullOrEmpty() && uri.path == REDIRECT_PATH
-        if (!ours) return false
-        val pending = Pending.parse(prefs.get(PENDING_KEY)) ?: return false
-        val done = pending.redirected(
-            state = uri.getQueryParameter("state"),
-            code = uri.getQueryParameter("code"),
-            error = uri.getQueryParameter("error"),
-            now = now(),
-        ) ?: return false
-        prefs.put(PENDING_KEY, done.toJson())
-        return true
-    }
-
-    /**
-     * Exchanges the code that [onRedirect] stored. Returns null while no redirect has arrived. Throws
-     * [MailError.AuthRequired] when the user declined, [MailError.Setup] for an expired sign-in, a rejected
-     * client or a missing Gmail scope, and IOException for network failures.
+     * Exchanges the code that [onRedirect] stored, with the issuer of the pending entry. Returns null while no
+     * redirect has arrived. Throws [MailError.AuthRequired] when the user declined, [MailError.Setup] for an
+     * expired sign-in, a rejected client or a missing mail scope, and IOException for network failures.
      */
     suspend fun completePending(): SignIn? {
-        val pending = Pending.parse(prefs.get(PENDING_KEY)) ?: return null
+        val pending = pending(prefs) ?: return null
         if (!pending.done) {
             if (!pending.isFresh(now())) prefs.put(PENDING_KEY, null)
             return null
         }
         prefs.put(PENDING_KEY, null)
+        val issuer = pending.issuer
+        if (issuer == OAuthIssuer.MICROSOFT) TODO("B")
         pending.error?.let { error ->
             throw if (error == "access_denied") {
                 MailError.AuthRequired(context.getString(R.string.account_error_oauth_denied))
@@ -98,44 +156,52 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
         }
 
         val response = tokenRequest(
+            issuer,
             "grant_type" to "authorization_code",
             "code" to code,
             "code_verifier" to pending.verifier,
-            "client_id" to clientId(),
-            "redirect_uri" to redirectUri,
+            "client_id" to clientId(issuer),
+            "redirect_uri" to issuer.redirectUri(context.packageName),
         )
-        if (!grantsMail(response.scope)) throw MailError.Setup(context.getString(R.string.account_error_oauth_scope))
+        if (!grantsMail(issuer, response.scope)) {
+            throw MailError.Setup(context.getString(R.string.account_error_oauth_scope))
+        }
         val email = response.idToken?.let(::emailFromIdToken)
         val refreshToken = response.refreshToken
         if (email == null || refreshToken == null) {
             throw MailError.Server(context.getString(R.string.account_error_oauth_incomplete))
         }
-        return SignIn(email, refreshToken, response.accessToken())
+        return SignIn(email, null, refreshToken, response.accessToken())
     }
 
-    override suspend fun refresh(refreshToken: String): AccessToken =
-        tokenRequest(
+    override suspend fun refresh(refreshToken: String): AccessToken {
+        if (issuer == OAuthIssuer.MICROSOFT) TODO("B")
+        return tokenRequest(
+            issuer,
             "grant_type" to "refresh_token",
             "refresh_token" to refreshToken,
-            "client_id" to clientId(),
+            "client_id" to clientId(issuer),
         ).accessToken()
+    }
 
-    /** Revokes the grant of the whole client (all tokens). The token goes in the body, never in the URL. */
+    /**
+     * Revokes the grant of the whole client (all tokens). The token goes in the body, never in the URL. No-op
+     * for an issuer without a revoke endpoint.
+     */
     override suspend fun revoke(token: String) {
-        val (status, body) = post(REVOKE_URL, listOf("token" to token))
+        val url = issuer.revokeUrl ?: return
+        val (status, body) = post(url, listOf("token" to token))
         if (status !in 200..299 && parseError(body) != "invalid_token") throw IOException("Revoke failed: HTTP $status")
     }
 
-    private fun clientId(): String = prefs.googleClientId.trim().ifEmpty {
+    private fun clientId(issuer: OAuthIssuer): String = issuer.clientId(prefs).ifEmpty {
         throw MailError.Setup(context.getString(R.string.account_error_no_client_id))
     }
 
-    private fun now() = SystemClock.elapsedRealtime()
-
     private fun TokenResponse.accessToken() = AccessToken(accessToken, now() + expiresInS * 1000)
 
-    private suspend fun tokenRequest(vararg form: Pair<String, String>): TokenResponse {
-        val (status, body) = post(TOKEN_URL, form.toList())
+    private suspend fun tokenRequest(issuer: OAuthIssuer, vararg form: Pair<String, String>): TokenResponse {
+        val (status, body) = post(issuer.tokenUrl, form.toList())
         if (status in 200..299) return parseToken(body)
         throw when (failure(status, parseError(body))) {
             Failure.GRANT -> MailError.AuthRequired(context.getString(R.string.account_error_oauth_grant))
@@ -183,13 +249,14 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
     }
 
     /** The sign-in that waits for the browser. [code] or [error] is set by the redirect. */
-    internal data class Pending(
+    data class Pending(
         val state: String,
         val verifier: String,
         val email: String,
         val createdAt: Long,
         val code: String? = null,
         val error: String? = null,
+        val issuer: OAuthIssuer = OAuthIssuer.GOOGLE,
     ) {
         val done: Boolean get() = code != null || error != null
 
@@ -211,6 +278,7 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
             .put("createdAt", createdAt)
             .putOpt("code", code)
             .putOpt("error", error)
+            .put("issuer", issuer.id)
             .toString()
 
         override fun toString() = "Pending(createdAt=$createdAt, done=$done)"
@@ -227,6 +295,7 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
                         createdAt = o.getLong("createdAt"),
                         code = o.text("code"),
                         error = o.text("error"),
+                        issuer = OAuthIssuer.of(o.text("issuer")),
                     )
                 } catch (_: JSONException) {
                     null
@@ -239,18 +308,35 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
         /** Action of the MainActivity intent after a redirect; setup then calls [completePending]. */
         const val ACTION_DONE = "app.plico.action.OAUTH_DONE"
 
-        internal const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-        internal const val TOKEN_URL = "https://oauth2.googleapis.com/token"
-        internal const val REVOKE_URL = "https://oauth2.googleapis.com/revoke"
-        internal const val SCOPES = Providers.GMAIL_SCOPE + " openid email"
         internal const val PENDING_KEY = "oauth.pending"
-        internal const val REDIRECT_PATH = "/oauth2redirect"
+        internal const val REDIRECT_PATH = "/" + OAuthIssuer.REDIRECT_NAME
         internal const val MAX_AGE_MS = 10 * 60_000L
         private const val MAX_PARAM_LENGTH = 2048
         private const val MAX_RESPONSE_BYTES = 64 * 1024
         private const val TIMEOUT_MS = 20_000
 
         private val random = SecureRandom()
+
+        /**
+         * Stores the code or error of a browser redirect in the pending entry. Only the URI is read, never extras.
+         * Returns false when the redirect does not match the pending sign-in (the redirect URI of its issuer,
+         * state, age or a second use).
+         */
+        fun onRedirect(context: Context, prefs: Prefs, uri: Uri): Boolean {
+            val pending = pending(prefs) ?: return false
+            if (!isRedirect(pending.issuer, context.packageName, uri.scheme, uri.authority, uri.path)) return false
+            val done = pending.redirected(
+                state = uri.getQueryParameter("state"),
+                code = uri.getQueryParameter("code"),
+                error = uri.getQueryParameter("error"),
+                now = now(),
+            ) ?: return false
+            prefs.put(PENDING_KEY, done.toJson())
+            return true
+        }
+
+        /** The pending sign-in, or null when there is none or it cannot be read. */
+        fun pending(prefs: Prefs): Pending? = Pending.parse(prefs.get(PENDING_KEY))
 
         /**
          * Removes a pending sign-in that can no longer complete (abandoned in the browser, or unreadable), so that
@@ -263,7 +349,21 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
 
         internal fun isStale(json: String, now: Long) = Pending.parse(json)?.isFresh(now) != true
 
-        internal fun redirectUri(applicationId: String) = "$applicationId:$REDIRECT_PATH"
+        /**
+         * True when [scheme], [authority] and [path] are those of the redirect URI of [issuer] for [applicationId].
+         * The query is read by the caller; a `#` fragment is ignored.
+         */
+        internal fun isRedirect(
+            issuer: OAuthIssuer,
+            applicationId: String,
+            scheme: String?,
+            authority: String?,
+            path: String?,
+        ): Boolean = scheme == applicationId && when (issuer.redirectStyle) {
+            OAuthIssuer.RedirectStyle.PATH -> authority.isNullOrEmpty() && path == REDIRECT_PATH
+            OAuthIssuer.RedirectStyle.AUTHORITY ->
+                authority == OAuthIssuer.REDIRECT_NAME && (path.isNullOrEmpty() || path == "/")
+        }
 
         /** 32 random bytes, base64url without padding: a 43-character PKCE verifier (RFC 7636 §4.1) or state. */
         internal fun randomToken(): String =
@@ -273,25 +373,28 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
         internal fun challenge(verifier: String): String =
             base64Url(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
 
+        /** The consent page URL. Both issuers get a `prompt`, so that no grant is ever silent. */
         internal fun authUrl(
+            issuer: OAuthIssuer,
             clientId: String,
             redirectUri: String,
             state: String,
             challenge: String,
             email: String,
-        ): String = AUTH_URL + "?" + formEncode(
+        ): String = issuer.authUrl + "?" + formEncode(
                 listOfNotNull(
                     "client_id" to clientId,
                     "redirect_uri" to redirectUri,
                     "response_type" to "code",
-                    "scope" to SCOPES,
+                    "scope" to issuer.scopes,
                     "state" to state,
                     "code_challenge" to challenge,
                     "code_challenge_method" to "S256",
                     email.takeIf { it.isNotBlank() }?.let { "login_hint" to it },
-                    "access_type" to "offline",
-                    "prompt" to "consent",
-                ),
+                ) + when (issuer) {
+                    OAuthIssuer.GOOGLE -> listOf("access_type" to "offline", "prompt" to "consent")
+                    OAuthIssuer.MICROSOFT -> listOf("response_mode" to "query", "prompt" to "select_account")
+                },
             )
 
         /** Parses a successful token response. Throws IOException when the access token is missing. */
@@ -323,12 +426,15 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
             else -> Failure.TEMPORARY
         }
 
-        /** Granular consent lets the user untick Gmail; then the grant is useless for IMAP. */
-        internal fun grantsMail(scope: String?): Boolean = scope == null || Providers.GMAIL_SCOPE in scope.split(' ')
+        /** Granular consent lets the user untick mail; then the grant is useless for IMAP. */
+        internal fun grantsMail(issuer: OAuthIssuer, scope: String?): Boolean = scope == null || when (issuer) {
+            OAuthIssuer.GOOGLE -> issuer.mailScope in scope.split(' ')
+            OAuthIssuer.MICROSOFT -> scope.contains(issuer.mailScope, ignoreCase = true)
+        }
 
         /**
-         * The `email` claim of an id_token. The token comes straight from Google's token endpoint over TLS,
-         * so its signature is not checked (privacy PS16).
+         * The `email` claim of an id_token. The token comes straight from the token endpoint of the issuer over
+         * TLS, so its signature is not checked (privacy PS16).
          */
         internal fun emailFromIdToken(idToken: String): String? = try {
             val payload = idToken.split('.').takeIf { it.size == 3 }?.get(1) ?: return null
@@ -338,6 +444,8 @@ class GoogleOAuth(private val context: Context, private val prefs: Prefs) : Toke
         } catch (_: JSONException) {
             null
         }
+
+        private fun now() = SystemClock.elapsedRealtime()
 
         private fun base64Url(bytes: ByteArray) = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 

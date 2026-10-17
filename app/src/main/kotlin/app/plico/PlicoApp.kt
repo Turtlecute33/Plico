@@ -2,7 +2,7 @@ package app.plico
 
 import android.app.Application
 import android.content.Context
-import app.plico.account.GoogleOAuth
+import app.plico.account.BrowserOAuth
 import app.plico.data.AccountDao
 import app.plico.data.ContactDao
 import app.plico.data.Db
@@ -14,6 +14,7 @@ import app.plico.data.OpDao
 import app.plico.data.Prefs
 import app.plico.data.TrustDao
 import app.plico.data.Vault
+import app.plico.html.SenderLogos
 import app.plico.notify.Notifier
 import app.plico.push.Power
 import app.plico.push.PushEngine
@@ -54,10 +55,13 @@ class PlicoApp : Application() {
     /** Keepalive intervals learned per provider and network, shared by all sessions. */
     val learnedIntervals by lazy { LearnedIntervals(prefs) }
 
+    /** Sender logos, only when the user turned them on (DESIGN §12). */
+    val logos by lazy { SenderLogos(this) }
+
     override fun onCreate() {
         super.onCreate()
         // On the main thread, so that it cannot race with a sign-in that the UI starts at once.
-        GoogleOAuth.dropStale(prefs)
+        BrowserOAuth.dropStale(prefs)
         notifier.watchSendFailures()
         thread(name = "start-cleanup") {
             // DESIGN §9: shown notifications follow "Hide content" and the app lock also while push is paused.
@@ -66,6 +70,8 @@ class PlicoApp : Application() {
             Sender.onProcessStart(this)
             // DESIGN §11.5: cached attachment files older than 1 h are deleted at start.
             files.pruneAttachmentCache()
+            // DESIGN §12: expired logos go; all of them when logos are off or no account is left.
+            logos.prune(prefs.senderLogos, accounts.all().isNotEmpty())
         }
     }
 }

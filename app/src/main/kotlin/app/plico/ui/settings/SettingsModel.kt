@@ -2,7 +2,7 @@ package app.plico.ui.settings
 
 import androidx.annotation.StringRes
 import app.plico.R
-import app.plico.account.GoogleOAuth
+import app.plico.account.OAuthIssuer
 import app.plico.account.Providers
 import app.plico.data.AccountState
 import app.plico.data.AuthKind
@@ -240,7 +240,7 @@ internal fun connections(): List<Connection> = listOf(
     Connection(R.string.settings_about_gmail, Providers.GMAIL_SERVERS.endpoints()),
     Connection(
         R.string.settings_about_google_sign_in,
-        listOf(GoogleOAuth.AUTH_URL, GoogleOAuth.TOKEN_URL, GoogleOAuth.REVOKE_URL).map { URI(it).host }.distinct(),
+        OAuthIssuer.GOOGLE.run { listOfNotNull(authUrl, tokenUrl, revokeUrl) }.map { URI(it).host }.distinct(),
     ),
 )
 

@@ -9,11 +9,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.plico.PlicoApp
 import app.plico.account.AccountProbe
+import app.plico.account.BrowserOAuth
 import app.plico.account.DeviceCredentials
 import app.plico.account.DeviceGoogleAuth
-import app.plico.account.GoogleOAuth
 import app.plico.account.MailError
 import app.plico.account.OAuthCredentials
+import app.plico.account.OAuthIssuer
 import app.plico.account.PasswordCredentials
 import app.plico.account.Providers
 import app.plico.account.forgetCredentials
@@ -119,7 +120,7 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
         val typed = SetupInput.normalizeEmail(Provider.GMAIL, email.text.toString())
         val hint = current.reauth?.email ?: typed.takeIf { SetupInput.checkEmail(Provider.GMAIL, it) == null }.orEmpty()
         try {
-            GoogleOAuth(app).start(activity, hint)
+            BrowserOAuth(app, OAuthIssuer.GOOGLE).start(activity, hint)
             _state.update { it.start(Busy.BROWSER) }
         } catch (e: MailError) {
             _state.update { it.failed(Problem.of(e, Provider.GMAIL, Method.BROWSER)) }
@@ -234,7 +235,7 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
         val waiting = current.busy
         if (current.reauth == null) choose(Provider.GMAIL)
         test(Provider.GMAIL, Method.BROWSER) {
-            val signIn = GoogleOAuth(app).completePending()
+            val signIn = BrowserOAuth(app, OAuthIssuer.GOOGLE).completePending()
             if (signIn == null) {
                 _state.update { it.copy(busy = waiting) }
                 return@test null
@@ -242,7 +243,9 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
             val address = signIn.email.lowercase(Locale.ROOT)
             checkIdentity(address)
             val token = signIn.refreshToken
-            val credentials = OAuthCredentials(signIn.email, { token }, GoogleOAuth(app), signIn.accessToken)
+            val issuer = OAuthIssuer.GOOGLE
+            val endpoint = BrowserOAuth(app, issuer)
+            val credentials = OAuthCredentials(signIn.email, { token }, endpoint, signIn.accessToken, hosts = issuer.hosts)
             val result = AccountProbe.probe(app, Provider.GMAIL, Providers.GMAIL_SERVERS, credentials)
             SignedIn(Provider.GMAIL, address, AuthKind.OAUTH, encrypt(token), null, result.notes, result.idle)
         }

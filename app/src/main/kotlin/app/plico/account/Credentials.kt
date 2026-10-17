@@ -41,5 +41,5 @@ sealed class MailError(message: String, cause: Throwable? = null) : Exception(me
     class Server(message: String, cause: Throwable? = null) : MailError(message, cause)
 
     /** Account setup problem the user must fix (e.g. Gmail All Mail hidden from IMAP, client not registered). */
-    class Setup(message: String) : MailError(message)
+    class Setup(message: String, cause: Throwable? = null) : MailError(message, cause)
 }

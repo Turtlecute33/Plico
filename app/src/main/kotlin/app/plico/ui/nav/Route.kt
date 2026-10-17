@@ -10,8 +10,11 @@ import app.plico.data.MailView
 sealed interface Route {
     data object Setup : Route
 
-    /** Sign in again to an existing account (Settings, "Sign-in needed" notification). */
-    data class Reauth(val accountId: Long) : Route
+    /**
+     * Sign in again to an existing account (Settings, "Sign-in needed" notification). [editServers]: start on the
+     * server settings ("Change server settings" of an account on other servers).
+     */
+    data class Reauth(val accountId: Long, val editServers: Boolean = false) : Route
     data class Mailbox(val view: MailView) : Route
     data class Message(val id: Long) : Route
     /**

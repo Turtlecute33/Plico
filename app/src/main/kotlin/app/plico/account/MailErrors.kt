@@ -1,5 +1,6 @@
 package app.plico.account
 
+import android.content.Context
 import app.plico.mail.imap.ImapBadException
 import app.plico.mail.imap.ImapByeException
 import app.plico.mail.imap.ImapMissingCapabilityException
@@ -56,6 +57,12 @@ object MailErrors {
         t is IOException -> MailError.Network(t)
         else -> MailError.Server(text(t), t)
     }
+
+    /**
+     * [e] with a text for the user where the server text alone does not help. Call it with the result of
+     * [classify] when [context] can give strings.
+     */
+    fun localized(context: Context, e: MailError): MailError = e
 
     /**
      * Maps a refused IMAP AUTHENTICATE. A NO without a response code, or with an ALERT that is not a

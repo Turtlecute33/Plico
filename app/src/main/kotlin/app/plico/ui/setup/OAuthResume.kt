@@ -1,7 +1,7 @@
 package app.plico.ui.setup
 
 import app.plico.PlicoApp
-import app.plico.account.GoogleOAuth
+import app.plico.account.BrowserOAuth
 import app.plico.data.Account
 import app.plico.data.AuthKind
 import app.plico.ui.nav.Route
@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Continues browser OAuth after OAuthRedirectActivity stored the result in Prefs (DESIGN §6). The setup
- * screen that waits for the browser listens to [signals] and then calls GoogleOAuth.completePending().
+ * screen that waits for the browser listens to [signals] and then calls BrowserOAuth.completePending().
  */
 object OAuthResume {
     private val results = MutableSharedFlow<Unit>(
@@ -48,5 +48,5 @@ object OAuthResume {
 
     /** The login hint of a sign-in whose redirect arrived ("" without a hint), or null. */
     private fun pendingEmail(app: PlicoApp): String? =
-        GoogleOAuth.Pending.parse(app.prefs.get(GoogleOAuth.PENDING_KEY))?.takeIf { it.done }?.email
+        BrowserOAuth.pending(app.prefs)?.takeIf { it.done }?.email
 }

@@ -31,7 +31,7 @@ class OAuthCredentialsTest {
     private val endpoint = FakeEndpoint { now }
 
     private fun credentials(initial: AccessToken? = null) =
-        OAuthCredentials("me@gmail.com", { "refresh-1" }, endpoint, initial) { now }
+        OAuthCredentials("me@gmail.com", { "refresh-1" }, endpoint, initial, clock = { now })
 
     private suspend fun OAuthCredentials.imapLogin(): String {
         val (client, stream) = imap(IMAP_OK)
