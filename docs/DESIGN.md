@@ -318,8 +318,8 @@ Framework SQLite (`SQLiteOpenHelper`, WAL, `PRAGMA foreign_keys=ON`). One `Db` c
 
 ```sql
 CREATE TABLE account(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,      -- 'riseup' | 'gmail'
-  email TEXT NOT NULL UNIQUE, sender_name TEXT NOT NULL DEFAULT '', label TEXT NOT NULL,   -- label default 'Riseup'/'Gmail' (+ n)
+  id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,      -- 'riseup' | 'gmail' | 'microsoft' | 'other'
+  email TEXT NOT NULL UNIQUE, sender_name TEXT NOT NULL DEFAULT '', label TEXT NOT NULL,   -- label default: provider brand (+ n)
   color INTEGER NOT NULL DEFAULT 0,
   auth TEXT NOT NULL,                       -- 'password' | 'oauth' | 'device'
   secret BLOB, device_account TEXT,
@@ -327,7 +327,7 @@ CREATE TABLE account(
   push_mode INTEGER NOT NULL DEFAULT 0,     -- 0 instant, 1 instant on Wi-Fi/charging + poll on mobile data, 2 poll
   poll_minutes INTEGER NOT NULL DEFAULT 15,
   gmail_categories TEXT NOT NULL DEFAULT 'primary',
-  archive_folder INTEGER,                   -- Riseup: chosen archive folder id (NULL = auto)
+  archive_folder INTEGER,                   -- not Gmail: chosen archive folder id (NULL = auto)
   signature TEXT NOT NULL DEFAULT '',
   state INTEGER NOT NULL DEFAULT 0, state_text TEXT,   -- 0 ok, 1 sign-in needed, 2 TLS problem, 3 setup problem (e.g. Gmail All Mail hidden)
   server_keepalive_s INTEGER, quota_used INTEGER, quota_limit INTEGER, sort INTEGER NOT NULL DEFAULT 0);
@@ -421,6 +421,28 @@ implements `KeyValueStore` (`get`/`put` of raw strings) for the components that 
 `outboxDraftIds()` lists the outbox dirs, so that process start deletes the ones without a draft row.
 
 Contacts are learned from sent recipients and from senders the user replied to. No contacts permission.
+
+### Migration 1 → 2
+
+`Schema.VERSION` is 2. `Schema.MIGRATIONS[i]` upgrades version i + 1 to i + 2 (`onUpgrade`, in one
+transaction); a fresh database runs v1 and then every migration, so it gets the same statements. Hosts are
+literals, never `Providers` values. The default ports and TLS mode (993/465, implicit TLS) are those of Riseup
+and Gmail. The SQL comments below are Kotlin comments in `Schema.kt`: ALTER TABLE ADD COLUMN copies a trailing
+`--` comment into the stored CREATE TABLE, and SQLite then refuses the statement.
+
+```sql
+ALTER TABLE account ADD COLUMN imap_host TEXT NOT NULL DEFAULT '';
+ALTER TABLE account ADD COLUMN imap_port INTEGER NOT NULL DEFAULT 993;
+ALTER TABLE account ADD COLUMN imap_tls INTEGER NOT NULL DEFAULT 0;      -- 0 implicit TLS, 1 STARTTLS (always required); no cleartext value
+ALTER TABLE account ADD COLUMN smtp_host TEXT NOT NULL DEFAULT '';
+ALTER TABLE account ADD COLUMN smtp_port INTEGER NOT NULL DEFAULT 465;
+ALTER TABLE account ADD COLUMN smtp_tls INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE account ADD COLUMN login TEXT;                               -- NULL = the email address
+ALTER TABLE account ADD COLUMN idle INTEGER NOT NULL DEFAULT 1;          -- 0 = the server has no IDLE: the account polls
+ALTER TABLE message ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;       -- server flag \Deleted (not Gmail): the row is not shown
+UPDATE account SET imap_host = 'mail.riseup.net', smtp_host = 'mail.riseup.net' WHERE provider = 'riseup';
+UPDATE account SET imap_host = 'imap.gmail.com', smtp_host = 'smtp.gmail.com' WHERE provider = 'gmail';
+```
 
 ## 6. Providers and sign-in (`account`)
 

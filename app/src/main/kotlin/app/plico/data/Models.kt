@@ -1,16 +1,31 @@
 package app.plico.data
 
-/** [brand] is the provider's name, the same in every language (default account labels, notifications). */
+import app.plico.mail.net.Endpoint
+import app.plico.mail.net.TlsMode
+
+/**
+ * The behaviour of an account's servers, not a brand: table providers such as Yahoo or Fastmail are [OTHER].
+ * [brand] is the default account label base, the same in every language (never shown as "for X").
+ */
 enum class Provider(val id: String, val brand: String) {
-    RISEUP("riseup", "Riseup"), GMAIL("gmail", "Gmail");
+    RISEUP("riseup", "Riseup"), GMAIL("gmail", "Gmail"), MICROSOFT("microsoft", "Outlook"), OTHER("other", "Mail");
 
     companion object {
-        fun of(id: String) = entries.first { it.id == id }
+        /** Unknown ids (a newer build, a bad row) read as OTHER, never a crash. */
+        fun of(id: String) = entries.firstOrNull { it.id == id } ?: OTHER
+    }
+}
+
+/** Incoming and outgoing servers of one account. [login] null = the email address. */
+data class Servers(val imap: Endpoint, val smtp: Endpoint, val login: String? = null) {
+    companion object {
+        /** No servers; only in test fixtures. */
+        val NONE = Servers(Endpoint("", 993, TlsMode.IMPLICIT), Endpoint("", 465, TlsMode.IMPLICIT))
     }
 }
 
 enum class AuthKind(val id: String) {
-    /** Riseup password or Gmail app password. */
+    /** Account password or app password. */
     PASSWORD("password"),
 
     /** Browser OAuth; the refresh token is the secret. */
@@ -68,8 +83,15 @@ data class Account(
     val quotaUsed: Long?,
     val quotaLimit: Long?,
     val sort: Int,
+    /** [Servers.NONE] only in test fixtures. */
+    val servers: Servers = Servers.NONE,
+    /** False when the server has no IDLE: the account polls. */
+    val idle: Boolean = true,
 ) {
     val isGmail: Boolean get() = provider == Provider.GMAIL
+
+    /** The IMAP/SMTP user name (also the XOAUTH2 user). */
+    val login: String get() = servers.login ?: email
 }
 
 data class Identity(val id: Long, val accountId: Long, val email: String, val name: String)
@@ -150,6 +172,8 @@ data class MessageSummary(
     val snippet: String,
     /** Stored `to_list` form; the list shows the first recipient for mail the user sent. */
     val toList: String = "",
+    /** [Auth] value (the sender logo gate). */
+    val auth: Int = Auth.UNKNOWN,
 )
 
 object Auth {
@@ -325,6 +349,8 @@ data class NewMessage(
     val notified: Boolean = true,
     /** Gmail label view ids (kind 1) from X-GM-LABELS; null leaves the memberships unchanged (Riseup). */
     val labels: Set<Long>? = null,
+    /** The server flag `\Deleted` (not Gmail): the row is stored but not shown. */
+    val deleted: Boolean = false,
 )
 
 /** Server state of one row of a source mailbox, from a flags FETCH. */
@@ -337,6 +363,8 @@ data class ServerFlags(
     val modSeq: Long? = null,
     /** Gmail label view ids (kind 1) from X-GM-LABELS; null leaves the memberships unchanged. */
     val labels: Set<Long>? = null,
+    /** The server flag `\Deleted` (not Gmail). */
+    val deleted: Boolean = false,
 )
 
 /** Where a message lives on the server. */

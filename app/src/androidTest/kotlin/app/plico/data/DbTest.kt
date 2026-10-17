@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 class DbTest : DbFixture() {
 
     @Test
-    fun createsSchemaV1() {
+    fun createsSchemaV2() {
         val names = db.sql.list("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'") { it.str(0) }.toSet()
         val expected = setOf(
             "account", "identity", "folder", "message", "message_folder", "body", "attachment", "message_fts",
@@ -29,7 +29,12 @@ class DbTest : DbFixture() {
             "message_folder_message", "message_ad",
         )
         assertTrue(names.containsAll(expected), "missing: ${expected - names}")
-        assertEquals(1, db.sql.version)
+        assertEquals(2, db.sql.version)
+        // A fresh database also runs the migration statements.
+        val accountColumns = db.sql.list("PRAGMA table_info(account)") { it.str(1) }
+        val v2 = listOf("imap_host", "imap_port", "imap_tls", "smtp_host", "smtp_port", "smtp_tls", "login", "idle")
+        assertEquals(v2, accountColumns.takeLast(v2.size))
+        assertEquals("deleted", db.sql.list("PRAGMA table_info(message)") { it.str(1) }.last())
         val fts = db.sql.one("SELECT sql FROM sqlite_master WHERE name = 'message_fts'") { it.str(0) }!!
         assertTrue("fts4" in fts && "unicode61" in fts)
         val trigger = db.sql.one("SELECT type FROM sqlite_master WHERE name = 'message_ad'") { it.str(0) }

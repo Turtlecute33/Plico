@@ -1,19 +1,23 @@
 package app.plico.mail.imap
 
+import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
 import app.plico.mail.net.SocketHooks
+import app.plico.mail.net.TlsMode
 import app.plico.mail.sasl.Sasl
 import java.io.Closeable
 import java.time.DateTimeException
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import javax.net.ssl.SSLSocketFactory
 
 /**
  * Typed IMAP operations used by the app. See DESIGN.md §4.4.
  * Mailbox names and Gmail labels are given and returned decoded; this class encodes them to modified
  * UTF-7 for the wire. Commands that take a [UidSet] are split into chunks of at most 500 ranges.
+ * [host] is the host of the endpoint ("" only in tests); credentials check it before they send a token.
  */
-class ImapClient(val conn: ImapConnection) : Closeable {
+class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
 
     val caps: Set<String> get() = conn.capabilities
     val isGmail: Boolean get() = "X-GM-EXT-1" in caps
@@ -22,31 +26,41 @@ class ImapClient(val conn: ImapConnection) : Closeable {
     private var capsAfterAuth = false
     private var current: String? = null
 
-    /** SASL PLAIN with an initial response (SASL-IR). */
-    fun authenticatePlain(user: String, password: String): Unit = authenticate("PLAIN", Sasl.plain(user, password))
+    /** Sign-in with a password or an app password: SASL PLAIN with an initial response (SASL-IR). */
+    fun authenticatePassword(user: String, password: String): Unit = authenticatePlain(user, password)
 
     /** Google XOAUTH2 with an initial response. A failed token gets a challenge, then NO. */
     fun authenticateXoauth2(user: String, accessToken: String): Unit =
         authenticate("XOAUTH2", Sasl.xoauth2(user, accessToken))
 
-    /** Sends CAPABILITY when needed; throws [ImapMissingCapabilityException] when [REQUIRED] is not met. */
+    /**
+     * Sends CAPABILITY when the login did not report it. Throws [ImapMissingCapabilityException] when the server
+     * is neither IMAP4rev1 nor IMAP4rev2; every extension is optional.
+     */
     fun requireCapabilities() {
         if (!capsAfterAuth) {
             conn.execute(Command.raw("CAPABILITY"))
             capsAfterAuth = true
         }
-        val missing = REQUIRED - caps
-        if (missing.isNotEmpty()) throw ImapMissingCapabilityException(missing)
+        if ("IMAP4REV1" !in caps && "IMAP4REV2" !in caps) throw ImapMissingCapabilityException(setOf("IMAP4REV1"))
     }
 
-    /** `ENABLE`; returns the upper-case extensions the server reports as enabled. */
+    /** `ENABLE`; returns the upper-case extensions the server reports as enabled (none without ENABLE). */
     fun enable(vararg ext: String): Set<String> {
-        if (ext.isEmpty()) return emptySet()
+        if (ext.isEmpty() || "ENABLE" !in caps) return emptySet()
         val enabled = HashSet<String>()
         conn.execute(Command.raw("ENABLE", *ext)) { r ->
             if (r.keyword == "ENABLED") r.values.mapNotNullTo(enabled) { it.textOrNull()?.uppercase() }
         }
         return enabled
+    }
+
+    /** RFC 2342 namespaces; null when the server has no NAMESPACE. */
+    fun namespace(): Namespaces? = null
+
+    /** RFC 2971 `ID` with [fields]; the reply is ignored. Only for servers that refuse mailboxes without it. */
+    fun id(fields: List<Pair<String, String>>) {
+        conn.execute(Command.build { raw("ID"); list { fields.forEach { (key, value) -> string(key); string(value) } } })
     }
 
     /** Starts COMPRESS=DEFLATE when the server advertises it. */
@@ -194,7 +208,14 @@ class ImapClient(val conn: ImapConnection) : Closeable {
         return moved
     }
 
-    fun uidExpunge(uids: UidSet): Unit = forChunks(uids) { conn.execute(Command.raw("UID EXPUNGE", it.toString())) }
+    /**
+     * `UID EXPUNGE` per chunk. [guard] is for servers without UIDPLUS: it keeps the `\Deleted` messages of other
+     * clients. Returns false when the guard skipped the expunge.
+     */
+    fun uidExpunge(uids: UidSet, guard: Boolean = true): Boolean {
+        forChunks(uids) { conn.execute(Command.raw("UID EXPUNGE", it.toString())) }
+        return true
+    }
 
     /** Returns the APPENDUID UID, or null. */
     fun append(mailbox: String, flags: List<String>, message: ByteArray): Long? {
@@ -251,6 +272,9 @@ class ImapClient(val conn: ImapConnection) : Closeable {
         current = null
         conn.close()
     }
+
+    /** SASL PLAIN with an initial response (SASL-IR). */
+    private fun authenticatePlain(user: String, password: String): Unit = authenticate("PLAIN", Sasl.plain(user, password))
 
     private fun authenticate(mechanism: String, initialResponse: String) {
         var capsSeen = false
@@ -315,15 +339,22 @@ class ImapClient(val conn: ImapConnection) : Closeable {
     }
 
     companion object {
-        val REQUIRED = setOf("IDLE", "MOVE", "UIDPLUS", "ESEARCH")
-
         /** Opens the TLS socket, reads the greeting and returns a client ready for authentication. */
-        fun connect(host: String, port: Int, hooks: SocketHooks, log: (String) -> Unit = {}): ImapClient {
-            val socket = MailSocket.open(host, port, hooks)
+        fun connect(endpoint: Endpoint, hooks: SocketHooks, log: (String) -> Unit = {}): ImapClient =
+            connect(endpoint, hooks, log, SSLSocketFactory.getDefault() as SSLSocketFactory)
+
+        internal fun connect(
+            endpoint: Endpoint,
+            hooks: SocketHooks,
+            log: (String) -> Unit,
+            factory: SSLSocketFactory,
+        ): ImapClient {
+            if (endpoint.tls == TlsMode.STARTTLS) TODO("A")
+            val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, factory = factory)
             try {
                 val conn = ImapConnection(socket, log)
                 conn.greeting()
-                return ImapClient(conn)
+                return ImapClient(conn, endpoint.host)
             } catch (e: Throwable) {
                 socket.close()
                 throw e

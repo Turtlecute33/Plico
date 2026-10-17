@@ -32,6 +32,8 @@ class SignedIn(
     val secret: ByteArray?,
     val deviceAccount: String?,
     val notes: List<String> = emptyList(),
+    /** False when the server has no IDLE. */
+    val idle: Boolean = true,
 ) {
     override fun toString() = "SignedIn($provider, $auth)"
 }
@@ -189,6 +191,7 @@ data class SetupState(
         fun pageOf(provider: Provider) = when (provider) {
             Provider.RISEUP -> Page.RISEUP
             Provider.GMAIL -> Page.GMAIL
+            else -> Page.WELCOME
         }
 
         /**

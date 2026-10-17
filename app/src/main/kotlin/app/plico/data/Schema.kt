@@ -22,15 +22,18 @@ object Tables {
     internal val ACCOUNT_OWNED = arrayOf(ACCOUNT, IDENTITY, FOLDER, OP, DRAFT, *MESSAGE_OWNED)
 }
 
-/** Schema v1, statement by statement as written in DESIGN.md §5. */
+/**
+ * The schema, statement by statement as written in DESIGN.md §5: [V1], then every step of [MIGRATIONS].
+ * A fresh database runs the same statements as an upgraded one.
+ */
 internal object Schema {
-    const val VERSION = 1
+    const val VERSION = 2
 
     val V1 = listOf(
         """
         CREATE TABLE account(
-          id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,      -- 'riseup' | 'gmail'
-          email TEXT NOT NULL UNIQUE, sender_name TEXT NOT NULL DEFAULT '', label TEXT NOT NULL,   -- label default 'Riseup'/'Gmail' (+ n)
+          id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,      -- 'riseup' | 'gmail' | 'microsoft' | 'other'
+          email TEXT NOT NULL UNIQUE, sender_name TEXT NOT NULL DEFAULT '', label TEXT NOT NULL,   -- label default: provider brand (+ n)
           color INTEGER NOT NULL DEFAULT 0,
           auth TEXT NOT NULL,                       -- 'password' | 'oauth' | 'device'
           secret BLOB, device_account TEXT,
@@ -38,7 +41,7 @@ internal object Schema {
           push_mode INTEGER NOT NULL DEFAULT 0,     -- 0 instant, 1 instant on Wi-Fi/charging + poll on mobile data, 2 poll
           poll_minutes INTEGER NOT NULL DEFAULT 15,
           gmail_categories TEXT NOT NULL DEFAULT 'primary',
-          archive_folder INTEGER,                   -- Riseup: chosen archive folder id (NULL = auto)
+          archive_folder INTEGER,                   -- not Gmail: chosen archive folder id (NULL = auto)
           signature TEXT NOT NULL DEFAULT '',
           state INTEGER NOT NULL DEFAULT 0, state_text TEXT,   -- 0 ok, 1 sign-in needed, 2 TLS problem, 3 setup problem (e.g. Gmail All Mail hidden)
           server_keepalive_s INTEGER, quota_used INTEGER, quota_limit INTEGER, sort INTEGER NOT NULL DEFAULT 0)
@@ -111,4 +114,30 @@ internal object Schema {
         "CREATE TABLE contact(email TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', last_used INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE trusted_sender(email TEXT PRIMARY KEY)",
     ).map { it.trimIndent() }
+
+    /**
+     * Upgrade steps: index i upgrades version i + 1 to i + 2. Hosts are literals, never `Providers` values, so
+     * that a later change of the built-in servers cannot change an old migration. The SQL comments of DESIGN.md
+     * are Kotlin comments here: ALTER TABLE ADD COLUMN copies a trailing `--` comment into the stored CREATE TABLE,
+     * where it hides the closing parenthesis (SQLite refuses the statement).
+     */
+    val MIGRATIONS: List<List<String>> = listOf(
+        listOf(
+            "ALTER TABLE account ADD COLUMN imap_host TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE account ADD COLUMN imap_port INTEGER NOT NULL DEFAULT 993",
+            // 0 implicit TLS, 1 STARTTLS (always required); no cleartext value
+            "ALTER TABLE account ADD COLUMN imap_tls INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE account ADD COLUMN smtp_host TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE account ADD COLUMN smtp_port INTEGER NOT NULL DEFAULT 465",
+            "ALTER TABLE account ADD COLUMN smtp_tls INTEGER NOT NULL DEFAULT 0",
+            // NULL = the email address
+            "ALTER TABLE account ADD COLUMN login TEXT",
+            // 0 = the server has no IDLE: the account polls
+            "ALTER TABLE account ADD COLUMN idle INTEGER NOT NULL DEFAULT 1",
+            // server flag \Deleted (not Gmail): the row is not shown
+            "ALTER TABLE message ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
+            "UPDATE account SET imap_host = 'mail.riseup.net', smtp_host = 'mail.riseup.net' WHERE provider = 'riseup'",
+            "UPDATE account SET imap_host = 'imap.gmail.com', smtp_host = 'smtp.gmail.com' WHERE provider = 'gmail'",
+        ),
+    )
 }

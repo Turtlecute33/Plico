@@ -50,6 +50,10 @@ class FakeStream(private val waitMs: Long = 2_000) : MailStream {
             timeouts += value
         }
 
+    override var encrypted = true
+
+    override fun startTls() = throw UnsupportedOperationException()
+
     /** Each line is sent with CRLF appended. Use `\r\n` inside a line for literals. */
     fun server(vararg lines: String) = apply { lines.forEach { lock.withLock { steps += Send(bytes(it)) } } }
 

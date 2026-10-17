@@ -13,8 +13,11 @@ internal class CannedStream(vararg serverLines: String) : MailStream {
     override val input = ByteArrayInputStream(serverLines.joinToString("") { "$it\r\n" }.toByteArray())
     override val output = ByteArrayOutputStream()
     override var readTimeoutMs = 0
+    override val encrypted = true
 
     override fun startCompression() = error("Not used")
+
+    override fun startTls() = error("Not used")
 
     override fun close() {}
 

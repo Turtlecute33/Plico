@@ -117,7 +117,7 @@ internal class ComposeViewModel(
         val text = DraftRules.utf8Length(subject) + DraftRules.utf8Length(body.text)
         DraftMime.estimatedSize(text + attachments.sumOf { it.size })
     }
-    val sizeLimit by derivedStateOf { from?.let { Providers.of(it.provider).maxMessageBytes } }
+    val sizeLimit by derivedStateOf { from?.let { Providers.traits(it.provider).maxMessageBytes } }
     val tooLarge by derivedStateOf { sizeLimit?.let { encodedSize > it } == true }
 
     /** Picker URIs of the files added in this session, for "Original quality". Never stored. */

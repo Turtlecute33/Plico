@@ -1,7 +1,9 @@
 package app.plico.mail.smtp
 
+import app.plico.mail.net.Endpoint
 import app.plico.mail.net.SocketHooks
 import app.plico.mail.net.TestTls
+import app.plico.mail.net.TlsMode
 import app.plico.mail.net.TlsServer
 import app.plico.mail.net.readCrlfLine
 import app.plico.mail.smtp.ScriptedStream.Step
@@ -44,7 +46,7 @@ class SmtpClientTest {
     private fun b64(s: String) = Base64.getEncoder().encodeToString(s.toByteArray())
 
     private fun client(stream: ScriptedStream, log: MutableList<String> = mutableListOf()) =
-        SmtpClient(stream) { log += it }
+        SmtpClient(stream, { log += it })
 
     /** A client after greeting and EHLO with the given extensions (as EHLO lines after the first). */
     private fun started(vararg steps: Step, extensions: List<String> = emptyList()): Pair<SmtpClient, ScriptedStream> {
@@ -165,7 +167,7 @@ class SmtpClientTest {
         )
         val client = client(stream)
         client.start()
-        client.authPlain("alice@riseup.net", "correct horse battery staple")
+        client.authPassword("alice@riseup.net", "correct horse battery staple")
         stream.assertDone()
     }
 
@@ -175,7 +177,7 @@ class SmtpClientTest {
             c("AUTH PLAIN " + b64("\u0000alice\u0000wrong")),
             s("535 5.7.8 Error: authentication failed: authentication failure"),
         )
-        val e = assertFailsWith<SmtpException> { client(riseup).authPlain("alice", "wrong") }
+        val e = assertFailsWith<SmtpException> { client(riseup).authPassword("alice", "wrong") }
         assertEquals(Stage.AUTH, e.stage)
         assertEquals(535, e.code)
         assertEquals("5.7.8", e.enhanced)
@@ -187,7 +189,7 @@ class SmtpClientTest {
             c("AUTH PLAIN " + b64("\u0000me@gmail.com\u0000abcdabcdabcdabcd")),
             gmailBadCredentials,
         )
-        val g = assertFailsWith<SmtpException> { client(gmail).authPlain("me@gmail.com", "abcdabcdabcdabcd") }
+        val g = assertFailsWith<SmtpException> { client(gmail).authPassword("me@gmail.com", "abcdabcdabcdabcd") }
         assertEquals(535, g.code)
         assertEquals("5.7.8", g.enhanced)
         assertEquals(
@@ -203,7 +205,7 @@ class SmtpClientTest {
         val stream = ScriptedStream(
             c("AUTH PLAIN " + b64("\u0000u\u0000p")), s("334 "), c("*"), s("501 5.7.0 Authentication aborted"),
         )
-        val e = assertFailsWith<SmtpException> { client(stream).authPlain("u", "p") }
+        val e = assertFailsWith<SmtpException> { client(stream).authPassword("u", "p") }
         assertEquals(Stage.AUTH, e.stage)
         assertEquals(501, e.code)
         stream.assertDone()
@@ -253,7 +255,7 @@ class SmtpClientTest {
         )
         val client = client(stream, log)
         client.start()
-        client.authPlain("alice@riseup.net", "s3cret")
+        client.authPassword("alice@riseup.net", "s3cret")
         client.send("alice@riseup.net", listOf("bob@example.org"), body)
         client.quit()
         stream.assertDone()
@@ -623,7 +625,7 @@ class SmtpClientTest {
         }.use { server ->
             val log = mutableListOf<String>()
             val factory = TestTls.clientFactory("localhost")
-            val client = SmtpClient.connect("localhost", server.port, AcceptAll, { log += it }, factory)
+            val client = SmtpClient.connect(Endpoint("localhost", server.port, TlsMode.IMPLICIT), AcceptAll, { log += it }, factory)
             assertEquals(25_600_000L, client.maxSize)
             assertEquals(setOf("SIZE", "SMTPUTF8"), client.extensions.keys)
             client.quit()
@@ -640,7 +642,7 @@ class SmtpClientTest {
             assertEquals(-1, socket.inputStream.read())
         }.use { server ->
             val e = assertFailsWith<SmtpException> {
-                SmtpClient.connect("localhost", server.port, AcceptAll, {}, TestTls.clientFactory("localhost"))
+                SmtpClient.connect(Endpoint("localhost", server.port, TlsMode.IMPLICIT), AcceptAll, {}, TestTls.clientFactory("localhost"))
             }
             assertEquals(Stage.CONNECT, e.stage)
             server.join()

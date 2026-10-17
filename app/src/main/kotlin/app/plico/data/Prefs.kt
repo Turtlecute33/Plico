@@ -18,13 +18,16 @@ import kotlin.reflect.KProperty
 class Prefs(context: Context) : KeyValueStore {
     enum class Swipe { ARCHIVE, DELETE, READ, STAR, NONE }
 
+    /** Where sender logos come from; each source gets only the sender's domain. */
+    enum class LogoSource { DUCKDUCKGO, WEBSITE, GOOGLE }
+
     private val sp: SharedPreferences = context.getSharedPreferences("plico", Context.MODE_PRIVATE)
 
     /** Swipe from start to end. */
-    var swipeStart: Swipe by swipe("swipe_start", Swipe.ARCHIVE)
+    var swipeStart: Swipe by enum("swipe_start", Swipe.ARCHIVE)
 
     /** Swipe from end to start. */
-    var swipeEnd: Swipe by swipe("swipe_end", Swipe.DELETE)
+    var swipeEnd: Swipe by enum("swipe_end", Swipe.DELETE)
 
     /** 0 = undo send off. Default 5. */
     var undoSendSeconds: Int by int("undo_send_seconds", 5)
@@ -42,10 +45,25 @@ class Prefs(context: Context) : KeyValueStore {
     var incognitoKeyboard: Boolean by bool("incognito_keyboard", true)
     var hideNotificationContent: Boolean by bool("hide_notification_content", false)
 
+    /** Message list: unread rows get a dot and bold text, read rows lighter text. */
+    var markUnread: Boolean by bool("mark_unread", true)
+
+    /** Message list: unread rows get a colour per sender. */
+    var avatarColors: Boolean by bool("avatar_colors", true)
+
+    /** Default false: no request for sender logos. */
+    var senderLogos: Boolean by bool("sender_logos", false)
+    var logoSource: LogoSource by enum("logo_source", LogoSource.DUCKDUCKGO)
+
     /** The user's Google OAuth client ID; empty = OAuth methods hidden. Debug builds preset it from BuildConfig. */
     var googleClientId: String
         get() = sp.getString(GOOGLE_CLIENT_ID, null) ?: if (BuildConfig.DEBUG) BuildConfig.GOOGLE_CLIENT_ID else ""
         set(value) = edit { putString(GOOGLE_CLIENT_ID, value.trim()) }
+
+    /** The user's Microsoft (Entra) client ID; empty = Microsoft sign-in hidden. Debug builds preset it too. */
+    var microsoftClientId: String
+        get() = sp.getString(MICROSOFT_CLIENT_ID, null) ?: if (BuildConfig.DEBUG) BuildConfig.MICROSOFT_CLIENT_ID else ""
+        set(value) = edit { putString(MICROSOFT_CLIENT_ID, value.trim()) }
 
     /** Paused by the user in the app; StartReceiver is disabled. */
     var pushPaused: Boolean by bool("push_paused", false)
@@ -74,8 +92,9 @@ class Prefs(context: Context) : KeyValueStore {
 
     private fun int(key: String, default: Int) = pref({ sp.getInt(key, default) }) { edit { putInt(key, it) } }
 
-    private fun swipe(key: String, default: Swipe) = pref(
-        { sp.getString(key, null)?.let { name -> Swipe.entries.firstOrNull { it.name == name } } ?: default },
+    /** Stored by name; an unknown name reads as [default]. */
+    private inline fun <reified T : Enum<T>> enum(key: String, default: T) = pref(
+        { sp.getString(key, null)?.let { name -> enumValues<T>().firstOrNull { it.name == name } } ?: default },
     ) { edit { putString(key, it.name) } }
 
     private fun <T> pref(get: () -> T, set: (T) -> Unit) = object : ReadWriteProperty<Any?, T> {
@@ -85,5 +104,6 @@ class Prefs(context: Context) : KeyValueStore {
 
     private companion object {
         const val GOOGLE_CLIENT_ID = "google_client_id"
+        const val MICROSOFT_CLIENT_ID = "microsoft_client_id"
     }
 }

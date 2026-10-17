@@ -31,8 +31,9 @@ android {
         versionName = "0.1.0"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Release builds never contain a Google OAuth client ID (privacy PS9); debug builds may preset one.
+        // Release builds never contain an OAuth client ID (privacy PS9); debug builds may preset them.
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"\"")
+        buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"\"")
     }
 
     signingConfigs {
@@ -58,6 +59,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps.getProperty("plico.googleClientId", "")}\"")
+            buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"${localProps.getProperty("plico.microsoftClientId", "")}\"")
         }
     }
 

@@ -17,8 +17,8 @@ class MessageDao(private val db: Db) {
     // ---- Lists and detail
 
     /**
-     * The newest [limit] rows of [view], newest first. Hidden rows and server copies of local drafts
-     * (`protocol PS7`) are left out. Starred leaves out Trash and Spam; Search uses the local index and adds
+     * The newest [limit] rows of [view], newest first. Hidden rows, `\Deleted` rows and server copies of local
+     * drafts (`protocol PS7`) are left out. Starred leaves out Trash and Spam; Search uses the local index and adds
      * [serverHits] (the first [MAX_SERVER_HITS] ids of a server search, DESIGN §7.7).
      */
     fun observeList(view: MailView, limit: Int, serverHits: List<Long> = emptyList()): Flow<List<MessageSummary>> {
@@ -127,8 +127,8 @@ class MessageDao(private val db: Db) {
 
     /** The newest [limit] visible rows of [folderId] without a body, dated >= [since] (0 = all). */
     fun needingBodies(folderId: Long, since: Long, limit: Int): List<MessageRef> = db.sql.list(
-        "SELECT id, folder_id, uid FROM message WHERE folder_id = ? AND body = 0 AND hidden = 0 AND date >= ? " +
-            "ORDER BY date DESC LIMIT $limit",
+        "SELECT id, folder_id, uid FROM message WHERE folder_id = ? AND body = 0 AND hidden = 0 AND deleted = 0 " +
+            "AND date >= ? ORDER BY date DESC LIMIT $limit",
         folderId, since, row = ::refOf,
     )
 
@@ -163,8 +163,9 @@ class MessageDao(private val db: Db) {
     /**
      * Inserts header rows, or updates gm_msgid, modseq and flags of the rows that exist with the same
      * (folder, uid) (`INSERT … ON CONFLICT DO UPDATE`, never REPLACE, so bodies survive; `protocol PS10`).
-     * Header fields, notified and hidden of existing rows are kept. Every row gets its source-folder
-     * membership; [NewMessage.labels] replace its label memberships; new rows get a search-index row.
+     * Header fields, notified and hidden of existing rows are kept; `deleted` is server state like the flags.
+     * Every row gets its source-folder membership; [NewMessage.labels] replace its label memberships; new rows
+     * get a search-index row.
      * Returns the ids in the order of [rows].
      */
     fun upsert(rows: List<NewMessage>): List<Long> = db.tx(*Tables.MESSAGE_OWNED) {
@@ -177,7 +178,7 @@ class MessageDao(private val db: Db) {
                 m.accountId, m.folderId, m.uid, m.gmMsgId, m.messageId, m.inReplyTo, m.refs, m.subject,
                 m.fromName, m.fromEmail, m.toList, m.ccList, m.bccList, m.replyTo, m.date, m.size, m.seen,
                 m.flagged, m.answered, m.draft, m.modSeq, m.attachments, m.auth, m.unsubscribe, m.unsubscribePost,
-                m.notified, keepLocal,
+                m.notified, m.deleted, keepLocal,
             )
             // On the update path executeInsert() returns a stale rowid, so the known id wins.
             val id = existing ?: inserted
@@ -196,17 +197,20 @@ class MessageDao(private val db: Db) {
         val protected = opMessageIds()
         for (f in flags) {
             val (id, current) = one(
-                "SELECT id, seen, flagged, answered, draft, modseq FROM message WHERE folder_id = ? AND uid = ?",
+                "SELECT id, seen, flagged, answered, draft, modseq, deleted FROM message " +
+                    "WHERE folder_id = ? AND uid = ?",
                 folderId, f.uid,
             ) { c ->
-                c.getLong(0) to ServerFlags(f.uid, c.bool(1), c.bool(2), c.bool(3), c.bool(4), c.getLong(5))
+                c.getLong(0) to
+                    ServerFlags(f.uid, c.bool(1), c.bool(2), c.bool(3), c.bool(4), c.getLong(5), deleted = c.bool(6))
             } ?: continue
             if (id in protected) continue
             val wanted = f.copy(modSeq = f.modSeq ?: current.modSeq, labels = null)
             if (wanted != current) {
                 write(
-                    "UPDATE message SET seen = ?, flagged = ?, answered = ?, draft = ?, modseq = ? WHERE id = ?",
-                    f.seen, f.flagged, f.answered, f.draft, wanted.modSeq, id,
+                    "UPDATE message SET seen = ?, flagged = ?, answered = ?, draft = ?, modseq = ?, deleted = ? " +
+                        "WHERE id = ?",
+                    f.seen, f.flagged, f.answered, f.draft, wanted.modSeq, f.deleted, id,
                 )
             }
             f.labels?.let { writeLabels(id, folderId, it) }
@@ -393,18 +397,19 @@ class MessageDao(private val db: Db) {
         private const val UPSERT = """
             INSERT INTO message(account_id, folder_id, uid, gm_msgid, message_id, in_reply_to, refs, subject,
               from_name, from_email, to_list, cc_list, bcc_list, reply_to, date, size, seen, flagged, answered,
-              draft, modseq, attachments, auth, unsubscribe, unsubscribe_post, notified)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              draft, modseq, attachments, auth, unsubscribe, unsubscribe_post, notified, deleted)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(folder_id, uid) DO UPDATE SET
               gm_msgid = coalesce(excluded.gm_msgid, gm_msgid), modseq = excluded.modseq,
               seen = CASE WHEN :keep THEN seen ELSE excluded.seen END,
               flagged = CASE WHEN :keep THEN flagged ELSE excluded.flagged END,
               answered = CASE WHEN :keep THEN answered ELSE excluded.answered END,
-              draft = CASE WHEN :keep THEN draft ELSE excluded.draft END
+              draft = CASE WHEN :keep THEN draft ELSE excluded.draft END,
+              deleted = CASE WHEN :keep THEN deleted ELSE excluded.deleted END
             """
 
-        /** Not hidden, and not a server copy of a local draft (`protocol PS7`). */
-        private const val VISIBLE = "m.hidden = 0 AND NOT EXISTS " +
+        /** Not hidden, not `\Deleted` on the server, and not a server copy of a local draft (`protocol PS7`). */
+        private const val VISIBLE = "m.hidden = 0 AND m.deleted = 0 AND NOT EXISTS " +
             "(SELECT 1 FROM draft d WHERE d.account_id = m.account_id AND d.message_id = m.message_id)"
 
         /** An inbox (Riseup INBOX, Gmail \Inbox) or a folder or label view with notify = 1. */
@@ -419,7 +424,7 @@ class MessageDao(private val db: Db) {
         const val MAX_SERVER_HITS = 1_000
 
         private const val SUMMARY_COLS = "m.id, m.account_id, m.folder_id, m.subject, m.from_name, m.from_email, " +
-            "m.date, m.seen, m.flagged, m.draft, m.attachments, m.snippet, m.to_list"
+            "m.date, m.seen, m.flagged, m.draft, m.attachments, m.snippet, m.to_list, m.auth"
 
         private const val MESSAGE_COLS = "id, account_id, folder_id, uid, gm_msgid, message_id, in_reply_to, refs, " +
             "subject, from_name, from_email, to_list, cc_list, bcc_list, reply_to, date, size, seen, flagged, " +
@@ -443,6 +448,7 @@ class MessageDao(private val db: Db) {
             attachments = c.getInt(10) > 0,
             snippet = c.str(11),
             toList = c.str(12),
+            auth = c.getInt(13),
         )
 
         private fun messageOf(c: Cursor) = Message(

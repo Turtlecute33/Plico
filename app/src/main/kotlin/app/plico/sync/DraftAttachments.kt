@@ -4,7 +4,7 @@ import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
 import app.plico.R
-import app.plico.account.Providers
+import app.plico.account.traits
 import app.plico.data.DraftAttachment
 import app.plico.html.IncomingUris
 import java.io.File
@@ -27,7 +27,7 @@ internal object DraftAttachments {
         if (!IncomingUris.allowed(context, uri)) throw ActionError(store.text(R.string.ops_error_file_not_allowed))
         val draft = store.drafts.get(draftId) ?: throw ActionError(store.text(R.string.ops_error_message_gone))
         val account = store.accounts.get(draft.accountId) ?: throw ActionError(store.text(R.string.ops_error_message_gone))
-        val limit = Providers.of(account.provider).maxMessageBytes
+        val limit = account.traits.maxMessageBytes
         val resolver = context.contentResolver
         val name = displayName(resolver, uri) ?: DEFAULT_NAME
         val declared = try {

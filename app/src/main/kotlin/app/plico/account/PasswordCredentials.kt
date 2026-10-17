@@ -7,7 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * SASL PLAIN with the Riseup password or a Gmail app password. [password] is read for every login, so the
+ * Password sign-in with the account password or an app password. [password] is read for every login, so the
  * plain text stays in memory only for the exchange.
  */
 class PasswordCredentials(
@@ -22,12 +22,12 @@ class PasswordCredentials(
 
     override suspend fun authImap(client: ImapClient) = withContext(Dispatchers.IO) {
         val secret = normalize(provider, password())
-        authenticating { client.authenticatePlain(user, secret) }
+        authenticating { client.authenticatePassword(user, secret) }
     }
 
     override suspend fun authSmtp(client: SmtpClient) = withContext(Dispatchers.IO) {
         val secret = normalize(provider, password())
-        authenticating { client.authPlain(user, secret) }
+        authenticating { client.authPassword(user, secret) }
     }
 
     override suspend fun invalidate() {}

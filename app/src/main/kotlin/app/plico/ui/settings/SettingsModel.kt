@@ -9,6 +9,7 @@ import app.plico.data.AuthKind
 import app.plico.data.Prefs
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.data.Servers
 import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderSafety
 import app.plico.push.PushStatus
@@ -235,15 +236,15 @@ internal data class Connection(@StringRes val title: Int, val hosts: List<String
 
 /** Every host the app itself contacts; remote content is listed as text, because its hosts vary. */
 internal fun connections(): List<Connection> = listOf(
-    Connection(R.string.settings_about_riseup, Providers.RISEUP.endpoints()),
-    Connection(R.string.settings_about_gmail, Providers.GMAIL.endpoints()),
+    Connection(R.string.settings_about_riseup, Providers.RISEUP_SERVERS.endpoints()),
+    Connection(R.string.settings_about_gmail, Providers.GMAIL_SERVERS.endpoints()),
     Connection(
         R.string.settings_about_google_sign_in,
         listOf(GoogleOAuth.AUTH_URL, GoogleOAuth.TOKEN_URL, GoogleOAuth.REVOKE_URL).map { URI(it).host }.distinct(),
     ),
 )
 
-private fun Providers.Spec.endpoints() = listOf(imap, smtp).map { "${it.host}:${it.port}" }
+private fun Servers.endpoints() = listOf(imap, smtp).map { "${it.host}:${it.port}" }
 
 /** Certificate Transparency checks of the network security config work from Android 16 (API 36; apis AF10). */
 internal fun certificateTransparency(sdkInt: Int): Boolean = sdkInt >= 36

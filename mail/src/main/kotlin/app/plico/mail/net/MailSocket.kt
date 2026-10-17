@@ -39,6 +39,8 @@ class MailSocket private constructor(private val socket: SSLSocket) : MailStream
             socket.soTimeout = value
         }
 
+    override val encrypted: Boolean get() = true
+
     /** Call after the server accepted COMPRESS. Bytes that the server sent after its reply stay readable. */
     override fun startCompression() {
         check(!compressed) { "Compression already started" }
@@ -47,6 +49,8 @@ class MailSocket private constructor(private val socket: SSLSocket) : MailStream
         input = Deflate.inflating(input)
         output = Deflate.deflating(socket.outputStream)
     }
+
+    override fun startTls(): Unit = throw UnsupportedOperationException("STARTTLS is not supported yet")
 
     // The Inflater and Deflater are not ended here, because another thread can still use them. GC frees them.
     override fun close() {

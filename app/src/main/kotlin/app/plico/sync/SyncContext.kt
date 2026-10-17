@@ -5,7 +5,6 @@ import app.plico.BuildConfig
 import app.plico.PlicoApp
 import app.plico.account.AndroidSocketHooks
 import app.plico.account.Credentials
-import app.plico.account.Providers
 import app.plico.data.Account
 import app.plico.data.Folder
 import app.plico.data.FolderKind
@@ -60,8 +59,7 @@ internal class SyncContext(
 
     /** Opens an authenticated SMTP connection; the caller closes it. */
     override suspend fun smtp(): SmtpClient {
-        val server = Providers.of(account.provider).smtp
-        val smtp = SmtpClient.connect(server.host, server.port, AndroidSocketHooks, debugLog("smtp"))
+        val smtp = SmtpClient.connect(account.servers.smtp, AndroidSocketHooks, debugLog("smtp"))
         try {
             credentials.authSmtp(smtp)
         } catch (e: Throwable) {

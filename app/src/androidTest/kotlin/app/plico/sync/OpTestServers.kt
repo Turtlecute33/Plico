@@ -60,7 +60,11 @@ class FakeImap(capabilities: String = "IMAP4rev1 IDLE MOVE UIDPLUS ESEARCH LITER
     }
     override var readTimeoutMs: Int = 60_000
 
+    override val encrypted = true
+
     override fun startCompression() = throw AssertionError("COMPRESS is not scripted")
+
+    override fun startTls() = throw AssertionError("STARTTLS is not scripted")
 
     override fun close() {
         replies.eof = true
@@ -171,7 +175,11 @@ class FakeSmtp : MailStream {
     }
     override var readTimeoutMs: Int = 60_000
 
+    override val encrypted = true
+
     override fun startCompression() = throw AssertionError("SMTP has no compression")
+
+    override fun startTls() = throw AssertionError("STARTTLS is not scripted")
 
     override fun close() {
         replies.eof = true

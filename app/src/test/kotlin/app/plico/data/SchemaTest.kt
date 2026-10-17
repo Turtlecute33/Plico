@@ -6,22 +6,28 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class SchemaTest {
-    /** The schema must stay exactly the DESIGN.md §5 block; a change there needs a new version and a migration. */
+    /** The schema must stay exactly the DESIGN.md §5 blocks; a change there needs a new version and a migration. */
     @Test
     fun matchesDesignVerbatim() {
-        val design = File("../docs/DESIGN.md").readText()
-        val block = design.substringAfter("## 5. Data").substringAfter("```sql\n").substringBefore("```")
-        assertEquals(normalize(block), normalize(Schema.V1.joinToString("\n")))
+        val design = File("../docs/DESIGN.md").readText().substringAfter("## 5. Data").substringBefore("## 6.")
+        val v1 = design.substringAfter("```sql\n").substringBefore("```")
+        assertEquals(normalize(v1), normalize(Schema.V1.joinToString("\n")))
+        // The migration block of DESIGN.md has SQL comments; Schema.MIGRATIONS has them as Kotlin comments.
+        val migration = design.substringAfter("### Migration 1 → 2").substringAfter("```sql\n").substringBefore("```")
+        assertEquals(normalize(migration.replace(sqlComment, "")), normalize(Schema.MIGRATIONS[0].joinToString("\n")))
     }
 
     @Test
     fun statementsAreSingle() {
-        assertEquals(1, Schema.VERSION)
-        for (statement in Schema.V1) {
+        assertEquals(2, Schema.VERSION)
+        assertEquals(Schema.VERSION - 1, Schema.MIGRATIONS.size)
+        for (statement in Schema.V1 + Schema.MIGRATIONS.flatten()) {
             // execSQL runs one statement; outside comments, only the trigger body holds a semicolon.
-            val semicolons = statement.replace(Regex("--[^\n]*"), "").count { it == ';' }
+            val semicolons = statement.replace(sqlComment, "").count { it == ';' }
             assertEquals(if (statement.startsWith("CREATE TRIGGER")) 1 else 0, semicolons, statement)
         }
+        // ALTER TABLE ADD COLUMN copies a trailing comment into the stored CREATE TABLE and breaks it.
+        for (statement in Schema.MIGRATIONS.flatten()) assertTrue("--" !in statement, statement)
         assertTrue(Schema.V1.any { "AFTER DELETE ON message" in it && "DELETE FROM message_fts" in it })
     }
 
@@ -35,6 +41,8 @@ class SchemaTest {
         assertEquals(names.toSet(), created.toSet())
         assertEquals(setOf(Tables.CONTACT, Tables.TRUSTED_SENDER), names.toSet() - Tables.ACCOUNT_OWNED.toSet())
     }
+
+    private val sqlComment = Regex("--[^\n]*")
 
     private fun normalize(sql: String) = sql.replace(";", "").replace(Regex("\\s+"), " ").trim()
 }

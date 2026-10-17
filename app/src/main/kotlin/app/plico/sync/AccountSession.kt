@@ -7,8 +7,8 @@ import app.plico.account.AndroidSocketHooks
 import app.plico.account.Credentials
 import app.plico.account.MailError
 import app.plico.account.MailErrors
-import app.plico.account.Providers
 import app.plico.account.credentialsFor
+import app.plico.account.traits
 import app.plico.data.Account
 import app.plico.data.AccountState
 import app.plico.mail.imap.IdleEvent
@@ -383,7 +383,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     private suspend fun work() {
         val first = app.accounts.get(accountId) ?: return
-        policy = KeepalivePolicy(Providers.of(first.provider).idleStartMinutes, first.provider.id, app.learnedIntervals)
+        policy = KeepalivePolicy(first.traits.idleStartMinutes, first.provider.id, app.learnedIntervals)
         authStopped = first.state == AccountState.SIGN_IN_NEEDED
         while (true) {
             currentCoroutineContext().ensureActive()
@@ -452,8 +452,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         _status.value = Status.Connecting
         wakeLock.renew()
         val credentials = credentialsFor(app, account)
-        val server = Providers.of(account.provider).imap
-        val client = ImapClient.connect(server.host, server.port, AndroidSocketHooks, debugLog("imap"))
+        val client = ImapClient.connect(account.servers.imap, AndroidSocketHooks, debugLog("imap"))
         try {
             credentials.authImap(client)
             client.requireCapabilities()

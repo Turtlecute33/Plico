@@ -26,7 +26,7 @@ import app.plico.push.policy.Coalescing.Timing.LATER
  * asked for, and [onNetworkChanged] for every network event and for a connection on another network.
  */
 class KeepalivePolicy(
-    /** First client interval in minutes: `Providers.Spec.idleStartMinutes` (9 for Gmail, 15 for others). */
+    /** First client interval in minutes: `Providers.Traits.idleStartMinutes` (9 for Gmail, 15 for others). */
     private val startMinutes: Int,
     /** Keeps the learned intervals of different servers apart, e.g. the provider id. */
     private val scope: String,

@@ -1,6 +1,9 @@
 package app.plico.data
 
+import app.plico.account.Providers
 import app.plico.mail.mime.Address
+import app.plico.mail.net.Endpoint
+import app.plico.mail.net.TlsMode
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -16,10 +19,15 @@ class AccountDaoTest : DbFixture() {
     @Test
     fun insertReadUpdate() {
         val id = accounts.insert(
-            NewAccount(Provider.GMAIL, "me@gmail.com", "Me", "Gmail", 3, AuthKind.OAUTH, byteArrayOf(9, 8), null, 0),
+            NewAccount(
+                Provider.GMAIL, "me@gmail.com", "Me", "Gmail", 3, AuthKind.OAUTH, byteArrayOf(9, 8), null,
+                Providers.GMAIL_SERVERS, 0,
+            ),
         )
         val a = accounts.get(id)!!
         assertEquals(Provider.GMAIL, a.provider)
+        assertEquals(Providers.GMAIL_SERVERS, a.servers)
+        assertTrue(a.idle)
         assertEquals(AuthKind.OAUTH, a.auth)
         assertEquals(setOf("primary"), a.gmailCategories)
         assertEquals(PushMode.INSTANT, a.pushMode)
@@ -61,11 +69,113 @@ class AccountDaoTest : DbFixture() {
     }
 
     @Test
+    fun serversRoundTrip() {
+        val servers = Servers(
+            Endpoint("imap.example.org", 143, TlsMode.STARTTLS), Endpoint("smtp.example.org", 587, TlsMode.STARTTLS),
+            login = "me",
+        )
+        val id = accounts.insert(
+            NewAccount(Provider.OTHER, "me@example.org", "", "Mail", 0, AuthKind.PASSWORD, byteArrayOf(1), null, servers, idle = false),
+        )
+        val a = accounts.get(id)!!
+        assertEquals(servers, a.servers)
+        assertEquals("me", a.login)
+        assertFalse(a.idle)
+        accounts.setIdle(id, true)
+        assertTrue(accounts.get(id)!!.idle)
+        // The column has no cleartext value: anything unknown reads as implicit TLS.
+        db.tx(Tables.ACCOUNT) { write("UPDATE account SET smtp_tls = 7, login = NULL WHERE id = ?", id) }
+        assertEquals(TlsMode.IMPLICIT, accounts.get(id)!!.servers.smtp.tls)
+        assertEquals("me@example.org", accounts.get(id)!!.login)
+        // A provider id from a newer build reads as OTHER.
+        db.tx(Tables.ACCOUNT) { write("UPDATE account SET provider = 'future' WHERE id = ?", id) }
+        assertEquals(Provider.OTHER, accounts.get(id)!!.provider)
+    }
+
+    @Test
+    fun serverEditWithAnotherHostStartsAFreshSync() {
+        val files = Files(context)
+        val id = otherAccount()
+        val keep = account("keep@riseup.net")
+        val keepInbox = mailbox(keep, "INBOX", FolderRole.INBOX)
+        val keepMsg = insert(header(keep, keepInbox, 1)).single()
+        val inbox = mailbox(id, "INBOX", FolderRole.INBOX)
+        val archive = mailbox(id, "Archive", FolderRole.ARCHIVE)
+        val msg = insert(header(id, inbox, 1, subject = "old server")).single()
+        messages.saveBody(msg, null, "body", "body", "body", listOf(NewAttachment("2", "x.pdf", "application/pdf", 1, "base64", null, false)))
+        val att = files.attachment(msg, messages.attachments(msg).single().id).apply { writeText("x") }
+        ops.insert(NewOp(id, OpKind.FLAGS, listOf(msg)))
+        val draft = drafts.create(NewDraft(id, "me@example.org"))
+        drafts.setOnServer(draft, true)
+        accounts.update(accounts.get(id)!!.copy(archiveFolder = archive))
+        accounts.setQuota(id, 1, 2)
+        accounts.setServerKeepalive(id, 600)
+
+        // Same host and port, other security and user name: the mail stays.
+        val sameHost = Servers(
+            Endpoint("IMAP.example.org", 993, TlsMode.IMPLICIT), Endpoint("smtp.example.org", 465, TlsMode.IMPLICIT),
+            login = "me",
+        )
+        accounts.setAuth(id, AuthKind.PASSWORD, byteArrayOf(2), null, ServerUpdate(sameHost, idle = false), files)
+        val same = accounts.get(id)!!
+        assertEquals(sameHost, same.servers)
+        assertFalse(same.idle)
+        assertContentEquals(byteArrayOf(2), accounts.secret(id))
+        assertEquals(archive, same.archiveFolder)
+        assertEquals(2L, count("SELECT count(*) FROM folder WHERE account_id = ?", id))
+        assertEquals(1L, count("SELECT count(*) FROM op WHERE account_id = ?", id))
+        assertTrue(att.exists())
+
+        // Another IMAP host: folders, messages, ops and server state go; the draft stays, as not on the server.
+        val moved = Servers(
+            Endpoint("imap.new.example", 993, TlsMode.IMPLICIT), Endpoint("smtp.new.example", 465, TlsMode.IMPLICIT),
+        )
+        accounts.setAuth(id, AuthKind.PASSWORD, byteArrayOf(3), null, ServerUpdate(moved, idle = true), files)
+        val b = accounts.get(id)!!
+        assertEquals(moved, b.servers)
+        assertTrue(b.idle)
+        assertEquals(listOf(null, null, null, null), listOf(b.archiveFolder, b.quotaUsed, b.quotaLimit, b.serverKeepaliveS))
+        for (table in listOf("folder", "message", "op")) {
+            assertEquals(0L, count("SELECT count(*) FROM $table WHERE account_id = ?", id), table)
+        }
+        assertEquals(1L, count("SELECT count(*) FROM message_fts"))
+        assertEquals(0L, count("SELECT count(*) FROM message_fts WHERE message_fts MATCH 'old'"))
+        assertFalse(drafts.get(draft)!!.onServer)
+        assertFalse(att.exists() || att.parentFile!!.exists())
+        // The other account keeps everything.
+        assertEquals(keepMsg, messages.get(keepMsg)?.id)
+
+        // Another port alone is another server too.
+        val inbox2 = mailbox(id, "INBOX", FolderRole.INBOX)
+        insert(header(id, inbox2, 1))
+        val port = moved.copy(imap = moved.imap.copy(port = 143, tls = TlsMode.STARTTLS))
+        accounts.setAuth(id, AuthKind.PASSWORD, byteArrayOf(3), null, ServerUpdate(port, idle = true), files)
+        assertEquals(0L, count("SELECT count(*) FROM message WHERE account_id = ?", id))
+        // Without server values nothing but the sign-in changes.
+        val inbox3 = mailbox(id, "INBOX", FolderRole.INBOX)
+        insert(header(id, inbox3, 1))
+        accounts.setAuth(id, AuthKind.PASSWORD, byteArrayOf(4), null)
+        assertEquals(port, accounts.get(id)!!.servers)
+        assertEquals(1L, count("SELECT count(*) FROM message WHERE account_id = ?", id))
+    }
+
+    private fun otherAccount(): Long {
+        val servers = Servers(
+            Endpoint("imap.example.org", 993, TlsMode.IMPLICIT), Endpoint("smtp.example.org", 465, TlsMode.IMPLICIT),
+        )
+        return accounts.insert(
+            NewAccount(Provider.OTHER, "me@example.org", "", "Mail", 0, AuthKind.PASSWORD, byteArrayOf(1), null, servers),
+        )
+    }
+
+    @Test
     fun defaultLabelsAndSortOrder() = runBlocking {
         assertEquals("Riseup", accounts.defaultLabel(Provider.RISEUP))
         val first = account("a@riseup.net")
         assertEquals("Riseup 2", accounts.defaultLabel(Provider.RISEUP))
         assertEquals("Gmail", accounts.defaultLabel(Provider.GMAIL))
+        assertEquals("Outlook", accounts.defaultLabel(Provider.MICROSOFT))
+        assertEquals("Mail", accounts.defaultLabel(Provider.OTHER))
         val second = account("b@riseup.net")
         assertEquals("Riseup 3", accounts.defaultLabel(Provider.RISEUP))
         accounts.delete(first)

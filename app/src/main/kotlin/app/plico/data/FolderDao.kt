@@ -115,7 +115,7 @@ class FolderDao(private val db: Db) {
         list(
             """
             SELECT mf.folder_id, count(*) FROM message_folder mf JOIN message m ON m.id = mf.message_id
-            WHERE m.seen = 0 AND m.hidden = 0 GROUP BY mf.folder_id
+            WHERE m.seen = 0 AND m.hidden = 0 AND m.deleted = 0 GROUP BY mf.folder_id
             """,
         ) { c -> c.getLong(0) to c.getInt(1) }.toMap()
     }
@@ -124,7 +124,7 @@ class FolderDao(private val db: Db) {
     fun observeUnifiedUnread(): Flow<Int> = db.observe(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.FOLDER) {
         long(
             """
-            SELECT count(*) FROM message m WHERE m.seen = 0 AND m.hidden = 0 AND m.id IN
+            SELECT count(*) FROM message m WHERE m.seen = 0 AND m.hidden = 0 AND m.deleted = 0 AND m.id IN
               (SELECT mf.message_id FROM message_folder mf JOIN folder f ON f.id = mf.folder_id WHERE f.role = 'inbox')
             """,
         )!!.toInt()

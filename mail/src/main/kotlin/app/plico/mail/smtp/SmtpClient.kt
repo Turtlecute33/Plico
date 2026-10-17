@@ -1,9 +1,11 @@
 package app.plico.mail.smtp
 
 import app.plico.mail.mime.AddrSpec
+import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
 import app.plico.mail.net.MailStream
 import app.plico.mail.net.SocketHooks
+import app.plico.mail.net.TlsMode
 import app.plico.mail.sasl.Sasl
 import app.plico.mail.smtp.SmtpException.Stage
 import java.io.ByteArrayOutputStream
@@ -14,8 +16,15 @@ import java.io.OutputStream
 import java.net.ProtocolException
 import javax.net.ssl.SSLSocketFactory
 
-/** Minimal SMTP submission client over implicit TLS. See DESIGN.md §4.7. */
-class SmtpClient(private val stream: MailStream, private val log: (String) -> Unit = {}) : Closeable {
+/**
+ * Minimal SMTP submission client over implicit TLS. See DESIGN.md §4.7.
+ * [host] is the host of the endpoint ("" only in tests); credentials check it before they send a token.
+ */
+class SmtpClient(
+    private val stream: MailStream,
+    private val log: (String) -> Unit = {},
+    val host: String = "",
+) : Closeable {
 
     /** EHLO keywords (upper-case) to their parameters, e.g. SIZE -> "25600000". */
     var extensions: Map<String, String> = emptyMap()
@@ -24,8 +33,12 @@ class SmtpClient(private val stream: MailStream, private val log: (String) -> Un
     /** The server's SIZE limit in octets; null when it has none (SIZE absent or 0). */
     val maxSize: Long? get() = extensions["SIZE"]?.toLongOrNull()?.takeIf { it > 0 }
 
+    /** Upper-case mechanisms from the "AUTH A B" and the legacy "AUTH=A B" EHLO lines (post-TLS EHLO only). */
+    val authMechanisms: Set<String> get() = emptySet()
+
     /** Reads the greeting and sends `EHLO [127.0.0.1]`. Called by [connect]. */
-    fun start() {
+    fun start(tls: TlsMode = TlsMode.IMPLICIT) {
+        if (tls == TlsMode.STARTTLS) TODO("A")
         readReply().expect(Stage.CONNECT, 220)
         val ehlo = command("EHLO [127.0.0.1]").expect(Stage.EHLO, 250)
         extensions = ehlo.lines.drop(1).associate { line ->
@@ -33,8 +46,11 @@ class SmtpClient(private val stream: MailStream, private val log: (String) -> Un
         }
     }
 
-    /** SASL PLAIN with an initial response. A wrong password -> [SmtpException] with stage AUTH (535). */
-    fun authPlain(user: String, password: String) = authenticate("PLAIN", Sasl.plain(user, password), cancel = "*")
+    /**
+     * Sign-in with a password or an app password: SASL PLAIN with an initial response. A wrong password ->
+     * [SmtpException] with stage AUTH (535).
+     */
+    fun authPassword(user: String, password: String) = authPlain(user, password)
 
     /** Google XOAUTH2. On failure Gmail sends a 334 JSON challenge; the empty answer gets the final 5xx. */
     fun authXoauth2(user: String, accessToken: String) =
@@ -129,6 +145,8 @@ class SmtpClient(private val stream: MailStream, private val log: (String) -> Un
         }
     }
 
+    private fun authPlain(user: String, password: String) = authenticate("PLAIN", Sasl.plain(user, password), cancel = "*")
+
     private fun authenticate(mechanism: String, initialResponse: String, cancel: String) {
         var reply = command("AUTH $mechanism $initialResponse")
         // Never log a 334 payload or the answer to it.
@@ -213,19 +231,19 @@ class SmtpClient(private val stream: MailStream, private val log: (String) -> Un
         private val REPLY_LINE = Regex("""(\d{3})(?:([ -])(.*))?""", RegexOption.DOT_MATCHES_ALL)
         private val ENHANCED = Regex("""^[245]\.\d{1,3}\.\d{1,3}(?=\s|$)""")
 
-        fun connect(host: String, port: Int, hooks: SocketHooks, log: (String) -> Unit = {}): SmtpClient =
-            connect(host, port, hooks, log, SSLSocketFactory.getDefault() as SSLSocketFactory)
+        fun connect(endpoint: Endpoint, hooks: SocketHooks, log: (String) -> Unit = {}): SmtpClient =
+            connect(endpoint, hooks, log, SSLSocketFactory.getDefault() as SSLSocketFactory)
 
         internal fun connect(
-            host: String,
-            port: Int,
+            endpoint: Endpoint,
             hooks: SocketHooks,
             log: (String) -> Unit,
             factory: SSLSocketFactory,
         ): SmtpClient {
-            val socket = MailSocket.open(host, port, hooks, factory = factory)
+            if (endpoint.tls == TlsMode.STARTTLS) TODO("A")
+            val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, factory = factory)
             try {
-                return SmtpClient(socket, log).apply { start() }
+                return SmtpClient(socket, log, endpoint.host).apply { start(endpoint.tls) }
             } catch (e: Throwable) {
                 socket.close()
                 throw e

@@ -94,6 +94,7 @@ fun AccountSettingsScreen(accountId: Long, nav: Navigator) {
         when (current.provider) {
             Provider.RISEUP -> RiseupGroups(current, vm)
             Provider.GMAIL -> GmailNotesGroup()
+            else -> Unit
         }
         SignInGroup(current, vm, nav)
     }

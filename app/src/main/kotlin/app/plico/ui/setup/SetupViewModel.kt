@@ -15,6 +15,7 @@ import app.plico.account.GoogleOAuth
 import app.plico.account.MailError
 import app.plico.account.OAuthCredentials
 import app.plico.account.PasswordCredentials
+import app.plico.account.Providers
 import app.plico.account.forgetCredentials
 import app.plico.data.AccountState
 import app.plico.data.AuthKind
@@ -104,9 +105,10 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
         val typed = password.text.toString()
         test(provider, Method.PASSWORD) {
             checkIdentity(address)
-            val notes = AccountProbe.probe(app, provider, PasswordCredentials(provider, address, typed))
+            val credentials = PasswordCredentials(provider, address, typed)
+            val result = AccountProbe.probe(app, provider, serversOf(provider), credentials)
             val secret = encrypt(PasswordCredentials.normalize(provider, typed))
-            SignedIn(provider, address, AuthKind.PASSWORD, secret, null, notes)
+            SignedIn(provider, address, AuthKind.PASSWORD, secret, null, result.notes, result.idle)
         }
     }
 
@@ -142,8 +144,9 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
             checkIdentity(address)
             DeviceGoogleAuth.consent(activity, accountName)
             _state.update { it.copy(busy = Busy.TESTING) }
-            val notes = AccountProbe.probe(app, Provider.GMAIL, DeviceCredentials(app, accountName))
-            SignedIn(Provider.GMAIL, address, AuthKind.DEVICE, null, accountName, notes)
+            val credentials = DeviceCredentials(app, accountName)
+            val result = AccountProbe.probe(app, Provider.GMAIL, Providers.GMAIL_SERVERS, credentials)
+            SignedIn(Provider.GMAIL, address, AuthKind.DEVICE, null, accountName, result.notes, result.idle)
         }
     }
 
@@ -172,7 +175,9 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
                             auth = account.auth,
                             secret = account.secret,
                             deviceAccount = account.deviceAccount,
+                            servers = serversOf(account.provider),
                             bodyDays = if (current.allOffline) 0 else NewAccount.DEFAULT_BODY_DAYS,
+                            idle = account.idle,
                         ),
                     )
                 }
@@ -238,8 +243,8 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
             checkIdentity(address)
             val token = signIn.refreshToken
             val credentials = OAuthCredentials(signIn.email, { token }, GoogleOAuth(app), signIn.accessToken)
-            val notes = AccountProbe.probe(app, Provider.GMAIL, credentials)
-            SignedIn(Provider.GMAIL, address, AuthKind.OAUTH, encrypt(token), null, notes)
+            val result = AccountProbe.probe(app, Provider.GMAIL, Providers.GMAIL_SERVERS, credentials)
+            SignedIn(Provider.GMAIL, address, AuthKind.OAUTH, encrypt(token), null, result.notes, result.idle)
         }
     }
 
@@ -292,6 +297,10 @@ class SetupViewModel(private val app: PlicoApp, private val reauthId: Long?) : V
         app.sessions[reauth.id].signedIn()
         _state.update { it.reauthSaved() }
     }
+
+    /** The built-in servers of the two providers that setup offers today. */
+    private fun serversOf(provider: Provider) =
+        if (provider == Provider.GMAIL) Providers.GMAIL_SERVERS else Providers.RISEUP_SERVERS
 
     /** Adding: the address must be new. Signing in again: it must be the account's own address. */
     private suspend fun checkIdentity(address: String) {

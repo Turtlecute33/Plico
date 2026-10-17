@@ -3,7 +3,7 @@ package app.plico.sync
 import app.plico.PlicoApp
 import app.plico.R
 import app.plico.account.MailError
-import app.plico.account.Providers
+import app.plico.account.traits
 import app.plico.data.Db
 import app.plico.data.Draft
 import app.plico.data.DraftState
@@ -70,7 +70,7 @@ object Sender {
 
     private suspend fun send(ctx: OpContext, draft: Draft) {
         val store = ctx.store
-        val spec = Providers.of(ctx.account.provider)
+        val traits = ctx.account.traits
         // The server would send it, but from an address that the user did not set up for this account.
         val own = store.accounts.identities(ctx.account.id).map { it.email } + ctx.account.email
         if (own.none { it.equals(draft.fromEmail, ignoreCase = true) }) {
@@ -83,7 +83,7 @@ object Sender {
             val mime = DraftMime.builder(store, ctx.account, draft, strict = true, date = date)
             message = mime.build(includeBcc = false)
             // Riseup keeps no copy of submitted mail; the copy records the Bcc recipients (protocol PS27).
-            sentCopy = if (spec.clientSavesSent) mime.build(includeBcc = true) else null
+            sentCopy = if (traits.clientSavesSent) mime.build(includeBcc = true) else null
         } catch (_: IllegalArgumentException) {
             return fail(ctx, draft, store.text(R.string.ops_error_invalid_address))
         } catch (_: IOException) {
@@ -91,14 +91,14 @@ object Sender {
         }
         val recipients = DraftMime.recipients(draft)
         if (recipients.isEmpty()) return fail(ctx, draft, store.text(R.string.ops_error_no_recipient))
-        if (message.size > spec.maxMessageBytes) {
-            return fail(ctx, draft, store.text(R.string.ops_error_too_large, Ops.formatSize(store, spec.maxMessageBytes)))
+        if (message.size > traits.maxMessageBytes) {
+            return fail(ctx, draft, store.text(R.string.ops_error_too_large, Ops.formatSize(store, traits.maxMessageBytes)))
         }
         try {
             store.files.outboxMessage(draft.id).writeBytes(message)
             val smtp = ctx.smtp()
             try {
-                val limit = minOf(smtp.maxSize ?: Long.MAX_VALUE, spec.maxMessageBytes)
+                val limit = minOf(smtp.maxSize ?: Long.MAX_VALUE, traits.maxMessageBytes)
                 if (message.size > limit) {
                     return fail(ctx, draft, store.text(R.string.ops_error_too_large, Ops.formatSize(store, limit)))
                 }

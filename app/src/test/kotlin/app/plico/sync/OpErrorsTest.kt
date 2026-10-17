@@ -90,7 +90,9 @@ class OpErrorsTest {
             override val input = ByteArrayInputStream("* OK ready\r\n".toByteArray())
             override val output = ByteArrayOutputStream()
             override var readTimeoutMs = 0
+            override val encrypted = true
             override fun startCompression() = Unit
+            override fun startTls() = Unit
             override fun close() = Unit
         }
         return ImapClient(ImapConnection(stream)).also { it.conn.greeting() }

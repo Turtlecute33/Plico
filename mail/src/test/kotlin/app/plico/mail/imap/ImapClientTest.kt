@@ -21,7 +21,7 @@ class ImapClientTest {
         client.conn.greeting()
         fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("alice@riseup.net", "pw")}")
             .server("A1 OK [CAPABILITY $RISEUP_POST] Logged in")
-        client.authenticatePlain("alice@riseup.net", "pw")
+        client.authenticatePassword("alice@riseup.net", "pw")
     }
 
     private fun gmail() {
@@ -57,7 +57,7 @@ class ImapClientTest {
         fake.server("* OK [CAPABILITY $RISEUP_PRE] Dovecot ready.")
         client.conn.greeting()
         fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("alice", "pw")}").server("A1 OK Logged in")
-        client.authenticatePlain("alice", "pw")
+        client.authenticatePassword("alice", "pw")
         fake.client("A2 CAPABILITY").server("* CAPABILITY $RISEUP_POST", "A2 OK Capability completed.")
         client.requireCapabilities()
         client.requireCapabilities() // once is enough
@@ -65,15 +65,22 @@ class ImapClientTest {
     }
 
     @Test
-    fun missingCapabilities() {
-        fake.server("* OK ready")
-        client.conn.greeting()
-        fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("a", "b")}")
-            .server("A1 OK [CAPABILITY IMAP4rev1 IDLE ESEARCH] Logged in")
-        client.authenticatePlain("a", "b")
-        val e = assertFailsWith<ImapMissingCapabilityException> { client.requireCapabilities() }
-        assertEquals(setOf("MOVE", "UIDPLUS"), e.missing)
-        fake.finish()
+    fun onlyImap4rev1OrRev2IsRequired() {
+        for ((caps, ok) in listOf("IMAP4rev1" to true, "IMAP4rev2" to true, "IDLE MOVE UIDPLUS ESEARCH" to false)) {
+            val fake = FakeStream()
+            val client = ImapClient(ImapConnection(fake))
+            fake.server("* OK ready")
+            client.conn.greeting()
+            fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("a", "b")}").server("A1 OK [CAPABILITY $caps] Logged in")
+            client.authenticatePassword("a", "b")
+            if (ok) {
+                client.requireCapabilities()
+            } else {
+                val e = assertFailsWith<ImapMissingCapabilityException> { client.requireCapabilities() }
+                assertEquals(setOf("IMAP4REV1"), e.missing)
+            }
+            fake.finish()
+        }
     }
 
     @Test
@@ -95,7 +102,7 @@ class ImapClientTest {
         client.conn.greeting()
         fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("alice", "bad")}")
             .server("A1 NO [AUTHENTICATIONFAILED] Authentication failed.")
-        assertFailsWith<ImapNoException> { client.authenticatePlain("alice", "bad") }
+        assertFailsWith<ImapNoException> { client.authenticatePassword("alice", "bad") }
         fake.finish()
     }
 
@@ -105,6 +112,24 @@ class ImapClientTest {
         fake.client("A2 ENABLE CONDSTORE").server("* ENABLED CONDSTORE", "A2 OK Enabled.")
         assertEquals(setOf("CONDSTORE"), client.enable("CONDSTORE"))
         assertEquals(emptySet(), client.enable())
+        fake.finish()
+    }
+
+    @Test
+    fun enableSendsNothingWithoutEnable() {
+        fake.server("* OK ready")
+        client.conn.greeting()
+        fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("a", "b")}").server("A1 OK [CAPABILITY IMAP4rev1 CONDSTORE] Logged in")
+        client.authenticatePassword("a", "b")
+        assertEquals(emptySet(), client.enable("CONDSTORE"))
+        fake.finish()
+    }
+
+    @Test
+    fun idSendsOnlyTheGivenFields() {
+        dovecot()
+        fake.client("A2 ID (\"name\" \"Mail\")").server("* ID NIL", "A2 OK ID completed.")
+        client.id(listOf("name" to "Mail"))
         fake.finish()
     }
 
@@ -519,8 +544,8 @@ class ImapClientTest {
     fun expunge() {
         dovecot()
         fake.client("A2 UID EXPUNGE 4:6").server("* 3 EXPUNGE", "A2 OK Expunge completed.")
-        client.uidExpunge(UidSet.range(4, 6))
-        client.uidExpunge(UidSet.EMPTY)
+        assertTrue(client.uidExpunge(UidSet.range(4, 6)))
+        assertTrue(client.uidExpunge(UidSet.EMPTY))
         fake.finish()
     }
 

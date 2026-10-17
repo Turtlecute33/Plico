@@ -2,7 +2,7 @@ package app.plico.sync
 
 import android.text.format.Formatter
 import app.plico.R
-import app.plico.account.Providers
+import app.plico.account.traits
 import app.plico.data.Account
 import app.plico.data.Folder
 import app.plico.data.FolderKind
@@ -87,7 +87,7 @@ object Ops {
 
     /** Throws [OpRefused] when [size] bytes exceed the server's APPENDLIMIT or the provider limit. */
     internal fun checkAppendSize(ctx: OpContext, size: Int) {
-        val limit = appendLimit(ctx.client.caps, Providers.of(ctx.account.provider).maxMessageBytes)
+        val limit = appendLimit(ctx.client.caps, ctx.account.traits.maxMessageBytes)
         if (size > limit) throw OpRefused(ctx.store.text(R.string.ops_error_too_large, formatSize(ctx.store, limit)))
     }
 

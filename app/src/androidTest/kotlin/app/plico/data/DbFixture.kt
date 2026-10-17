@@ -2,6 +2,7 @@ package app.plico.data
 
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
+import app.plico.account.Providers
 import org.junit.After
 import java.util.UUID
 
@@ -22,10 +23,12 @@ abstract class DbFixture {
         context.deleteDatabase(name)
     }
 
-    protected fun account(email: String = "user@riseup.net", provider: Provider = Provider.RISEUP): Long =
-        accounts.insert(
-            NewAccount(provider, email, "User", accounts.defaultLabel(provider), 0, AuthKind.PASSWORD, byteArrayOf(1), null, 30),
+    protected fun account(email: String = "user@riseup.net", provider: Provider = Provider.RISEUP): Long {
+        val servers = if (provider == Provider.GMAIL) Providers.GMAIL_SERVERS else Providers.RISEUP_SERVERS
+        return accounts.insert(
+            NewAccount(provider, email, "User", accounts.defaultLabel(provider), 0, AuthKind.PASSWORD, byteArrayOf(1), null, servers, 30),
         )
+    }
 
     protected fun mailbox(accountId: Long, path: String, role: FolderRole? = null): Long =
         folders.upsert(NewFolder(accountId, FolderKind.MAILBOX, path, path, role, "/"))

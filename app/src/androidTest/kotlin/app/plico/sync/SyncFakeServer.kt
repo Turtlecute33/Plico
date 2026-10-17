@@ -133,7 +133,11 @@ class SyncFakeServer(
 
     override var readTimeoutMs: Int = 0
 
+    override val encrypted = true
+
     override fun startCompression() = error("Not used")
+
+    override fun startTls() = error("Not used")
 
     override fun close() {}
 

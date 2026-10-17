@@ -39,6 +39,12 @@ data class FetchItem(
 
 data class Quota(val usedKiB: Long, val limitKiB: Long)
 
+/** One RFC 2342 namespace: a mailbox name prefix (decoded, e.g. `INBOX.`) and its hierarchy delimiter. */
+data class Namespace(val prefix: String, val delimiter: String?)
+
+/** The three RFC 2342 namespace groups; a group that the server sent as NIL is empty. */
+data class Namespaces(val personal: List<Namespace>, val otherUsers: List<Namespace>, val shared: List<Namespace>)
+
 sealed interface IdleEvent {
     /** EXISTS, EXPUNGE, FETCH or RECENT: something changed in the mailbox. */
     data object Changed : IdleEvent

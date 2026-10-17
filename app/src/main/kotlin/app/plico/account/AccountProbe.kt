@@ -7,6 +7,7 @@ import app.plico.PlicoApp
 import app.plico.R
 import app.plico.data.FolderRole
 import app.plico.data.Provider
+import app.plico.data.Servers
 import app.plico.mail.imap.ImapClient
 import app.plico.mail.smtp.SmtpClient
 import app.plico.sync.FolderRules
@@ -14,6 +15,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+
+/** What setup's connection test found: notes for the user, and false [idle] when the server has no IDLE. */
+data class ProbeResult(val notes: List<String>, val idle: Boolean)
 
 /** Setup's connection test (DESIGN.md §13): IMAP login and capabilities, Gmail mailboxes, SMTP login. */
 object AccountProbe {
@@ -24,16 +28,15 @@ object AccountProbe {
     )
 
     /**
-     * Signs in to the provider's IMAP and SMTP servers with [credentials] and logs out; returns user-visible
-     * notes. Every failure is thrown as a [MailError] (see [MailErrors.classify]). A Gmail account without All
-     * Mail in IMAP fails with [MailError.Setup]; a hidden Trash or Spam only adds a note.
+     * Signs in to the IMAP and SMTP [servers] with [credentials] and logs out; returns user-visible notes and
+     * whether the server has IDLE. Every failure is thrown as a [MailError] (see [MailErrors.classify]). A Gmail
+     * account without All Mail in IMAP fails with [MailError.Setup]; a hidden Trash or Spam only adds a note.
      */
-    suspend fun probe(app: PlicoApp, provider: Provider, credentials: Credentials): List<String> =
+    suspend fun probe(app: PlicoApp, provider: Provider, servers: Servers, credentials: Credentials): ProbeResult =
         withContext(Dispatchers.IO) {
             try {
-                val spec = Providers.of(provider)
                 val notes = ArrayList<String>()
-                ImapClient.connect(spec.imap.host, spec.imap.port, AndroidSocketHooks).use { imap ->
+                val idle = ImapClient.connect(servers.imap, AndroidSocketHooks).use { imap ->
                     credentials.authImap(imap)
                     imap.requireCapabilities()
                     if (provider == Provider.GMAIL) {
@@ -41,17 +44,19 @@ object AccountProbe {
                         if (FolderRole.ALL in missing) throw MailError.Setup(app.getString(R.string.account_gmail_all_mail_hidden))
                         missing.mapNotNullTo(notes) { role -> MISSING_NOTES[role]?.let(app::getString) }
                     }
+                    val hasIdle = "IDLE" in imap.caps
                     try {
                         imap.logout()
                     } catch (_: IOException) {
                         // The test passed; a lost LOGOUT reply does not change that.
                     }
+                    hasIdle
                 }
-                SmtpClient.connect(spec.smtp.host, spec.smtp.port, AndroidSocketHooks).use { smtp ->
+                SmtpClient.connect(servers.smtp, AndroidSocketHooks).use { smtp ->
                     credentials.authSmtp(smtp)
                     smtp.quit()
                 }
-                notes
+                ProbeResult(notes, idle)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

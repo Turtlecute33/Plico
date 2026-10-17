@@ -28,9 +28,12 @@ class Db(context: Context, name: String = "plico.db") {
             db.setForeignKeyConstraintsEnabled(true)
         }
 
-        override fun onCreate(db: SQLiteDatabase) = Schema.V1.forEach(db::execSQL)
+        // A fresh database runs v1 and then every migration, so it gets exactly the statements of an upgrade.
+        override fun onCreate(db: SQLiteDatabase) = (Schema.V1 + Schema.MIGRATIONS.flatten()).forEach(db::execSQL)
 
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+        // SQLiteOpenHelper runs this inside a transaction. A downgrade still throws (the default).
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) =
+            Schema.MIGRATIONS.subList(oldVersion - 1, newVersion - 1).flatten().forEach(db::execSQL)
     }
 
     // tx() must never block, so emission cannot suspend. The observe() collectors only filter and hand

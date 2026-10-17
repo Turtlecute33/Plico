@@ -3,9 +3,9 @@ package app.plico.sync
 import android.net.Uri
 import app.plico.PlicoApp
 import app.plico.R
-import app.plico.account.Providers
 import app.plico.account.credentialsFor
 import app.plico.account.forgetCredentials
+import app.plico.account.traits
 import app.plico.data.Account
 import app.plico.data.Attachment
 import app.plico.data.DraftAttachment
@@ -533,7 +533,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val account = store.accounts.get(draft.accountId) ?: return false
         val recipients = DraftMime.addresses(draft)
         val valid = recipients.isNotEmpty() && (recipients.map { it.email } + draft.fromEmail).all(Addresses::isValidAddrSpec)
-        if (!valid || DraftMime.estimatedSize(DraftMime.rawSize(draft)) > Providers.of(account.provider).maxMessageBytes) return false
+        if (!valid || DraftMime.estimatedSize(DraftMime.rawSize(draft)) > account.traits.maxMessageBytes) return false
         if (!store.drafts.queue(draftId, store.now() + host.undoSendSeconds * 1000L)) return false
         host.kick(account.id)
         return true

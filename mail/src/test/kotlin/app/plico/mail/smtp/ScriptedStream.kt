@@ -36,6 +36,7 @@ internal class ScriptedStream(vararg steps: Step, private val failOnFlush: Int =
         private set
 
     override var readTimeoutMs = 60_000
+    override var encrypted = true
 
     override val input: InputStream = object : InputStream() {
         override fun read(): Int {
@@ -56,6 +57,7 @@ internal class ScriptedStream(vararg steps: Step, private val failOnFlush: Int =
     }
 
     override fun startCompression() = throw UnsupportedOperationException()
+    override fun startTls() = throw UnsupportedOperationException()
 
     override fun close() {
         closed = true
