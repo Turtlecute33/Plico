@@ -351,6 +351,31 @@ class MailSocketTest {
         }
     }
 
+    @Test(timeout = 30_000)
+    fun `open caps the read timeout at 20 seconds until STARTTLS, then the full timeout applies`() {
+        StartTlsServer("localhost") { c ->
+            c.upgrade()
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks()
+            open(server.port, hooks, tls = TlsMode.STARTTLS).use { socket ->
+                assertEquals(20_000, socket.readTimeoutMs)
+                assertEquals(20_000, hooks.socket!!.soTimeout)
+                socket.startTls()
+                assertEquals(60_000, socket.readTimeoutMs)
+            }
+            server.join()
+        }
+        StartTlsServer("localhost") { c -> c.drain() }.use { server ->
+            val hooks = Hooks()
+            open(server.port, hooks, tls = TlsMode.STARTTLS, readTimeoutMs = 0).use { socket ->
+                assertEquals(20_000, socket.readTimeoutMs)
+                assertEquals(20_000, hooks.socket!!.soTimeout)
+            }
+            server.join()
+        }
+    }
+
     @Test
     fun `the read timeout before TLS is at most 20 seconds`() {
         assertEquals(20_000, MailSocket.plaintextTimeout(60_000))
