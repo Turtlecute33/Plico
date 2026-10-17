@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- tools:ignore="UnusedResources" marks texts for code that is not written yet. -->
+
     <!-- Common -->
     <string name="settings_add">Add</string>
     <string name="settings_allow">Allow</string>
@@ -17,14 +19,21 @@
     <string name="settings_state_tls_text">Plico cannot make a secure connection to the server. It tries again later.</string>
     <string name="settings_state_setup_text">This account needs a change in the settings on the server side.</string>
 
-    <!-- Gmail sign-in -->
+    <!-- Sign-in clients -->
     <string name="settings_gmail_sign_in">Gmail sign-in</string>
-    <string name="settings_client_id">Google OAuth client ID</string>
+    <string name="settings_sign_in_clients" tools:ignore="UnusedResources">Sign-in clients</string>
+    <string name="settings_client_id">Google client ID</string>
     <string name="settings_client_id_label">Client ID</string>
-    <string name="settings_client_id_none">Not set. Gmail accounts use an app password.</string>
+    <string name="settings_client_id_none">Not set. Needed only to sign in to Google in the browser or with the Google account on this phone.</string>
     <string name="settings_client_id_invalid">This is not a Google OAuth client ID. A client ID ends with .apps.googleusercontent.com.</string>
     <string name="settings_client_id_in_use">Accounts that sign in with Google use this client. After a change, sign in to them again.</string>
     <string name="settings_client_id_guide">Sign-in with Google in the browser and with the Google account on this phone needs an OAuth client that you own.\n\n1. In the Google Cloud console, make a project.\n2. Set up the OAuth consent screen: \"External\", publishing status \"In production\", and a support email that is not personal.\n3. Make an OAuth client of the type Android for the package name %1$s and the SHA-1 of the key that signs this app.\n4. Copy the client ID into this field.\n\nGoogle can refuse browser sign-in for new clients. An app password always works.</string>
+    <string name="settings_ms_client_id" tools:ignore="UnusedResources">Microsoft client ID</string>
+    <string name="settings_ms_client_id_none" tools:ignore="UnusedResources">Not set. Needed to sign in to Outlook.com and Microsoft 365.</string>
+    <string name="settings_ms_client_id_invalid" tools:ignore="UnusedResources">This is not a Microsoft client ID. A client ID has 32 hexadecimal digits in 5 groups.</string>
+    <string name="settings_ms_client_id_in_use" tools:ignore="UnusedResources">Microsoft accounts use this client. After a change, sign in to them again.</string>
+    <!-- 1: the redirect URI of Plico -->
+    <string name="settings_ms_client_id_guide" tools:ignore="UnusedResources">Sign-in to Outlook.com and Microsoft 365 needs a client that you register at Microsoft.\n\n1. In the Microsoft Entra admin center, go to App registrations → New registration.\n2. Select \"Any Entra ID tenant and personal Microsoft accounts\".\n3. Under Authentication, add the platform Mobile and desktop applications with the redirect URI %1$s.\n4. Copy the Application (client) ID into this field.</string>
 
     <!-- Notifications -->
     <string name="settings_notifications">Notifications</string>
@@ -75,6 +84,23 @@
         <item quantity="other">%d seconds</item>
     </plurals>
 
+    <!-- Message list -->
+    <string name="settings_list" tools:ignore="UnusedResources">Message list</string>
+    <string name="settings_mark_unread" tools:ignore="UnusedResources">Mark unread mail</string>
+    <string name="settings_mark_unread_text" tools:ignore="UnusedResources">Unread messages get a dot and bold text. Read messages use lighter text.</string>
+    <string name="settings_avatar_unread" tools:ignore="UnusedResources">Colour for unread mail</string>
+    <string name="settings_avatar_unread_text" tools:ignore="UnusedResources">Unread mail gets a colour for each sender. Read mail keeps the usual colour.</string>
+    <string name="settings_logos" tools:ignore="UnusedResources">Sender logos</string>
+    <string name="settings_logos_text" tools:ignore="UnusedResources">Shows the logo of the sender\'s website instead of the letter. Plico sends only the domain of the sender, never the address.</string>
+    <string name="settings_logo_source" tools:ignore="UnusedResources">Logo source</string>
+    <string name="settings_logo_ddg" tools:ignore="UnusedResources">DuckDuckGo</string>
+    <string name="settings_logo_ddg_text" tools:ignore="UnusedResources">DuckDuckGo gets the domain of each sender and the IP address of your phone.</string>
+    <string name="settings_logo_website" tools:ignore="UnusedResources">Website of the sender</string>
+    <string name="settings_logo_website_text" tools:ignore="UnusedResources">Each sender\'s website gets the IP address of your phone and can see when you look at your mail.</string>
+    <string name="settings_logo_google" tools:ignore="UnusedResources">Google</string>
+    <string name="settings_logo_google_text" tools:ignore="UnusedResources">Google gets the domain of each sender and the IP address of your phone.</string>
+    <string name="settings_logos_note" tools:ignore="UnusedResources">A logo does not prove who sent a message. Plico shows no logos in Spam and no logos for your own mail. With the logo source \"Website of the sender\", Plico gets a logo only for a sender that sent mail to you before.</string>
+
     <!-- Push and battery -->
     <string name="settings_push">Push and battery</string>
     <string name="settings_push_on">Push</string>
@@ -106,6 +132,7 @@
     <string name="settings_auth_password">Signs in with the account password</string>
     <string name="settings_auth_app_password">Signs in with an app password</string>
     <string name="settings_auth_browser">Signs in with Google in the browser</string>
+    <string name="settings_auth_browser_microsoft" tools:ignore="UnusedResources">Signs in with Microsoft in the browser</string>
     <string name="settings_auth_device">Signs in with the Google account on this phone</string>
 
     <!-- Account: general -->
@@ -143,6 +170,7 @@
     <string name="settings_identity_exists">This address is in the list already.</string>
     <string name="settings_identities_gmail">Set up each address in Gmail first: Settings → Accounts → Send mail as.</string>
     <string name="settings_identities_riseup">Riseup sends only from your address and your aliases. Make aliases on account.riseup.net.</string>
+    <string name="settings_identities_other" tools:ignore="UnusedResources">Add only addresses that your mail provider lets you send from.</string>
 
     <!-- Account: offline -->
     <string name="settings_offline">Offline</string>
@@ -195,6 +223,16 @@
         <item quantity="other">On mobile data: %d checks a day</item>
     </plurals>
     <string name="settings_keepalive_hint">To use less battery, select Instant on Wi-Fi or Check at an interval.</string>
+    <string name="settings_no_idle_text" tools:ignore="UnusedResources">This server cannot tell Plico about new mail immediately. Plico checks for new mail at an interval.</string>
+
+    <!-- Account: servers -->
+    <string name="settings_servers" tools:ignore="UnusedResources">Servers</string>
+    <string name="settings_server_incoming" tools:ignore="UnusedResources">Incoming</string>
+    <string name="settings_server_outgoing" tools:ignore="UnusedResources">Outgoing</string>
+    <!-- 1: host, 2: port, 3: SSL/TLS or STARTTLS -->
+    <string name="settings_server_value" tools:ignore="UnusedResources">%1$s:%2$d · %3$s</string>
+    <string name="settings_server_user" tools:ignore="UnusedResources">User name</string>
+    <string name="settings_change_servers" tools:ignore="UnusedResources">Change server settings</string>
 
     <!-- Account: Gmail categories -->
     <string name="settings_categories">Gmail categories that notify</string>
@@ -239,10 +277,11 @@
     <string name="settings_remove_title">Remove %1$s?</string>
     <string name="settings_remove_text">Plico deletes the mail, drafts and settings of this account from this phone. Drafts that you did not send are lost. The mail on the server stays.</string>
     <string name="settings_remove">Remove</string>
+    <string name="settings_remove_microsoft_note" tools:ignore="UnusedResources">Microsoft keeps the access of Plico after you remove the account. To stop it, go to account.live.com/consent/Manage (personal account) or myapps.microsoft.com (work or school account).</string>
 
     <!-- About -->
     <string name="settings_about_version">Version %1$s (%2$d)</string>
-    <string name="settings_about_tagline">A private email app for Riseup and Gmail.</string>
+    <string name="settings_about_tagline">A private and simple email app.</string>
     <string name="settings_about_privacy">Privacy</string>
     <string name="settings_about_no_tracking">No tracking</string>
     <string name="settings_about_no_tracking_text">No analytics, no crash reports and no ads.</string>
@@ -252,6 +291,12 @@
     <string name="settings_about_riseup">Riseup mail</string>
     <string name="settings_about_gmail">Gmail</string>
     <string name="settings_about_google_sign_in">Google sign-in, only when you use it</string>
+    <string name="settings_about_mail_servers" tools:ignore="UnusedResources">Your mail servers</string>
+    <string name="settings_about_microsoft_sign_in" tools:ignore="UnusedResources">Microsoft sign-in, only when you use it</string>
+    <string name="settings_about_setup" tools:ignore="UnusedResources">Account setup</string>
+    <string name="settings_about_setup_text" tools:ignore="UnusedResources">When you add an account: the autoconfig address of your mail domain (HTTPS only) and DNS through the settings of your phone. Plico sends only the domain, never your address.</string>
+    <string name="settings_about_logos" tools:ignore="UnusedResources">Sender logos, only when you turn them on</string>
+    <string name="settings_about_logos_websites" tools:ignore="UnusedResources">The websites of the senders</string>
     <string name="settings_about_remote">Remote content</string>
     <string name="settings_about_remote_text">Images from the web and unsubscribe requests, only after you tap.</string>
     <string name="settings_about_browser">Links</string>

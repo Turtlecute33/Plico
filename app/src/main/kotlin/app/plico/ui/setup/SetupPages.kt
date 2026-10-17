@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.plico.R
+import app.plico.account.OAuthIssuer
 import app.plico.account.Providers
 import app.plico.data.AuthKind
 import app.plico.data.Provider
@@ -165,11 +166,11 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
             Headline(stringResource(R.string.setup_gmail_title), stringResource(R.string.setup_gmail_text))
         } else {
             val text = when (reauth.auth) {
-                AuthKind.PASSWORD -> R.string.setup_reauth_app_password
-                AuthKind.OAUTH -> R.string.setup_reauth_browser
-                AuthKind.DEVICE -> R.string.setup_reauth_device
+                AuthKind.PASSWORD -> stringResource(R.string.setup_reauth_app_password, reauth.email)
+                AuthKind.OAUTH -> stringResource(R.string.setup_reauth_browser, OAuthIssuer.GOOGLE.brand, reauth.email)
+                AuthKind.DEVICE -> stringResource(R.string.setup_reauth_device, reauth.email)
             }
-            Headline(stringResource(R.string.setup_reauth_title), stringResource(text, reauth.email))
+            Headline(stringResource(R.string.setup_reauth_title), text)
         }
         ProblemBanner(state)
         for (method in state.methods) {
@@ -197,7 +198,10 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
             }
         }
         if (state.methods.isEmpty()) {
-            Text(text = stringResource(R.string.setup_reauth_no_client), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = stringResource(R.string.setup_reauth_no_client, OAuthIssuer.GOOGLE.brand),
+                style = MaterialTheme.typography.bodyLarge,
+            )
         }
         if (state.offersOwnClient) {
             OutlinedCard(onClick = vm::openOwnClient, modifier = Modifier.fillMaxWidth()) {

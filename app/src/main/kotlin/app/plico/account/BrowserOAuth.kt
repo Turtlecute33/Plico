@@ -169,7 +169,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
         val email = response.idToken?.let(::emailFromIdToken)
         val refreshToken = response.refreshToken
         if (email == null || refreshToken == null) {
-            throw MailError.Server(context.getString(R.string.account_error_oauth_incomplete))
+            throw MailError.Server(context.getString(R.string.account_error_oauth_incomplete, issuer.brand))
         }
         return SignIn(email, null, refreshToken, response.accessToken())
     }
@@ -195,7 +195,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
     }
 
     private fun clientId(issuer: OAuthIssuer): String = issuer.clientId(prefs).ifEmpty {
-        throw MailError.Setup(context.getString(R.string.account_error_no_client_id))
+        throw MailError.Setup(context.getString(R.string.account_error_no_client_id, issuer.brand))
     }
 
     private fun TokenResponse.accessToken() = AccessToken(accessToken, now() + expiresInS * 1000)
@@ -204,7 +204,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
         val (status, body) = post(issuer.tokenUrl, form.toList())
         if (status in 200..299) return parseToken(body)
         throw when (failure(status, parseError(body))) {
-            Failure.GRANT -> MailError.AuthRequired(context.getString(R.string.account_error_oauth_grant))
+            Failure.GRANT -> MailError.AuthRequired(context.getString(R.string.account_error_oauth_grant, issuer.brand))
             Failure.CLIENT -> MailError.Setup(context.getString(R.string.account_error_oauth_client))
             Failure.TEMPORARY -> IOException("Token endpoint: HTTP $status")
         }

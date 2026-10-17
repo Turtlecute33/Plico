@@ -61,6 +61,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.plico.R
+import app.plico.account.OAuthIssuer
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.Icons
@@ -300,10 +301,11 @@ private fun problemText(problem: Problem, expected: String?): String {
         Problem.Kind.WRONG_PASSWORD -> stringResource(R.string.setup_error_wrong_password)
         Problem.Kind.APP_PASSWORD_REQUIRED -> stringResource(R.string.setup_error_app_password_required)
         Problem.Kind.APP_PASSWORD_REFUSED -> stringResource(R.string.setup_error_app_password_refused)
+        // Only Google signs in with the browser or the device account here.
         Problem.Kind.SIGN_IN_REFUSED -> if (detail != null) {
-            stringResource(R.string.setup_error_sign_in_refused, detail)
+            stringResource(R.string.setup_error_sign_in_refused, OAuthIssuer.GOOGLE.brand, detail)
         } else {
-            stringResource(R.string.setup_error_sign_in_refused_plain)
+            stringResource(R.string.setup_error_sign_in_refused_plain, OAuthIssuer.GOOGLE.brand)
         }
         Problem.Kind.SETUP -> detail ?: stringResource(R.string.setup_error_setup)
         Problem.Kind.NETWORK -> stringResource(R.string.setup_error_network)

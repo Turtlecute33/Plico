@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- tools:ignore="UnusedResources" marks texts for code that is not written yet. -->
+    <!-- An issuer argument is Google or Microsoft: brand names, not translated. -->
     <string name="setup_done">Done</string>
     <string name="setup_open_in_browser">%1$s (opens in your browser)</string>
     <string name="setup_copy">Copy %1$s</string>
@@ -8,6 +10,12 @@
     <string name="setup_welcome_promise">Your mail goes only between this phone and your mail provider. No tracking, no ads.</string>
     <string name="setup_add_riseup">Add Riseup account</string>
     <string name="setup_add_gmail">Add Gmail account</string>
+    <string name="setup_next" tools:ignore="UnusedResources">Next</string>
+    <string name="setup_address_placeholder" tools:ignore="UnusedResources">name@example.org</string>
+    <string name="setup_manual" tools:ignore="UnusedResources">Enter the server settings yourself</string>
+    <!-- 1: a known mail domain -->
+    <string name="setup_typo" tools:ignore="UnusedResources">Did you mean %1$s? If your address is correct, select Next again.</string>
+    <string name="setup_typo_use" tools:ignore="UnusedResources">Use %1$s</string>
 
     <!-- Fields -->
     <string name="setup_field_address">Email address</string>
@@ -19,6 +27,36 @@
     <string name="setup_error_required">Fill in this field.</string>
     <string name="setup_error_address">Enter a full email address, for example name@example.org.</string>
     <string name="setup_error_not_riseup">Enter your address at riseup.net. You cannot sign in with an alias.</string>
+    <string name="setup_error_host" tools:ignore="UnusedResources">Enter a server name, for example mail.example.org.</string>
+    <string name="setup_error_ip" tools:ignore="UnusedResources">Enter a server name, not an IP address. Plico cannot check the certificate of an IP address.</string>
+    <string name="setup_error_port" tools:ignore="UnusedResources">Enter a port from 1 to 65535.</string>
+
+    <!-- Server settings -->
+    <string name="setup_servers_title" tools:ignore="UnusedResources">Server settings</string>
+    <string name="setup_servers_text" tools:ignore="UnusedResources">Find these settings on the help pages of your mail provider.</string>
+    <string name="setup_servers_not_found" tools:ignore="UnusedResources">Plico found no server settings for this address. Enter them below.</string>
+    <string name="setup_servers_dns" tools:ignore="UnusedResources">Plico found these settings through DNS. Make sure that they are correct.</string>
+    <string name="setup_incoming" tools:ignore="UnusedResources">Incoming server (IMAP)</string>
+    <string name="setup_outgoing" tools:ignore="UnusedResources">Outgoing server (SMTP)</string>
+    <string name="setup_field_host" tools:ignore="UnusedResources">Server</string>
+    <string name="setup_field_port" tools:ignore="UnusedResources">Port</string>
+    <string name="setup_field_security" tools:ignore="UnusedResources">Security</string>
+    <string name="setup_security_tls" tools:ignore="UnusedResources">SSL/TLS</string>
+    <string name="setup_security_starttls" tools:ignore="UnusedResources">STARTTLS</string>
+    <string name="setup_field_user" tools:ignore="UnusedResources">User name</string>
+    <string name="setup_user_hint" tools:ignore="UnusedResources">Keep this empty to use your email address.</string>
+    <string name="setup_servers_tls_only" tools:ignore="UnusedResources">Plico always uses encryption. It has no setting without encryption.</string>
+
+    <!-- Password -->
+    <string name="setup_password_title" tools:ignore="UnusedResources">Sign in</string>
+    <string name="setup_password_account" tools:ignore="UnusedResources">Account: %1$s</string>
+    <!-- 1, 2: the IMAP and the SMTP server -->
+    <string name="setup_password_text" tools:ignore="UnusedResources">Plico connects only to %1$s and %2$s.</string>
+    <string name="setup_password_text_one" tools:ignore="UnusedResources">Plico connects only to %1$s.</string>
+    <string name="setup_change_servers" tools:ignore="UnusedResources">Change server settings</string>
+    <string name="setup_note_app_password" tools:ignore="UnusedResources">This provider needs an app password. Create one in the security settings of your account, then enter it here.</string>
+    <string name="setup_note_enable_imap" tools:ignore="UnusedResources">First, turn on IMAP access in the settings of your account.</string>
+    <string name="setup_note_icloud_login" tools:ignore="UnusedResources">For an address on your own domain, enter your iCloud Mail address (name@icloud.com) as the user name.</string>
 
     <!-- Riseup -->
     <string name="setup_riseup_title">Riseup account</string>
@@ -26,8 +64,8 @@
     <string name="setup_riseup_placeholder">name@riseup.net</string>
 
     <!-- Gmail -->
-    <string name="setup_gmail_title">Gmail account</string>
-    <string name="setup_gmail_text">Select how Plico signs in to Gmail.</string>
+    <string name="setup_gmail_title">Google account</string>
+    <string name="setup_gmail_text">Select how Plico signs in to your Google account.</string>
     <string name="setup_method_device">Google account on this phone</string>
     <string name="setup_method_device_text">Uses a Google account that is already on this phone.</string>
     <string name="setup_method_device_action">Choose account</string>
@@ -38,7 +76,7 @@
     <string name="setup_method_password_text">With an app password, Plico signs in without your Google password.</string>
     <string name="setup_app_password_step1">Turn on 2-Step Verification for your Google account.</string>
     <string name="setup_app_password_step2">Create an app password for Plico.</string>
-    <string name="setup_app_password_step3">Enter your Gmail address and the app password below.</string>
+    <string name="setup_app_password_step3">Enter the app password below.</string>
     <string name="setup_app_password_link">Create app password</string>
     <string name="setup_own_client">Use your own Google OAuth client</string>
     <string name="setup_own_client_text">Shows the two Google sign-in methods. Plico has no client of its own.</string>
@@ -58,18 +96,42 @@
     <string name="setup_client_id_hint">Ends with .apps.googleusercontent.com</string>
     <string name="setup_error_client_id">This is not an OAuth client ID. A client ID ends with .apps.googleusercontent.com.</string>
 
+    <!-- Microsoft -->
+    <string name="setup_microsoft_title" tools:ignore="UnusedResources">Microsoft account</string>
+    <string name="setup_microsoft_text" tools:ignore="UnusedResources">Outlook.com and Microsoft 365 accounts sign in through Microsoft in your browser.</string>
+    <string name="setup_microsoft_imap_note" tools:ignore="UnusedResources">In Outlook.com, go to Settings → Mail → Forwarding and IMAP. Turn on IMAP for devices and apps.</string>
+    <string name="setup_microsoft_no_client" tools:ignore="UnusedResources">For this sign-in, Plico needs a Microsoft client ID that you own.</string>
+    <string name="setup_method_browser_microsoft_text" tools:ignore="UnusedResources">Opens the Microsoft sign-in page in your browser.</string>
+    <string name="setup_own_client_microsoft" tools:ignore="UnusedResources">Use your own Microsoft client</string>
+    <string name="setup_own_client_microsoft_text" tools:ignore="UnusedResources">Shows the Microsoft sign-in. Plico has no client of its own.</string>
+
+    <!-- Own Microsoft client -->
+    <string name="setup_ms_client_title" tools:ignore="UnusedResources">Your Microsoft client</string>
+    <string name="setup_ms_client_text" tools:ignore="UnusedResources">Microsoft lets an app open a mailbox only through a registered client. With your own client, your sign-in goes only between this phone and Microsoft.</string>
+    <string name="setup_ms_client_step1" tools:ignore="UnusedResources">Open the Microsoft Entra admin center. You need a directory: a work account or a free Azure account.</string>
+    <string name="setup_ms_client_step2" tools:ignore="UnusedResources">Go to App registrations → New registration. For the account types, select \"Any Entra ID tenant and personal Microsoft accounts\".</string>
+    <string name="setup_ms_client_step3" tools:ignore="UnusedResources">Go to Authentication → Add a platform → Mobile and desktop applications. Add this redirect URI:</string>
+    <string name="setup_ms_client_step4" tools:ignore="UnusedResources">Copy the Application (client) ID into the field below.</string>
+    <string name="setup_ms_client_note" tools:ignore="UnusedResources">A work or school account can need the approval of its administrator.</string>
+    <string name="setup_ms_client_portal" tools:ignore="UnusedResources">Open Microsoft Entra admin center</string>
+    <string name="setup_ms_client_redirect" tools:ignore="UnusedResources">Redirect URI</string>
+    <string name="setup_ms_client_id_hint" tools:ignore="UnusedResources">32 hexadecimal digits in 5 groups</string>
+    <!-- The example is a client ID, not a number range. -->
+    <string name="setup_error_ms_client_id" tools:ignore="TypographyDashes,UnusedResources">This is not a Microsoft client ID. A client ID has 32 hexadecimal digits in 5 groups, for example 00000000-0000-0000-0000-000000000000.</string>
+
     <!-- Work in progress -->
+    <string name="setup_busy_detecting" tools:ignore="UnusedResources">Plico looks for the server settings…</string>
     <string name="setup_busy_testing">Testing the connection…</string>
-    <string name="setup_busy_browser">Sign in to Google with your browser</string>
+    <string name="setup_busy_browser">Sign in to %1$s with your browser</string>
     <string name="setup_busy_browser_text">Plico continues when the browser comes back to it.</string>
     <string name="setup_busy_device">Waiting for Google…</string>
 
     <!-- Errors -->
-    <string name="setup_error_wrong_password">Riseup did not accept the address or the password. Make sure that both are correct.</string>
-    <string name="setup_error_app_password_required">Gmail needs an app password, not your Google password. Create an app password and enter it here.</string>
-    <string name="setup_error_app_password_refused">Gmail did not accept the app password. Make sure that 2-Step Verification is on and that you copied the full app password.</string>
-    <string name="setup_error_sign_in_refused">Google did not accept the sign-in. %1$s</string>
-    <string name="setup_error_sign_in_refused_plain">Google did not accept the sign-in. Try again, or use an app password.</string>
+    <string name="setup_error_wrong_password">The server did not accept the user name or the password. Make sure that both are correct.</string>
+    <string name="setup_error_app_password_required">Google needs an app password, not your Google password. Create an app password and enter it here.</string>
+    <string name="setup_error_app_password_refused">Google did not accept the app password. Make sure that 2-Step Verification is on and that you copied the full app password.</string>
+    <string name="setup_error_sign_in_refused">%1$s did not accept the sign-in. %2$s</string>
+    <string name="setup_error_sign_in_refused_plain">%1$s did not accept the sign-in. Try again.</string>
     <string name="setup_error_setup">The account needs a change in its settings before Plico can use it.</string>
     <string name="setup_error_network">Plico cannot connect to the server. Make sure that the phone is online, then try again.</string>
     <string name="setup_error_tls">The secure connection failed because the server certificate is not valid. A network that examines connections, for example at a hotel or at work, can cause this. Try again on a different network.</string>
@@ -79,6 +141,13 @@
     <string name="setup_error_already_added">This account is already in Plico.</string>
     <string name="setup_error_wrong_account">You signed in as %1$s. Sign in as %2$s.</string>
     <string name="setup_error_save_failed">Plico could not save the account. Try again.</string>
+    <!-- 1: the name of the mail provider -->
+    <string name="setup_error_unsupported" tools:ignore="UnusedResources">%1$s does not let email apps connect with IMAP. Plico cannot add this account.</string>
+    <string name="setup_error_bridge" tools:ignore="UnusedResources">%1$s lets email apps connect only through its Bridge app on a computer. Plico cannot add this account.</string>
+    <string name="setup_error_no_tls" tools:ignore="UnusedResources">The server did not start an encrypted connection. Plico does not connect without encryption. Make sure that the port and the security setting are correct.</string>
+    <!-- 1: a provider brand, for example Gmail -->
+    <string name="setup_error_wrong_servers" tools:ignore="UnusedResources">These are the servers of %1$s. Remove this account and add it again.</string>
+    <string name="setup_error_mixed_servers" tools:ignore="UnusedResources">One of these servers is a %1$s server. Use %1$s servers for incoming and outgoing mail.</string>
 
     <!-- Options -->
     <string name="setup_options_title">Almost done</string>
@@ -110,8 +179,8 @@
     <string name="setup_reauth_title">Sign in again</string>
     <string name="setup_reauth_password">Enter the current password for %1$s.</string>
     <string name="setup_reauth_app_password">Create a new app password for %1$s and enter it here. Google cancels app passwords when you change your Google password.</string>
-    <string name="setup_reauth_browser">Sign in to Google again as %1$s.</string>
+    <string name="setup_reauth_browser">Sign in to %1$s again as %2$s.</string>
     <string name="setup_reauth_device">Choose the Google account %1$s again.</string>
-    <string name="setup_reauth_no_client">This sign-in method needs your Google OAuth client ID.</string>
+    <string name="setup_reauth_no_client">This sign-in method needs your own %1$s client ID.</string>
     <string name="setup_reauth_done">Signed in again as %1$s</string>
 </resources>

@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.plico.R
 import app.plico.account.DeviceGoogleAuth
+import app.plico.account.OAuthIssuer
 import app.plico.app
 import app.plico.data.MailView
 import app.plico.ui.components.EmptyState
@@ -205,13 +206,12 @@ private fun BusyView(busy: Busy, onCancel: () -> Unit) {
         LoadingIndicator()
         Spacer(Modifier.height(24.dp))
         Text(
-            text = stringResource(
-                when (busy) {
-                    Busy.BROWSER -> R.string.setup_busy_browser
-                    Busy.DEVICE -> R.string.setup_busy_device
-                    else -> R.string.setup_busy_testing
-                },
-            ),
+            text = when (busy) {
+                // Only Google signs in with the browser here.
+                Busy.BROWSER -> stringResource(R.string.setup_busy_browser, OAuthIssuer.GOOGLE.brand)
+                Busy.DEVICE -> stringResource(R.string.setup_busy_device)
+                else -> stringResource(R.string.setup_busy_testing)
+            },
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },

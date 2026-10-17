@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="account_error_no_client_id">Enter your Google OAuth client ID first (Settings → Gmail sign-in).</string>
-    <string name="account_error_no_browser">Install a web browser to sign in with Google.</string>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- tools:ignore="UnusedResources" marks texts for code that is not written yet. -->
+    <!-- An issuer argument is Google or Microsoft: brand names, not translated. -->
+    <string name="account_error_no_client_id">Enter your %1$s client ID first (Settings → Sign-in clients).</string>
+    <string name="account_error_no_browser">Install a web browser to sign in.</string>
     <string name="account_error_no_secret">The saved sign-in data is not available. Sign in again.</string>
     <string name="account_error_oauth_expired">The sign-in took too long. Try again.</string>
-    <string name="account_error_oauth_denied">You did not give access in the browser. Try again, or use an app password.</string>
-    <string name="account_error_oauth_failed">Google sign-in failed (%1$s). Try again, or use an app password.</string>
-    <string name="account_error_oauth_scope">Plico did not get access to Gmail. Sign in again and allow access to Gmail.</string>
-    <string name="account_error_oauth_incomplete">The answer from Google was not complete. Try again.</string>
-    <string name="account_error_oauth_grant">Google stopped the access of Plico to this account. Sign in again.</string>
+    <string name="account_error_oauth_denied">You did not give access in the browser. Try again.</string>
+    <!-- 1: the error code of the issuer -->
+    <string name="account_error_oauth_failed">The sign-in failed (%1$s). Try again.</string>
+    <string name="account_error_oauth_scope">Plico did not get access to your mail. Sign in again and allow access to mail.</string>
+    <string name="account_error_oauth_incomplete">The answer from %1$s was not complete. Try again.</string>
+    <string name="account_error_oauth_grant">%1$s stopped the access of Plico to this account. Sign in again.</string>
     <string name="account_error_oauth_client">Google does not accept your OAuth client ID. Make sure that it is an Android client for the package name and signing SHA-1 of this app.</string>
     <string name="account_error_device_unregistered">Google does not know this app. In your Google Cloud project, add an Android OAuth client for the package name and signing SHA-1 of this app. Or use an app password.</string>
     <string name="account_error_device_consent">Google must get your permission again. Sign in again.</string>
@@ -16,4 +19,22 @@
     <string name="account_gmail_all_mail_hidden">Gmail does not show All Mail to IMAP. In Gmail on the web, go to Settings → Labels and turn on \"Show in IMAP\" for All Mail.</string>
     <string name="account_note_gmail_trash_hidden">Gmail does not show Trash to IMAP, so Delete is off. To turn it on, go to Gmail Settings → Labels and turn on \"Show in IMAP\" for Trash.</string>
     <string name="account_note_gmail_spam_hidden">Gmail does not show Spam to IMAP, so Spam is off. To turn it on, go to Gmail Settings → Labels and turn on \"Show in IMAP\" for Spam.</string>
+
+    <!-- Microsoft -->
+    <!-- 1: the redirect URI of Plico -->
+    <string name="account_error_oauth_client_microsoft" tools:ignore="UnusedResources">Microsoft does not accept your client ID. Make sure that the redirect URI %1$s is under Mobile and desktop applications.</string>
+    <string name="account_error_ms_account_types" tools:ignore="UnusedResources">Microsoft did not accept your client ID for this account. Make sure that the client ID is correct. The account types must be \"Any Entra ID tenant and personal Microsoft accounts\".</string>
+    <string name="account_error_oauth_admin" tools:ignore="UnusedResources">An administrator must approve Plico for this account. Ask the administrator of your organization.</string>
+    <string name="account_error_ms_imap_off" tools:ignore="UnusedResources">Microsoft did not open the mailbox. In Outlook.com, turn on IMAP for devices and apps. Make sure that you signed in with the main address of the account.</string>
+    <string name="account_note_smtp_off" tools:ignore="UnusedResources">Microsoft does not let apps send mail from this account. Plico can receive mail, but it cannot send it. The administrator of the account can turn on SMTP AUTH.</string>
+
+    <!-- Any server -->
+    <string name="account_error_redirect_taken" tools:ignore="UnusedResources">Another app on this phone can receive the sign-in answer for Plico. Remove that app, then try again.</string>
+    <string name="account_error_auth_method" tools:ignore="UnusedResources">The server does not accept a password sign-in that Plico can use.</string>
+    <string name="account_error_sign_in_kind" tools:ignore="UnusedResources">Plico cannot use this sign-in method with this server. Remove this account and add it again.</string>
+    <string name="account_error_gmail_server" tools:ignore="UnusedResources">This server is a Gmail server. Remove this account and add it again.</string>
+    <plurals name="account_note_no_idle" tools:ignore="UnusedResources">
+        <item quantity="one">This server cannot tell Plico about new mail immediately. Plico checks for new mail every %d minute. You can change this in the account settings.</item>
+        <item quantity="other">This server cannot tell Plico about new mail immediately. Plico checks for new mail every %d minutes. You can change this in the account settings.</item>
+    </plurals>
 </resources>

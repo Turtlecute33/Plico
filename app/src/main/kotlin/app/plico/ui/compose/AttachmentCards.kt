@@ -85,14 +85,8 @@ internal fun AttachmentSection(vm: ComposeViewModel, modifier: Modifier = Modifi
             )
         }
         if (vm.tooLarge && limit != null) {
-            val provider = vm.from?.provider?.brand.orEmpty()
             Banner(
-                text = stringResource(
-                    R.string.compose_too_large,
-                    fileSize(vm.encodedSize),
-                    provider,
-                    fileSize(limit),
-                ),
+                text = stringResource(R.string.compose_too_large, fileSize(vm.encodedSize), fileSize(limit)),
                 kind = BannerKind.WARN,
                 modifier = Modifier.fillMaxWidth(),
             )

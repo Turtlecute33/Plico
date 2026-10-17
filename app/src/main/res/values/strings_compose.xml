@@ -24,8 +24,8 @@
     <string name="compose_attachment_original">Original quality</string>
     <string name="compose_attachment_metadata_kept">metadata kept</string>
     <string name="compose_attachment_note">Photos are made smaller, and their location and camera data are removed. Other files and photos in original quality keep their metadata.</string>
-    <!-- 1: estimated size, 2: Riseup or Gmail, 3: the server limit -->
-    <string name="compose_too_large">This message is about %1$s after encoding. %2$s accepts at most %3$s. Remove files to send it.</string>
+    <!-- 1: estimated size, 2: the server limit -->
+    <string name="compose_too_large">This message is about %1$s after encoding. The server accepts at most %2$s. Remove files to send it.</string>
 
     <!-- 1: the reason from the server or the app -->
     <string name="compose_failed">Not sent: %1$s</string>
