@@ -211,10 +211,11 @@ class SetupViewModel(
     fun signInWithPassword() {
         val current = _state.value
         val provider = current.provider ?: return
-        val servers = current.servers ?: return
-        if (current.busy != null) return
         val reauth = current.reauth
         val address = reauth?.email ?: SetupInput.normalizeEmail(email.text.toString())
+        // Google, Microsoft and Riseup accounts use only their built-in servers (D18).
+        val servers = ProviderTable.pinned(provider, address) ?: current.servers ?: return
+        if (current.busy != null) return
         val emailError = if (reauth == null) SetupInput.checkEmail(address) else null
         val passwordError = SetupInput.checkPassword(provider, password.text)
         if (emailError != null || passwordError != null) {

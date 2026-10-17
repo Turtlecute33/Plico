@@ -23,7 +23,7 @@ sealed interface Route {
      */
     data class Compose(val draftId: Long, val fresh: Boolean = false) : Route
 
-    /** Local drafts of an account without a Drafts mailbox (Riseup creates it on the first upload). */
+    /** Local drafts of an account without a Drafts mailbox (Plico creates it on the first upload). */
     data class Drafts(val accountId: Long) : Route
     data object Settings : Route
     data class AccountSettings(val accountId: Long) : Route

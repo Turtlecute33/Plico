@@ -54,6 +54,7 @@ import app.plico.account.OAuthIssuer
 import app.plico.account.ProviderTable
 import app.plico.account.Providers
 import app.plico.data.AuthKind
+import app.plico.html.Idn
 import app.plico.mail.net.TlsMode
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.Banner
@@ -237,8 +238,9 @@ internal fun PasswordPage(vm: SetupViewModel, state: SetupState) {
             // Password managers pair the password with this user name.
             modifier = Modifier.semantics { contentType = ContentType.Username },
         )
-        val imap = servers.imap.host
-        val smtp = servers.smtp.host
+        // ASCII form, so that a lookalike name shows as xn--.
+        val imap = Idn.toAscii(servers.imap.host) ?: servers.imap.host
+        val smtp = Idn.toAscii(servers.smtp.host) ?: servers.smtp.host
         Text(
             text = if (imap == smtp) {
                 stringResource(R.string.setup_password_text_one, imap)
