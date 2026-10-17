@@ -1,6 +1,7 @@
 package app.plico.mail.smtp
 
 import app.plico.mail.net.MailStream
+import app.plico.mail.net.StartTlsException
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -10,13 +11,17 @@ import kotlin.test.assertEquals
 /**
  * A fake server that plays a dialog. Each [Step.Server] reply is released only after the client has
  * flushed exactly the [Step.Client] text before it, so the test also checks that the client flushes before
- * it waits. The script ends with EOF.
+ * it waits. The script ends with EOF. [Step.Tls] marks the point where the client must call [startTls]; a
+ * reply with unread bytes at that point gives [StartTlsException] (as [app.plico.mail.net.MailSocket] does).
  */
 internal class ScriptedStream(vararg steps: Step, private val failOnFlush: Int = 0) : MailStream {
     sealed interface Step {
         class Client(val text: String) : Step
         class Server(val text: String) : Step
         class Fail(val error: IOException) : Step
+
+        /** The client switches to TLS here. */
+        data object Tls : Step
     }
 
     private val script = steps.toList()
@@ -38,6 +43,9 @@ internal class ScriptedStream(vararg steps: Step, private val failOnFlush: Int =
     override var readTimeoutMs = 60_000
     override var encrypted = true
 
+    var tlsStarts = 0
+        private set
+
     override val input: InputStream = object : InputStream() {
         override fun read(): Int {
             if (replyPos == reply.size && !advance()) return -1
@@ -57,7 +65,15 @@ internal class ScriptedStream(vararg steps: Step, private val failOnFlush: Int =
     }
 
     override fun startCompression() = throw UnsupportedOperationException()
-    override fun startTls() = throw UnsupportedOperationException()
+    override fun startTls() {
+        if (replyPos != reply.size) throw StartTlsException("Data after the STARTTLS reply")
+        checkClientSteps()
+        assertEquals<Step?>(Step.Tls, script.getOrNull(next), "STARTTLS at step $next")
+        next++
+        assertEquals("", unflushed.toString(Charsets.UTF_8), "unflushed client output at STARTTLS")
+        encrypted = true
+        tlsStarts++
+    }
 
     override fun close() {
         closed = true
@@ -75,6 +91,7 @@ internal class ScriptedStream(vararg steps: Step, private val failOnFlush: Int =
                 replyPos = 0
             }
             is Step.Fail -> throw step.error
+            is Step.Tls -> error("The client read on where it should start TLS")
             is Step.Client -> error("unreachable")
         }
         return true

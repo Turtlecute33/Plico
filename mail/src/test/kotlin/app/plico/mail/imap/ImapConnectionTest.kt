@@ -169,8 +169,14 @@ class ImapConnectionTest {
         }
         assertEquals("AUTHENTICATIONFAILED", e.code?.name)
         assertEquals(1, challenges.size)
-        assertEquals(listOf("<<< * OK [CAPABILITY]", ">>> A1 AUTHENTICATE", "<<< A1 NO [AUTHENTICATIONFAILED]"), logs)
-        assertTrue(logs.none { "ya29" in it || ir in it || "someone" in it })
+        assertEquals(
+            listOf(
+                "<<< * OK [CAPABILITY]", ">>> A1 AUTHENTICATE", "<<< +", ">>> <sasl response>",
+                "<<< A1 NO [AUTHENTICATIONFAILED]",
+            ),
+            logs,
+        )
+        assertTrue(logs.none { "ya29" in it || ir in it || "someone" in it || "eyJ" in it })
         fake.finish()
     }
 
@@ -298,6 +304,33 @@ class ImapConnectionTest {
             logs,
         )
         fake.finish()
+    }
+
+    @Test
+    fun startTlsSwitchesToANewReaderAndClearsCapabilities() {
+        fake.encrypted = false
+        connect("* OK [CAPABILITY IMAP4rev1 STARTTLS LOGINDISABLED] ready")
+        val oldInput = fake.input
+        fake.client("A1 STARTTLS").server("* CAPABILITY IMAP4rev1 AUTH=PLAIN", "A1 OK [CAPABILITY IMAP4rev1 X] Begin TLS")
+        fake.client("A2 NOOP").server("A2 OK done")
+        conn.startTls()
+        assertEquals(1, fake.tlsStarts)
+        assertTrue(fake.encrypted)
+        assertTrue(oldInput !== fake.input)
+        assertEquals(emptySet(), conn.capabilities, "the [CAPABILITY] code of the OK is from before TLS")
+        conn.execute(Command.raw("NOOP"))
+        fake.finish()
+    }
+
+    @Test
+    fun startTlsWithBytesAfterTheOkClosesTheConnection() {
+        fake.encrypted = false
+        connect()
+        fake.client("A1 STARTTLS").server("A1 OK Begin TLS\r\n* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] injected")
+        assertFailsWith<app.plico.mail.net.StartTlsException> { conn.startTls() }
+        assertFalse(fake.encrypted)
+        assertTrue(fake.closed)
+        assertFalse(conn.isOpen)
     }
 
     @Test

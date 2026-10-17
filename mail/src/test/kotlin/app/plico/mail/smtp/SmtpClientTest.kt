@@ -2,6 +2,8 @@ package app.plico.mail.smtp
 
 import app.plico.mail.net.Endpoint
 import app.plico.mail.net.SocketHooks
+import app.plico.mail.net.StartTlsException
+import app.plico.mail.net.StartTlsServer
 import app.plico.mail.net.TestTls
 import app.plico.mail.net.TlsMode
 import app.plico.mail.net.TlsServer
@@ -173,11 +175,12 @@ class SmtpClientTest {
 
     @Test
     fun `AUTH PLAIN failure on Riseup and Gmail`() {
-        val riseup = ScriptedStream(
+        val (riseupClient, riseup) = started(
             c("AUTH PLAIN " + b64("\u0000alice\u0000wrong")),
             s("535 5.7.8 Error: authentication failed: authentication failure"),
+            extensions = listOf("AUTH PLAIN LOGIN"),
         )
-        val e = assertFailsWith<SmtpException> { client(riseup).authPassword("alice", "wrong") }
+        val e = assertFailsWith<SmtpException> { riseupClient.authPassword("alice", "wrong") }
         assertEquals(Stage.AUTH, e.stage)
         assertEquals(535, e.code)
         assertEquals("5.7.8", e.enhanced)
@@ -186,10 +189,12 @@ class SmtpClientTest {
         riseup.assertDone()
 
         val gmail = ScriptedStream(
+            gmailGreeting, ehlo, gmailEhlo,
             c("AUTH PLAIN " + b64("\u0000me@gmail.com\u0000abcdabcdabcdabcd")),
             gmailBadCredentials,
         )
-        val g = assertFailsWith<SmtpException> { client(gmail).authPassword("me@gmail.com", "abcdabcdabcdabcd") }
+        val gmailClient = client(gmail).apply { start() }
+        val g = assertFailsWith<SmtpException> { gmailClient.authPassword("me@gmail.com", "abcdabcdabcdabcd") }
         assertEquals(535, g.code)
         assertEquals("5.7.8", g.enhanced)
         assertEquals(
@@ -202,10 +207,11 @@ class SmtpClientTest {
 
     @Test
     fun `AUTH PLAIN answers an unexpected 334 with a cancel`() {
-        val stream = ScriptedStream(
+        val (client, stream) = started(
             c("AUTH PLAIN " + b64("\u0000u\u0000p")), s("334 "), c("*"), s("501 5.7.0 Authentication aborted"),
+            extensions = listOf("AUTH PLAIN"),
         )
-        val e = assertFailsWith<SmtpException> { client(stream).authPassword("u", "p") }
+        val e = assertFailsWith<SmtpException> { client.authPassword("u", "p") }
         assertEquals(Stage.AUTH, e.stage)
         assertEquals(501, e.code)
         stream.assertDone()
@@ -236,6 +242,228 @@ class SmtpClientTest {
         assertEquals(535, e.code)
         assertEquals("5.7.8", e.enhanced)
         stream.assertDone()
+    }
+
+    @Test
+    fun `AUTH mechanisms come from both EHLO forms`() {
+        assertEquals(setOf("LOGIN", "PLAIN"), started(extensions = listOf("AUTH=LOGIN PLAIN")).first.authMechanisms)
+        assertEquals(
+            setOf("LOGIN", "PLAIN", "XOAUTH2"),
+            started(extensions = listOf("AUTH plain xoauth2", "AUTH=LOGIN")).first.authMechanisms,
+        )
+        assertEquals(emptySet(), started(extensions = listOf("SIZE 10", "AUTHX PLAIN")).first.authMechanisms)
+    }
+
+    @Test
+    fun `AUTH LOGIN when PLAIN is not offered`() {
+        val (client, stream) = started(
+            c("AUTH LOGIN"), s("334 VXNlcm5hbWU6"),
+            c(b64("alice@example.org")), s("334 UGFzc3dvcmQ6"),
+            c(b64("pässword")), s("235 2.7.0 Authentication successful"),
+            extensions = listOf("AUTH=LOGIN"),
+        )
+        client.authPassword("alice@example.org", "pässword")
+        stream.assertDone()
+
+        val (refused, refusedStream) = started(
+            c("AUTH LOGIN"), s("334 VXNlcm5hbWU6"),
+            c(b64("alice")), s("334 UGFzc3dvcmQ6"),
+            c(b64("wrong")), s("535 5.7.8 Error: authentication failed"),
+            extensions = listOf("AUTH LOGIN"),
+        )
+        val e = assertFailsWith<SmtpException> { refused.authPassword("alice", "wrong") }
+        assertEquals(Stage.AUTH, e.stage)
+        assertEquals(535, e.code)
+        refusedStream.assertDone()
+    }
+
+    @Test
+    fun `PLAIN is preferred over LOGIN`() {
+        val (client, stream) = started(
+            c("AUTH PLAIN " + b64("\u0000a\u0000b")), s("235 2.7.0 ok"),
+            extensions = listOf("AUTH LOGIN CRAM-MD5 PLAIN"),
+        )
+        client.authPassword("a", "b")
+        stream.assertDone()
+    }
+
+    @Test
+    fun `no usable AUTH mechanism fails before the password is sent`() {
+        for (extensions in listOf(listOf("SIZE 10"), listOf("AUTH CRAM-MD5 GSSAPI"))) {
+            val (client, stream) = started(extensions = extensions)
+            assertFailsWith<SmtpAuthUnavailableException> { client.authPassword("alice", "pw") }
+            stream.assertDone()
+            assertFalse("AUTH " in stream.transcript.toString().substringAfter("EHLO"))
+        }
+    }
+
+    @Test
+    fun `a long XOAUTH2 response goes after a 334, a short one stays on one line`() {
+        val token = "eyJ0eXAiOiJKV1Qi" + "x".repeat(2_000)
+        val ir = b64("user=me@outlook.com\u0001auth=Bearer $token\u0001\u0001")
+        val (client, stream) = started(c("AUTH XOAUTH2"), s("334 "), c(ir), s("235 2.7.0 Authentication successful"))
+        client.authXoauth2("me@outlook.com", token)
+        stream.assertDone()
+
+        // The error challenge after the response gets the empty line, as in the one-line form.
+        val (failing, failingStream) = started(
+            c("AUTH XOAUTH2"), s("334 "), c(ir), s("334 eyJzdGF0dXMiOiI0MDEifQ=="), c(""),
+            s("535 5.7.3 Authentication unsuccessful"),
+        )
+        val e = assertFailsWith<SmtpException> { failing.authXoauth2("me@outlook.com", token) }
+        assertEquals(Stage.AUTH, e.stage)
+        assertEquals("5.7.3", e.enhanced)
+        failingStream.assertDone()
+
+        // The limit is the 510 octets of the command line (RFC 4954 §4).
+        val short = (1..400).map { "t".repeat(it) }
+            .last { "AUTH XOAUTH2 ".length + b64("user=a@b.example\u0001auth=Bearer $it\u0001\u0001").length <= 510 }
+        val shortIr = b64("user=a@b.example\u0001auth=Bearer $short\u0001\u0001")
+        val (oneLine, oneLineStream) = started(c("AUTH XOAUTH2 $shortIr"), s("235 ok"))
+        oneLine.authXoauth2("a@b.example", short)
+        oneLineStream.assertDone()
+        val longer = short + "ttt"
+        val longerIr = b64("user=a@b.example\u0001auth=Bearer $longer\u0001\u0001")
+        val (twoStep, twoStepStream) = started(c("AUTH XOAUTH2"), s("334 "), c(longerIr), s("235 ok"))
+        twoStep.authXoauth2("a@b.example", longer)
+        twoStepStream.assertDone()
+    }
+
+    @Test
+    fun `no password or token before TLS`() {
+        val stream = ScriptedStream(riseupGreeting, ehlo, riseupEhlo).apply { encrypted = false }
+        val client = client(stream)
+        client.start()
+        assertFailsWith<IllegalStateException> { client.authPassword("alice@riseup.net", "pw") }
+        assertFailsWith<IllegalStateException> { client.authXoauth2("alice@riseup.net", "tok") }
+        stream.assertDone()
+        assertEquals("EHLO [127.0.0.1]\r\n", stream.transcript.toString())
+    }
+
+    // STARTTLS
+
+    @Test
+    fun `STARTTLS sends EHLO again and keeps only the extensions after TLS`() {
+        val log = mutableListOf<String>()
+        val stream = ScriptedStream(
+            s("220 mail.example ESMTP"), ehlo,
+            s("250-mail.example", "250-SIZE 10", "250-AUTH PLAIN XOAUTH2", "250 STARTTLS"),
+            c("STARTTLS"), s("220 2.0.0 Ready to start TLS"), Step.Tls,
+            ehlo, s("250-mail.example", "250-SIZE 25600000", "250-AUTH=LOGIN", "250 8BITMIME"),
+            c("AUTH LOGIN"), s("334 VXNlcm5hbWU6"), c(b64("alice")), s("334 UGFzc3dvcmQ6"), c(b64("s3cret")),
+            s("235 2.7.0 Authentication successful"),
+        ).apply { encrypted = false }
+        val client = client(stream, log)
+        client.start(TlsMode.STARTTLS)
+        assertTrue(stream.encrypted)
+        assertEquals(1, stream.tlsStarts)
+        assertEquals(mapOf("SIZE" to "25600000", "AUTH=LOGIN" to "", "8BITMIME" to ""), client.extensions)
+        assertEquals(25_600_000L, client.maxSize)
+        assertEquals(setOf("LOGIN"), client.authMechanisms)
+        client.authPassword("alice", "s3cret")
+        stream.assertDone()
+        assertEquals(
+            listOf(
+                "S: 220", "C: EHLO", "S: 250", "C: STARTTLS", "S: 220", "C: EHLO", "S: 250",
+                "C: AUTH", "S: 334", "C: <sasl response>", "S: 334", "C: <sasl response>", "S: 235",
+            ),
+            log,
+        )
+    }
+
+    @Test
+    fun `STARTTLS without extensions after TLS has no size and no AUTH`() {
+        val stream = ScriptedStream(
+            s("220 mail.example ESMTP"), ehlo, s("250-mail.example", "250-SIZE 10", "250 AUTH PLAIN"),
+            c("STARTTLS"), s("220 go ahead"), Step.Tls, ehlo, s("250 mail.example"),
+        ).apply { encrypted = false }
+        val client = client(stream)
+        client.start(TlsMode.STARTTLS)
+        assertNull(client.maxSize)
+        assertEquals(emptySet(), client.authMechanisms)
+        assertFailsWith<SmtpAuthUnavailableException> { client.authPassword("a", "b") }
+        stream.assertDone()
+    }
+
+    @Test
+    fun `a refused STARTTLS closes the connection and sends no AUTH`() {
+        for (reply in listOf("454 4.7.0 TLS not available due to local problem", "502 5.5.1 Unrecognized command")) {
+            val stream = ScriptedStream(
+                riseupGreeting, ehlo, riseupEhlo, c("STARTTLS"), s(reply),
+            ).apply { encrypted = false }
+            val client = client(stream)
+            assertFailsWith<StartTlsException>(reply) { client.start(TlsMode.STARTTLS) }
+            assertTrue(stream.closed)
+            assertFalse(stream.encrypted)
+            assertFailsWith<IllegalStateException> { client.authPassword("alice", "pw") }
+            stream.assertDone()
+            assertFalse("AUTH" in stream.transcript.toString())
+        }
+    }
+
+    @Test
+    fun `bytes after the 220 to STARTTLS fail before any secret`() {
+        val stream = ScriptedStream(
+            riseupGreeting, ehlo, riseupEhlo, c("STARTTLS"),
+            Step.Server("220 2.0.0 Ready to start TLS\r\n250-injected\r\n250 AUTH PLAIN\r\n"),
+        ).apply { encrypted = false }
+        val client = client(stream)
+        assertFailsWith<StartTlsException> { client.start(TlsMode.STARTTLS) }
+        assertFalse(stream.encrypted)
+        assertEquals(0, stream.tlsStarts)
+        stream.assertDone()
+        assertEquals("EHLO [127.0.0.1]\r\nSTARTTLS\r\n", stream.transcript.toString())
+    }
+
+    @Test(timeout = 30_000)
+    fun `connect with STARTTLS over real TLS`() {
+        StartTlsServer("localhost") { conn ->
+            conn.send("220 mail.example ESMTP\r\n")
+            assertEquals("EHLO [127.0.0.1]", conn.line())
+            conn.send("250-mail.example\r\n250-SIZE 10\r\n250 STARTTLS\r\n")
+            assertEquals("STARTTLS", conn.line())
+            conn.send("220 2.0.0 Ready to start TLS\r\n")
+            conn.upgrade()
+            assertEquals("EHLO [127.0.0.1]", conn.line())
+            conn.send("250-mail.example\r\n250-SIZE 25600000\r\n250 AUTH PLAIN LOGIN\r\n")
+            assertEquals("AUTH PLAIN " + b64("\u0000alice\u0000pw"), conn.line())
+            conn.send("235 2.7.0 ok\r\n")
+            assertEquals("QUIT", conn.line())
+            conn.send("221 2.0.0 Bye\r\n")
+        }.use { server ->
+            val log = mutableListOf<String>()
+            val factory = TestTls.clientFactory("localhost")
+            val client = SmtpClient.connect(Endpoint("localhost", server.port, TlsMode.STARTTLS), AcceptAll, { log += it }, factory)
+            assertEquals(25_600_000L, client.maxSize)
+            assertEquals(setOf("PLAIN", "LOGIN"), client.authMechanisms)
+            client.authPassword("alice", "pw")
+            client.quit()
+            server.join()
+            assertEquals(
+                listOf(
+                    "S: 220", "C: EHLO", "S: 250", "C: STARTTLS", "S: 220", "C: EHLO", "S: 250", "C: AUTH", "S: 235",
+                    "C: QUIT", "S: 221",
+                ),
+                log,
+            )
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `connect closes the socket when STARTTLS is refused`() {
+        StartTlsServer("localhost") { conn ->
+            conn.send("220 mail.example ESMTP\r\n")
+            conn.line()
+            conn.send("250-mail.example\r\n250 AUTH PLAIN\r\n")
+            assertEquals("STARTTLS", conn.line())
+            conn.send("454 4.7.0 TLS not available\r\n")
+            assertEquals(-1, conn.input.read())
+        }.use { server ->
+            assertFailsWith<StartTlsException> {
+                SmtpClient.connect(Endpoint("localhost", server.port, TlsMode.STARTTLS), AcceptAll, {}, TestTls.clientFactory("localhost"))
+            }
+            server.join()
+        }
     }
 
     // Logging

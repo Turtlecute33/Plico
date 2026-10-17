@@ -136,6 +136,21 @@ class ImapConnection(private val stream: MailStream, private val log: (String) -
         reader = ImapReader(stream.input)
     }
 
+    /**
+     * Sends STARTTLS and switches the stream to TLS (RFC 3501 §6.2.1). A tagged NO or BAD throws as for any
+     * command. The capabilities are cleared after the reply: the tagged OK can carry a `[CAPABILITY]` code, and
+     * capabilities from before TLS are not trusted. Bytes after the OK fail the switch ([MailStream.startTls]).
+     */
+    fun startTls() {
+        execute(Command.raw("STARTTLS"))
+        failClosed { stream.startTls() }
+        reader = ImapReader(stream.input)
+        capabilities = emptySet()
+    }
+
+    /** True once TLS is up; credentials are sent only then. */
+    internal val encrypted: Boolean get() = stream.encrypted
+
     /** False after [close] or an error that closed the connection; every later call then fails. */
     val isOpen: Boolean get() = !broken
 
@@ -197,7 +212,10 @@ class ImapConnection(private val stream: MailStream, private val log: (String) -
                 is Untagged -> route(r, allowBye, onUntagged)
                 is Tagged -> return r.also { requireTag(tag, it) }
                 is Continuation -> {
+                    log("<<< +")
                     val answer = onContinuation(r.text) ?: throw ImapProtocolException("Unexpected continuation")
+                    // A continuation answer is always SASL data (or its cancel): never logged.
+                    log(">>> <sasl response>")
                     write((answer + "\r\n").toByteArray(Charsets.UTF_8), flush = true)
                 }
             }

@@ -4,7 +4,10 @@ import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
 import java.nio.file.Files
 import java.security.KeyStore
 import javax.net.ssl.KeyManagerFactory
@@ -70,6 +73,73 @@ internal class TlsServer(name: String, private val handler: (SSLSocket) -> Unit)
             (server.accept() as SSLSocket).use { socket ->
                 socket.soTimeout = 10_000
                 handler(socket)
+            }
+        } catch (e: Throwable) {
+            error = e
+        }
+    }
+
+    val port: Int get() = server.localPort
+
+    /** Waits for the handler and rethrows its failure. */
+    fun join() {
+        worker.join(10_000)
+        check(!worker.isAlive) { "Server still running" }
+        error?.let { throw AssertionError("Server failed", it) }
+    }
+
+    override fun close() {
+        server.close()
+        worker.join(10_000)
+    }
+}
+
+/**
+ * A one-connection plaintext server on the loopback interface that can switch to TLS with the certificate
+ * for [name] ([Conn.upgrade], the server side of STARTTLS). [handler] runs on its own thread.
+ */
+internal class StartTlsServer(name: String, private val handler: (Conn) -> Unit) : Closeable {
+    private val context = TestTls.serverContext(name)
+    private val server = ServerSocket(0, 1, InetAddress.getByName("localhost"))
+
+    @Volatile
+    private var error: Throwable? = null
+
+    /** The server end. Reads are unbuffered, so that no byte of the client's TLS handshake is read as text. */
+    class Conn(private val raw: Socket, private val context: SSLContext) {
+        var input: InputStream = raw.inputStream
+            private set
+        var output: OutputStream = raw.outputStream
+            private set
+
+        fun send(text: String) {
+            output.write(text.toByteArray(Charsets.UTF_8))
+            output.flush()
+        }
+
+        fun line(): String = input.readCrlfLine()
+
+        /** Reads until the client closes (or the read times out). */
+        fun drain() {
+            runCatching { while (input.read() != -1) Unit }
+        }
+
+        /** TLS as the server, on the same TCP connection. */
+        fun upgrade(): SSLSocket {
+            val ssl = context.socketFactory.createSocket(raw, null, raw.port, true) as SSLSocket
+            ssl.useClientMode = false
+            ssl.startHandshake()
+            input = ssl.inputStream
+            output = ssl.outputStream
+            return ssl
+        }
+    }
+
+    private val worker = thread(isDaemon = true, name = "starttls-test-server") {
+        try {
+            server.accept().use { socket ->
+                socket.soTimeout = 10_000
+                handler(Conn(socket, context))
             }
         } catch (e: Throwable) {
             error = e
