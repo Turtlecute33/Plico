@@ -32,7 +32,7 @@ internal class AccountSettingsViewModel(private val app: PlicoApp, private val a
     val identities: StateFlow<List<Identity>> =
         app.accounts.observeIdentities(accountId).stateIn(viewModelScope, WHILE_SHOWN, emptyList())
 
-    /** Riseup mailboxes that can be the archive (DESIGN §7.2 step 1): not the special ones. */
+    /** Mailboxes that can be the archive of an account that is not Gmail (DESIGN §7.2): not the special ones. */
     val archiveFolders: StateFlow<List<Folder>> = app.folders.observeVisible(accountId)
         .map { folders -> folders.filter { it.kind == FolderKind.MAILBOX && it.role !in NOT_ARCHIVE } }
         .stateIn(viewModelScope, WHILE_SHOWN, emptyList())

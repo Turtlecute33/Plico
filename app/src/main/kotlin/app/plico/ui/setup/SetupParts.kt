@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.TextObfuscationMode
@@ -33,6 +34,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
@@ -62,14 +66,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.plico.R
 import app.plico.account.OAuthIssuer
+import app.plico.mail.net.TlsMode
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.Icons
 import app.plico.ui.components.SystemPages
+import app.plico.ui.settings.securityTitle
 import kotlinx.coroutines.launch
 
 private const val MAX_ADDRESS = 254
 private const val MAX_SECRET = 1024
+private const val MAX_PORT = 5
 
 /** A scrolling page column, at most 560 dp wide and centred on large screens. */
 @Composable
@@ -163,9 +170,17 @@ internal fun Step(number: Int, text: String, extra: @Composable () -> Unit = {})
     }
 }
 
-/** Email keyboard without autocorrect; autofill as email address and user name (privacy PS19). */
+/**
+ * Email keyboard without autocorrect; autofill as email address and user name (privacy PS19). [onDone] runs for
+ * the keyboard action; without it the action moves to the next field.
+ */
 @Composable
-internal fun AddressField(state: TextFieldState, error: InputError?, placeholder: String?) {
+internal fun AddressField(
+    state: TextFieldState,
+    error: InputError?,
+    placeholder: String?,
+    onDone: (() -> Unit)? = null,
+) {
     OutlinedTextField(
         state = state,
         modifier = Modifier
@@ -173,16 +188,74 @@ internal fun AddressField(state: TextFieldState, error: InputError?, placeholder
             .semantics { contentType = ContentType.EmailAddress + ContentType.Username },
         label = { Text(stringResource(R.string.setup_field_address)) },
         placeholder = placeholder?.let { { Text(it) } },
-        supportingText = error?.let { { Text(inputErrorText(it)) } },
+        supportingText = error?.let { { Text(inputErrorText(it, InputKind.ADDRESS)) } },
         isError = error != null,
         lineLimits = TextFieldLineLimits.SingleLine,
         inputTransformation = InputTransformation.maxLength(MAX_ADDRESS),
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Email,
             autoCorrectEnabled = false,
-            imeAction = ImeAction.Next,
+            imeAction = if (onDone != null) ImeAction.Done else ImeAction.Next,
+        ),
+        onKeyboardAction = onDone?.let { done -> KeyboardActionHandler { done() } },
+    )
+}
+
+/** What a text field holds, for its error texts. */
+internal enum class InputKind { ADDRESS, PASSWORD, HOST, PORT }
+
+/** One field of the server settings page, without autocorrect; [error] uses the texts of [kind]. */
+@Composable
+internal fun ServerField(
+    state: TextFieldState,
+    label: String,
+    kind: InputKind,
+    error: InputError?,
+    modifier: Modifier = Modifier,
+    hint: String? = null,
+    imeAction: ImeAction = ImeAction.Next,
+) {
+    val supporting = error?.let { inputErrorText(it, kind) } ?: hint
+    OutlinedTextField(
+        state = state,
+        modifier = modifier,
+        label = { Text(label) },
+        supportingText = supporting?.let { { Text(it) } },
+        isError = error != null,
+        lineLimits = TextFieldLineLimits.SingleLine,
+        inputTransformation = InputTransformation.maxLength(if (kind == InputKind.PORT) MAX_PORT else MAX_ADDRESS),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = when (kind) {
+                InputKind.PORT -> KeyboardType.Number
+                InputKind.HOST -> KeyboardType.Uri
+                else -> KeyboardType.Ascii
+            },
+            autoCorrectEnabled = false,
+            imeAction = imeAction,
         ),
     )
+}
+
+/** SSL/TLS or STARTTLS; there is no choice without encryption. */
+@Composable
+internal fun SecurityChoice(selected: TlsMode, onSelect: (TlsMode) -> Unit) {
+    Column {
+        Text(
+            text = stringResource(R.string.setup_field_security),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            TlsMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = mode == selected,
+                    onClick = { onSelect(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index, TlsMode.entries.size),
+                ) { Text(stringResource(securityTitle(mode))) }
+            }
+        }
+    }
 }
 
 /** Password keyboard without autocorrect, autofill as a password, and a visibility toggle (privacy PS19). */
@@ -195,7 +268,7 @@ internal fun PasswordField(
     hint: String? = null,
 ) {
     var visible by rememberSaveable { mutableStateOf(false) }
-    val supporting = error?.let { inputErrorText(it) } ?: hint
+    val supporting = error?.let { inputErrorText(it, InputKind.PASSWORD) } ?: hint
     OutlinedSecureTextField(
         state = state,
         modifier = Modifier
@@ -251,7 +324,7 @@ internal fun LinkButton(text: String, url: String) {
     }
 }
 
-/** A label and a value that the user copies into the Google Cloud console. */
+/** A label and a value that the user copies into the Google Cloud console or the Microsoft Entra admin center. */
 @Composable
 internal fun CopyRow(label: String, value: String) {
     val clipboard = LocalClipboard.current
@@ -272,44 +345,53 @@ internal fun CopyRow(label: String, value: String) {
     }
 }
 
+/**
+ * The problem of [state]. [expected] is the address that should sign in (the account that signs in again, or the
+ * typed address). The typo note has the action "Use <domain>" ([onUseSuggestion]).
+ */
 @Composable
-internal fun ProblemBanner(state: SetupState) {
+internal fun ProblemBanner(state: SetupState, expected: String?, onUseSuggestion: ((String) -> Unit)? = null) {
     val problem = state.problem ?: return
+    val suggestion = problem.detail?.takeIf { problem.kind == Problem.Kind.TYPO }
     Banner(
-        text = problemText(problem, expected = state.reauth?.let { it.deviceAccount ?: it.email }),
-        kind = BannerKind.ERROR,
+        text = problemText(problem, expected),
+        kind = if (suggestion != null) BannerKind.WARN else BannerKind.ERROR,
         modifier = Modifier
             .fillMaxWidth()
             .semantics { liveRegion = LiveRegionMode.Polite },
+        actionLabel = suggestion?.let { stringResource(R.string.setup_typo_use, it) },
+        onAction = if (suggestion != null && onUseSuggestion != null) ({ onUseSuggestion(suggestion) }) else null,
     )
 }
 
 @Composable
-private fun inputErrorText(error: InputError): String = stringResource(
+private fun inputErrorText(error: InputError, kind: InputKind): String = stringResource(
     when (error) {
         InputError.REQUIRED -> R.string.setup_error_required
-        InputError.INVALID -> R.string.setup_error_address
-        InputError.NOT_RISEUP -> R.string.setup_error_not_riseup
+        InputError.INVALID -> if (kind == InputKind.HOST) R.string.setup_error_host else R.string.setup_error_address
+        InputError.IP_ADDRESS -> R.string.setup_error_ip
+        InputError.PORT -> R.string.setup_error_port
     },
 )
 
-/** The text for [problem]; [expected] is the address of the account that signs in again. */
+/** The text for [problem]; [expected] is the address that should sign in. */
 @Composable
 private fun problemText(problem: Problem, expected: String?): String {
     val detail = problem.detail
+    val brand = (problem.issuer ?: OAuthIssuer.GOOGLE).brand
     return when (problem.kind) {
         Problem.Kind.WRONG_PASSWORD -> stringResource(R.string.setup_error_wrong_password)
         Problem.Kind.APP_PASSWORD_REQUIRED -> stringResource(R.string.setup_error_app_password_required)
         Problem.Kind.APP_PASSWORD_REFUSED -> stringResource(R.string.setup_error_app_password_refused)
-        // Only Google signs in with the browser or the device account here.
         Problem.Kind.SIGN_IN_REFUSED -> if (detail != null) {
-            stringResource(R.string.setup_error_sign_in_refused, OAuthIssuer.GOOGLE.brand, detail)
+            stringResource(R.string.setup_error_sign_in_refused, brand, detail)
         } else {
-            stringResource(R.string.setup_error_sign_in_refused_plain, OAuthIssuer.GOOGLE.brand)
+            stringResource(R.string.setup_error_sign_in_refused_plain, brand)
         }
         Problem.Kind.SETUP -> detail ?: stringResource(R.string.setup_error_setup)
         Problem.Kind.NETWORK -> stringResource(R.string.setup_error_network)
         Problem.Kind.TLS -> stringResource(R.string.setup_error_tls)
+        Problem.Kind.NO_TLS -> stringResource(R.string.setup_error_no_tls)
         Problem.Kind.THROTTLED -> stringResource(R.string.setup_error_throttled)
         Problem.Kind.SERVER -> if (detail != null) {
             stringResource(R.string.setup_error_server, detail)
@@ -320,5 +402,10 @@ private fun problemText(problem: Problem, expected: String?): String {
         Problem.Kind.WRONG_ACCOUNT ->
             stringResource(R.string.setup_error_wrong_account, detail.orEmpty(), expected.orEmpty())
         Problem.Kind.SAVE_FAILED -> stringResource(R.string.setup_error_save_failed)
+        Problem.Kind.UNSUPPORTED -> stringResource(R.string.setup_error_unsupported, detail.orEmpty())
+        Problem.Kind.BRIDGE -> stringResource(R.string.setup_error_bridge, detail.orEmpty())
+        Problem.Kind.TYPO -> stringResource(R.string.setup_typo, detail.orEmpty())
+        Problem.Kind.MIXED_SERVERS -> stringResource(R.string.setup_error_mixed_servers, detail.orEmpty())
+        Problem.Kind.WRONG_SERVERS -> stringResource(R.string.setup_error_wrong_servers, detail.orEmpty())
     }
 }

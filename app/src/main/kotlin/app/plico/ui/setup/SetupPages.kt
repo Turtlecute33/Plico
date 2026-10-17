@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -50,9 +51,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.plico.R
 import app.plico.account.OAuthIssuer
+import app.plico.account.ProviderTable
 import app.plico.account.Providers
 import app.plico.data.AuthKind
-import app.plico.data.Provider
+import app.plico.mail.net.TlsMode
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
@@ -61,10 +63,11 @@ import app.plico.ui.settings.Choices
 
 private const val MAX_CLIENT_ID = 200
 private const val CLOUD_CONSOLE_URL = "https://console.cloud.google.com/apis/credentials"
+private const val ENTRA_URL = "https://entra.microsoft.com/"
 
-/** The one-line privacy promise and the two providers. */
+/** The one-line privacy promise, one address field and Next. No provider is named before detection. */
 @Composable
-internal fun WelcomePage(onChoose: (Provider) -> Unit) {
+internal fun WelcomePage(vm: SetupViewModel, state: SetupState) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -112,40 +115,141 @@ internal fun WelcomePage(onChoose: (Provider) -> Unit) {
             }
         }
         Column(Modifier.widthIn(max = 420.dp)) {
-            Button(
-                onClick = { onChoose(Provider.RISEUP) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp),
-            ) { Text(stringResource(R.string.setup_add_riseup)) }
+            ProblemBanner(state, expected = null, onUseSuggestion = vm::useSuggestion)
+            if (state.problem != null) Spacer(Modifier.height(12.dp))
+            AddressField(
+                vm.email,
+                state.emailError,
+                stringResource(R.string.setup_address_placeholder),
+                onDone = vm::next,
+            )
             Spacer(Modifier.height(12.dp))
-            FilledTonalButton(
-                onClick = { onChoose(Provider.GMAIL) },
+            Button(
+                onClick = vm::next,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 56.dp),
-            ) { Text(stringResource(R.string.setup_add_gmail)) }
+            ) { Text(stringResource(R.string.setup_next)) }
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = vm::manual,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) { Text(stringResource(R.string.setup_manual)) }
         }
     }
 }
 
-/** Riseup address and password; when signing in again, the password only. */
+/** Incoming and outgoing server, port and security, and the user name (DESIGN §13). Hosts in ASCII form. */
 @Composable
-internal fun RiseupPage(vm: SetupViewModel, state: SetupState) {
+internal fun ServersPage(vm: SetupViewModel, state: SetupState) {
+    val errors = state.serverErrors
+    PageColumn {
+        Headline(stringResource(R.string.setup_servers_title), stringResource(serversText(state.source)))
+        ProblemBanner(state, expected = expectedAddress(vm, state))
+        NoteBanners(state.notes, SERVER_NOTES)
+        ServerGroup(
+            title = stringResource(R.string.setup_incoming),
+            host = { modifier ->
+                ServerField(vm.imapHost, stringResource(R.string.setup_field_host), InputKind.HOST, errors?.imapHost, modifier)
+            },
+            port = { modifier ->
+                ServerField(vm.imapPort, stringResource(R.string.setup_field_port), InputKind.PORT, errors?.imapPort, modifier)
+            },
+            tls = vm.imapTls,
+            onTls = vm::chooseImapTls,
+        )
+        ServerGroup(
+            title = stringResource(R.string.setup_outgoing),
+            host = { modifier ->
+                ServerField(vm.smtpHost, stringResource(R.string.setup_field_host), InputKind.HOST, errors?.smtpHost, modifier)
+            },
+            port = { modifier ->
+                ServerField(vm.smtpPort, stringResource(R.string.setup_field_port), InputKind.PORT, errors?.smtpPort, modifier)
+            },
+            tls = vm.smtpTls,
+            onTls = vm::chooseSmtpTls,
+        )
+        ServerField(
+            vm.user,
+            stringResource(R.string.setup_field_user),
+            InputKind.ADDRESS,
+            error = null,
+            modifier = Modifier.fillMaxWidth(),
+            hint = stringResource(R.string.setup_user_hint),
+            imeAction = ImeAction.Done,
+        )
+        Text(
+            text = stringResource(R.string.setup_servers_tls_only),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        WideButton(stringResource(R.string.setup_next), onClick = vm::serversNext)
+    }
+}
+
+/** One server of the server settings page: a title, host and port in a row, and the security. */
+@Composable
+private fun ServerGroup(
+    title: String,
+    host: @Composable (Modifier) -> Unit,
+    port: @Composable (Modifier) -> Unit,
+    tls: TlsMode,
+    onTls: (TlsMode) -> Unit,
+) {
+    Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .semantics { heading() },
+        )
+        Row(verticalAlignment = Alignment.Top) {
+            host(Modifier.weight(1f))
+            Spacer(Modifier.width(12.dp))
+            port(Modifier.width(112.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        SecurityChoice(tls, onTls)
+    }
+}
+
+/**
+ * The address, the servers that get the password (ASCII form, so that a lookalike name shows), table notes and
+ * the password field (DESIGN §13). Riseup and other servers; Google and Microsoft have their own pages.
+ */
+@Composable
+internal fun PasswordPage(vm: SetupViewModel, state: SetupState) {
     val reauth = state.reauth
+    val servers = state.servers ?: return
     PageColumn {
         if (reauth == null) {
-            Headline(stringResource(R.string.setup_riseup_title), stringResource(R.string.setup_riseup_text))
+            Headline(stringResource(R.string.setup_password_title), null)
         } else {
-            Headline(
-                stringResource(R.string.setup_reauth_title),
-                stringResource(R.string.setup_reauth_password, reauth.email),
-            )
+            Headline(stringResource(R.string.setup_reauth_title), stringResource(R.string.setup_reauth_password, reauth.email))
         }
-        ProblemBanner(state)
-        if (reauth == null) {
-            AddressField(vm.email, state.emailError, stringResource(R.string.setup_riseup_placeholder))
-        }
+        val address = reauth?.email ?: vm.email.text.toString()
+        Text(
+            text = stringResource(R.string.setup_password_account, address),
+            style = MaterialTheme.typography.titleMedium,
+            // Password managers pair the password with this user name.
+            modifier = Modifier.semantics { contentType = ContentType.Username },
+        )
+        val imap = servers.imap.host
+        val smtp = servers.smtp.host
+        Text(
+            text = if (imap == smtp) {
+                stringResource(R.string.setup_password_text_one, imap)
+            } else {
+                stringResource(R.string.setup_password_text, imap, smtp)
+            },
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ProblemBanner(state, expected = expectedAddress(vm, state))
+        NoteBanners(state.notes, PASSWORD_NOTES)
         PasswordField(
             state = vm.password,
             label = stringResource(R.string.setup_field_password),
@@ -153,12 +257,17 @@ internal fun RiseupPage(vm: SetupViewModel, state: SetupState) {
             onDone = vm::signInWithPassword,
         )
         WideButton(stringResource(R.string.ui_sign_in), onClick = vm::signInWithPassword)
+        if (state.offersServerChange) {
+            TextButton(onClick = vm::changeServers, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(stringResource(R.string.setup_change_servers))
+            }
+        }
     }
 }
 
-/** The Gmail method cards (DESIGN §13); [onChooseAccount] opens the system account chooser. */
+/** The Google method cards (DESIGN §13); [onChooseAccount] opens the system account chooser. */
 @Composable
-internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: () -> Unit) {
+internal fun GooglePage(vm: SetupViewModel, state: SetupState, onChooseAccount: () -> Unit) {
     val activity = LocalActivity.current
     val reauth = state.reauth
     PageColumn {
@@ -172,7 +281,7 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
             }
             Headline(stringResource(R.string.setup_reauth_title), text)
         }
-        ProblemBanner(state)
+        ProblemBanner(state, expected = expectedAddress(vm, state))
         for (method in state.methods) {
             when (method) {
                 Method.DEVICE -> SetupCard(
@@ -204,19 +313,16 @@ internal fun GmailPage(vm: SetupViewModel, state: SetupState, onChooseAccount: (
             )
         }
         if (state.offersOwnClient) {
-            OutlinedCard(onClick = vm::openOwnClient, modifier = Modifier.fillMaxWidth()) {
-                CardHeader(
-                    icon = Icons.Settings,
-                    title = stringResource(R.string.setup_own_client),
-                    text = stringResource(R.string.setup_own_client_text),
-                    modifier = Modifier.padding(20.dp),
-                )
-            }
+            OwnClientEntry(
+                title = stringResource(R.string.setup_own_client),
+                text = stringResource(R.string.setup_own_client_text),
+                onClick = { vm.openOwnClient(OAuthIssuer.GOOGLE) },
+            )
         }
     }
 }
 
-/** The steps to an app password, the link to Google's page and the fields. */
+/** The steps to an app password, the link to Google's page and the field. The address was typed on Welcome. */
 @Composable
 private fun AppPasswordCard(vm: SetupViewModel, state: SetupState) {
     SetupCard(
@@ -229,9 +335,6 @@ private fun AppPasswordCard(vm: SetupViewModel, state: SetupState) {
             LinkButton(stringResource(R.string.setup_app_password_link), Providers.APP_PASSWORDS_URL)
         }
         Step(3, stringResource(R.string.setup_app_password_step3))
-        if (state.reauth == null) {
-            AddressField(vm.email, state.emailError, placeholder = null)
-        }
         PasswordField(
             state = vm.password,
             label = stringResource(R.string.setup_field_app_password),
@@ -243,28 +346,75 @@ private fun AppPasswordCard(vm: SetupViewModel, state: SetupState) {
     }
 }
 
-/** The guide for the user's own Google OAuth client (DESIGN §6) and the field for Prefs.googleClientId. */
+/** Outlook.com and Microsoft 365: browser sign-in with the user's own client ID (DESIGN §6). */
+@Composable
+internal fun MicrosoftPage(vm: SetupViewModel, state: SetupState) {
+    val activity = LocalActivity.current
+    val reauth = state.reauth
+    val brand = OAuthIssuer.MICROSOFT.brand
+    PageColumn {
+        if (reauth == null) {
+            Headline(stringResource(R.string.setup_microsoft_title), stringResource(R.string.setup_microsoft_text))
+        } else {
+            Headline(stringResource(R.string.setup_reauth_title), stringResource(R.string.setup_reauth_browser, brand, reauth.email))
+        }
+        ProblemBanner(state, expected = expectedAddress(vm, state))
+        if (ProviderTable.Note.ENABLE_IMAP in state.notes) {
+            Banner(text = stringResource(R.string.setup_microsoft_imap_note), modifier = Modifier.fillMaxWidth())
+        }
+        if (Method.BROWSER in state.methods) {
+            SetupCard(
+                icon = Icons.Browser,
+                title = stringResource(R.string.setup_method_browser),
+                text = stringResource(R.string.setup_method_browser_microsoft_text),
+            ) {
+                FilledTonalButton(
+                    onClick = { activity?.let(vm::signInWithBrowser) },
+                    modifier = Modifier.align(Alignment.End),
+                ) { Text(stringResource(R.string.setup_method_browser_action)) }
+            }
+        } else {
+            Text(
+                text = if (reauth == null) {
+                    stringResource(R.string.setup_microsoft_no_client)
+                } else {
+                    stringResource(R.string.setup_reauth_no_client, brand)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        if (state.offersOwnClient) {
+            OwnClientEntry(
+                title = stringResource(R.string.setup_own_client_microsoft),
+                text = stringResource(R.string.setup_own_client_microsoft_text),
+                onClick = { vm.openOwnClient(OAuthIssuer.MICROSOFT) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun OwnClientEntry(title: String, text: String, onClick: () -> Unit) {
+    OutlinedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        CardHeader(icon = Icons.Settings, title = title, text = text, modifier = Modifier.padding(20.dp))
+    }
+}
+
+/** The guide for the user's own OAuth client of the page's issuer (DESIGN §6) and the field for its client ID. */
 @Composable
 internal fun OwnClientPage(vm: SetupViewModel, state: SetupState) {
-    val context = LocalContext.current
-    val sha1 = remember { signingSha1(context) }
     PageColumn {
-        Headline(stringResource(R.string.setup_client_title), stringResource(R.string.setup_client_text))
-        Step(1, stringResource(R.string.setup_client_step1)) {
-            LinkButton(stringResource(R.string.setup_client_console), CLOUD_CONSOLE_URL)
+        when (state.ownClient) {
+            OAuthIssuer.GOOGLE -> GoogleClientGuide()
+            OAuthIssuer.MICROSOFT -> MicrosoftClientGuide()
         }
-        Step(2, stringResource(R.string.setup_client_step2))
-        Step(3, stringResource(R.string.setup_client_step3)) {
-            CopyRow(stringResource(R.string.setup_client_package), context.packageName)
-            if (sha1 != null) CopyRow(stringResource(R.string.setup_client_sha1), sha1)
+        val microsoft = state.ownClient == OAuthIssuer.MICROSOFT
+        val supporting = when {
+            state.clientIdError && microsoft -> R.string.setup_error_ms_client_id
+            state.clientIdError -> R.string.setup_error_client_id
+            microsoft -> R.string.setup_ms_client_id_hint
+            else -> R.string.setup_client_id_hint
         }
-        Step(4, stringResource(R.string.setup_client_step4))
-        Text(
-            text = stringResource(R.string.setup_client_note),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        val supporting = if (state.clientIdError) R.string.setup_error_client_id else R.string.setup_client_id_hint
         OutlinedTextField(
             state = vm.clientId,
             modifier = Modifier.fillMaxWidth(),
@@ -284,6 +434,46 @@ internal fun OwnClientPage(vm: SetupViewModel, state: SetupState) {
     }
 }
 
+@Composable
+private fun GoogleClientGuide() {
+    val context = LocalContext.current
+    val sha1 = remember { signingSha1(context) }
+    Headline(stringResource(R.string.setup_client_title), stringResource(R.string.setup_client_text))
+    Step(1, stringResource(R.string.setup_client_step1)) {
+        LinkButton(stringResource(R.string.setup_client_console), CLOUD_CONSOLE_URL)
+    }
+    Step(2, stringResource(R.string.setup_client_step2))
+    Step(3, stringResource(R.string.setup_client_step3)) {
+        CopyRow(stringResource(R.string.setup_client_package), context.packageName)
+        if (sha1 != null) CopyRow(stringResource(R.string.setup_client_sha1), sha1)
+    }
+    Step(4, stringResource(R.string.setup_client_step4))
+    Text(
+        text = stringResource(R.string.setup_client_note),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun MicrosoftClientGuide() {
+    val context = LocalContext.current
+    Headline(stringResource(R.string.setup_ms_client_title), stringResource(R.string.setup_ms_client_text))
+    Step(1, stringResource(R.string.setup_ms_client_step1)) {
+        LinkButton(stringResource(R.string.setup_ms_client_portal), ENTRA_URL)
+    }
+    Step(2, stringResource(R.string.setup_ms_client_step2))
+    Step(3, stringResource(R.string.setup_ms_client_step3)) {
+        CopyRow(stringResource(R.string.setup_ms_client_redirect), OAuthIssuer.MICROSOFT.redirectUri(context.packageName))
+    }
+    Step(4, stringResource(R.string.setup_ms_client_step4))
+    Text(
+        text = stringResource(R.string.setup_ms_client_note),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 /** Label, sender name and offline window of the tested account, then "Add account". */
 @Composable
 internal fun OptionsPage(vm: SetupViewModel, state: SetupState) {
@@ -299,7 +489,7 @@ internal fun OptionsPage(vm: SetupViewModel, state: SetupState) {
                 style = MaterialTheme.typography.titleMedium,
             )
         }
-        ProblemBanner(state)
+        ProblemBanner(state, expected = expectedAddress(vm, state))
         for (note in account.notes) {
             Banner(text = note, kind = BannerKind.WARN, modifier = Modifier.fillMaxWidth())
         }
@@ -373,3 +563,15 @@ private fun OfflineSwitch(on: Boolean, enabled: Boolean, onChange: (Boolean) -> 
         Switch(checked = on, onCheckedChange = null, enabled = enabled)
     }
 }
+
+/** The [notes] that are in [shown], in that order. */
+@Composable
+private fun NoteBanners(notes: Set<ProviderTable.Note>, shown: List<ProviderTable.Note>) {
+    for (note in shown.filter { it in notes }) {
+        Banner(text = stringResource(noteText(note)), modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** The address that should sign in: the account that signs in again, else the typed address. */
+private fun expectedAddress(vm: SetupViewModel, state: SetupState): String =
+    state.reauth?.let { it.deviceAccount ?: it.email } ?: SetupInput.normalizeEmail(vm.email.text.toString())

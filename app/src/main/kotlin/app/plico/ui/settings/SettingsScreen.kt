@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.plico.R
+import app.plico.account.OAuthIssuer
 import app.plico.app
 import app.plico.data.Account
-import app.plico.data.AuthKind
 import app.plico.data.Prefs
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.Icons
@@ -30,7 +30,7 @@ import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
 
 /**
- * App settings (DESIGN §13): accounts, Gmail sign-in, notifications, privacy and security, mail,
+ * App settings (DESIGN §13): accounts, notifications, privacy and security, mail, message list, sign-in clients,
  * push and battery, about. Every change applies at once.
  */
 @Composable
@@ -40,11 +40,11 @@ fun SettingsScreen(nav: Navigator) {
     SettingsScaffold(title = stringResource(R.string.ui_settings), onBack = nav::back) {
         val list = accounts ?: return@SettingsScaffold
         AccountsGroup(list, nav)
-        GmailSignInGroup(usesGoogleClient = list.any { it.auth != AuthKind.PASSWORD })
         NotificationsGroup()
         PrivacyGroup()
         MailGroup()
         ListLookGroup()
+        SignInClientsGroup(list)
         PushGroup(hasAccounts = list.isNotEmpty())
         SettingsGroup(title = null) {
             item { ClickRow(it, stringResource(R.string.ui_about), { nav.go(Route.About) }, icon = Icons.Info) }
@@ -71,41 +71,78 @@ private fun AccountsGroup(accounts: List<Account>, nav: Navigator) {
     }
 }
 
-/** The user's own Google OAuth client ID, which turns on both Google sign-in methods (DESIGN §6). */
+private enum class ClientDialog { GOOGLE, MICROSOFT }
+
+/**
+ * The user's own OAuth client IDs (DESIGN §6): Google turns on both Google sign-in methods, Microsoft turns on the
+ * Outlook.com and Microsoft 365 sign-in. Shown when an account uses a client or an ID is set; the first ID is
+ * entered on setup's own-client page (debug builds preset both).
+ */
 @Composable
-private fun GmailSignInGroup(usesGoogleClient: Boolean) {
+private fun SignInClientsGroup(accounts: List<Account>) {
     val context = LocalContext.current
     val prefs = context.app.prefs
-    val clientId by rememberPref("") { googleClientId }
-    var editing by rememberSaveable { mutableStateOf(false) }
+    val googleId by rememberPref(prefs.googleClientId) { googleClientId }
+    val microsoftId by rememberPref(prefs.microsoftClientId) { microsoftClientId }
+    var dialog by rememberSaveable { mutableStateOf<ClientDialog?>(null) }
+    if (!showsSignInClients(accounts, googleId, microsoftId)) return
 
-    SettingsGroup(stringResource(R.string.settings_gmail_sign_in)) {
+    SettingsGroup(stringResource(R.string.settings_sign_in_clients)) {
         item {
             ClickRow(
                 shapes = it,
                 title = stringResource(R.string.settings_client_id),
-                summary = clientId.ifEmpty { stringResource(R.string.settings_client_id_none) },
+                summary = googleId.ifEmpty { stringResource(R.string.settings_client_id_none) },
                 icon = Icons.Account,
-                onClick = { editing = true },
+                onClick = { dialog = ClientDialog.GOOGLE },
+            )
+        }
+        item {
+            ClickRow(
+                shapes = it,
+                title = stringResource(R.string.settings_ms_client_id),
+                summary = microsoftId.ifEmpty { stringResource(R.string.settings_ms_client_id_none) },
+                icon = Icons.Account,
+                onClick = { dialog = ClientDialog.MICROSOFT },
             )
         }
     }
 
-    if (editing) {
-        val invalid = stringResource(R.string.settings_client_id_invalid)
-        val guide = stringResource(R.string.settings_client_id_guide, context.packageName)
-        val inUse = stringResource(R.string.settings_client_id_in_use)
-        TextFieldDialog(
-            title = stringResource(R.string.settings_client_id),
-            initial = clientId,
-            onSave = { prefs.googleClientId = ClientIds.normalize(it).orEmpty() },
-            onDismiss = { editing = false },
-            label = stringResource(R.string.settings_client_id_label),
-            message = if (usesGoogleClient) "$guide\n\n$inUse" else guide,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
-            // An empty field is valid: it removes the client ID.
-            check = { if (ClientIds.normalize(it) == null) invalid else null },
-        )
+    val keyboard = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false)
+    when (dialog) {
+        ClientDialog.GOOGLE -> {
+            val invalid = stringResource(R.string.settings_client_id_invalid)
+            val guide = stringResource(R.string.settings_client_id_guide, context.packageName)
+            val inUse = stringResource(R.string.settings_client_id_in_use)
+            TextFieldDialog(
+                title = stringResource(R.string.settings_client_id),
+                initial = googleId,
+                onSave = { prefs.googleClientId = ClientIds.normalize(it).orEmpty() },
+                onDismiss = { dialog = null },
+                label = stringResource(R.string.settings_client_id_label),
+                message = if (usesGoogleClient(accounts)) "$guide\n\n$inUse" else guide,
+                keyboardOptions = keyboard,
+                // An empty field is valid: it removes the client ID.
+                check = { if (ClientIds.normalize(it) == null) invalid else null },
+            )
+        }
+        ClientDialog.MICROSOFT -> {
+            val invalid = stringResource(R.string.settings_ms_client_id_invalid)
+            val redirect = OAuthIssuer.MICROSOFT.redirectUri(context.packageName)
+            val guide = stringResource(R.string.settings_ms_client_id_guide, redirect)
+            val inUse = stringResource(R.string.settings_ms_client_id_in_use)
+            TextFieldDialog(
+                title = stringResource(R.string.settings_ms_client_id),
+                initial = microsoftId,
+                onSave = { prefs.microsoftClientId = ClientIds.normalizeMicrosoft(it).orEmpty() },
+                onDismiss = { dialog = null },
+                label = stringResource(R.string.settings_client_id_label),
+                message = if (usesMicrosoftClient(accounts)) "$guide\n\n$inUse" else guide,
+                keyboardOptions = keyboard,
+                check = { if (ClientIds.normalizeMicrosoft(it) == null) invalid else null },
+            )
+        }
+        null -> Unit
     }
 }
 
