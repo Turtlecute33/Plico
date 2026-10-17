@@ -522,7 +522,8 @@ Rules:
 - Server change (`AccountDao.setAuth(id, auth, secret, deviceAccount, ServerUpdate(servers, idle), files)`, from
   "Sign in again", §13): the sign-in and the servers are written in one transaction. When the IMAP host or port
   changes, the same transaction deletes the account's folder rows (cascade: messages, memberships, bodies,
-  attachment rows, FTS through the trigger) and ops, sets `draft.on_server = 0`, and clears `archive_folder`,
+  attachment rows, FTS through the trigger) and the ops except `append` (they name a role and a draft, so a pending
+  Sent copy or draft upload goes to the new server), sets `draft.on_server = 0`, and clears `archive_folder`,
   `quota_used`, `quota_limit` and `server_keepalive_s`, so that a fresh sync starts. Then the attachment dirs of
   the deleted messages are deleted. The session of the old servers stops before the write.
 - `AccountDao.setIdle`: the session stores `idle = 0` when the server has no IDLE (§7.1).

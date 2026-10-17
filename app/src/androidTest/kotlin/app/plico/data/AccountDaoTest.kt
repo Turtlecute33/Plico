@@ -127,6 +127,8 @@ class AccountDaoTest : DbFixture() {
         assertTrue(att.exists())
 
         // Another IMAP host: folders, messages, ops and server state go; the draft stays, as not on the server.
+        // A pending Sent copy stays queued: it names a role, not an old UID.
+        ops.insert(NewOp(id, OpKind.APPEND, arg = """{"draft":$draft,"role":"sent","file":"sent.eml"}"""))
         val moved = Servers(
             Endpoint("imap.new.example", 993, TlsMode.IMPLICIT), Endpoint("smtp.new.example", 465, TlsMode.IMPLICIT),
         )
@@ -135,9 +137,11 @@ class AccountDaoTest : DbFixture() {
         assertEquals(moved, b.servers)
         assertTrue(b.idle)
         assertEquals(listOf(null, null, null, null), listOf(b.archiveFolder, b.quotaUsed, b.quotaLimit, b.serverKeepaliveS))
-        for (table in listOf("folder", "message", "op")) {
+        for (table in listOf("folder", "message")) {
             assertEquals(0L, count("SELECT count(*) FROM $table WHERE account_id = ?", id), table)
         }
+        assertEquals(1L, count("SELECT count(*) FROM op WHERE account_id = ? AND kind = 'append'", id))
+        assertEquals(1L, count("SELECT count(*) FROM op WHERE account_id = ?", id))
         assertEquals(1L, count("SELECT count(*) FROM message_fts"))
         assertEquals(0L, count("SELECT count(*) FROM message_fts WHERE message_fts MATCH 'old'"))
         assertFalse(drafts.get(draft)!!.onServer)

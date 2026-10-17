@@ -81,7 +81,8 @@ class AccountDao(private val db: Db) {
     /**
      * Writes the sign-in, and the [server] values when given, in one transaction (sign in again with new servers).
      * When the IMAP host or port changes, the same transaction also deletes the account's folder rows (cascade:
-     * messages, memberships, bodies, attachment rows, FTS through the trigger) and ops, sets draft.on_server = 0,
+     * messages, memberships, bodies, attachment rows, FTS through the trigger) and the ops except APPENDs (they name a
+     * role and a draft, so a pending Sent copy or draft upload goes to the new server), sets draft.on_server = 0,
      * and clears archive_folder, quota_used, quota_limit and server_keepalive_s, so that a fresh sync starts.
      * After the transaction, the attachment dirs of the deleted messages are deleted through [files] (as [purge]).
      */
@@ -110,13 +111,14 @@ class AccountDao(private val db: Db) {
             if (old == null || (old.first.equals(imap.host, ignoreCase = true) && old.second == imap.port)) {
                 return@tx emptyList()
             }
-            // Another server: the mailboxes, UIDs and pending ops of the old one mean nothing there.
+            // Another server: the mailboxes, UIDs and pending ops of the old one mean nothing there. APPENDs stay:
+            // they name a role and a draft, not old UIDs, and a pending Sent copy exists nowhere else.
             val withFiles = list(
                 "SELECT DISTINCT message_id FROM attachment WHERE message_id IN (SELECT id FROM message WHERE account_id = ?)",
                 id,
             ) { it.getLong(0) }
             write("DELETE FROM folder WHERE account_id = ?", id)
-            write("DELETE FROM op WHERE account_id = ?", id)
+            write("DELETE FROM op WHERE account_id = ? AND kind <> ?", id, OpKind.APPEND)
             write("UPDATE draft SET on_server = 0 WHERE account_id = ?", id)
             write(
                 "UPDATE account SET archive_folder = NULL, quota_used = NULL, quota_limit = NULL, " +
