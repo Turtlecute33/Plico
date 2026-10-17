@@ -55,6 +55,43 @@ class DraftsTest : OpFixture() {
     }
 
     @Test
+    fun withoutAppendUidTheUidNextBeforeTheAppendIsKept() {
+        val other = otherAccount()
+        val box = mailbox(other, "Drafts", FolderRole.DRAFTS)
+        val id = newDraft(other)
+        edit(id)
+        actions.leaveDraft(id)
+        val messageId = drafts.get(id)!!.messageId
+        // A revision that the server search does not find yet (its index is late), stored by the sync.
+        val local = insert(header(other, box, 6, messageId = messageId).copy(draft = true)).single()
+
+        val imap = FakeImap()
+            .select("Drafts") // UIDNEXT 1000: the new revision gets 1000 or more.
+            .expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved")
+            .expect(search(messageId), "* ESEARCH UID ALL 4,1000")
+            .expect("UID STORE 4,6 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 4,6")
+        run(session(other, imap))
+        imap.finish()
+        assertTrue(drafts.get(id)!!.onServer)
+        assertTrue(ops.byAccount(other).isEmpty())
+        assertNull(messages.get(local), "the old revision's row goes with it")
+    }
+
+    @Test
+    fun riseupDoesNotSelectBeforeTheUpload() {
+        mailbox(riseup, "Drafts", FolderRole.DRAFTS)
+        val id = newDraft()
+        edit(id)
+        actions.leaveDraft(id)
+        val imap = FakeImap().expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved")
+        run(session(riseup, imap))
+        imap.finish()
+        assertTrue(drafts.get(id)!!.onServer)
+        assertTrue(ops.byAccount(riseup).isEmpty(), "without APPENDUID Riseup deletes no revision (as before)")
+    }
+
+    @Test
     fun oneUploadIsQueuedUntilTheDraftIsSent() {
         val id = newDraft(prefill = DraftPrefill(to = "bob@example.org", subject = "Shared"))
         assertTrue(ops.byAccount(riseup).isEmpty(), "A new draft stays local until compose leaves it after an edit")

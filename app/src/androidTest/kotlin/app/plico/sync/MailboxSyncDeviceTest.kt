@@ -4,10 +4,13 @@ import app.plico.data.DbFixture
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
+import app.plico.data.MailView
 import app.plico.data.NewOp
 import app.plico.data.OpKind
 import app.plico.mail.imap.ImapNoException
 import app.plico.push.policy.KeyValueStore
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -357,6 +360,31 @@ class MailboxSyncDeviceTest : DbFixture() {
         sync.fullSweep(SyncReport()) // any command: the quota
         assertEquals(1, serverNewMail)
     }
+
+    @Test
+    fun deletedMessagesAreStoredButNeverShown() {
+        inbox.addAll(3)
+        inbox.flag(2, "\\Deleted")
+        val f = start()
+        assertEquals(3, messages.count(f.id), "the row is stored: the expunge check counts it")
+        assertEquals(1L, count("SELECT count(*) FROM message WHERE folder_id = ? AND deleted = 1", f.id))
+        assertEquals(setOf("Old 2", "Old 0"), visible(f), "D19: a \\Deleted message of another client is not shown")
+        assertEquals(2, unread(f), "counts leave it out too")
+
+        inbox.add(subject = "Struck through", flags = setOf("\\Deleted"))
+        push()
+        assertTrue(sync.claimNew().isEmpty(), "a \\Deleted message never notifies")
+
+        inbox.flag(2, "\\Deleted", on = false)
+        push()
+        assertEquals(setOf("Old 2", "Old 1", "Old 0"), visible(f), "undeleted on the server: shown again")
+    }
+
+    private fun visible(folder: Folder): Set<String> = runBlocking {
+        messages.observeList(MailView.InFolder(folder.id), 100).first().map { it.subject }.toSet()
+    }
+
+    private fun unread(folder: Folder): Int = runBlocking { folders.observeUnread().first()[folder.id] ?: 0 }
 
     private class MemoryNotes : KeyValueStore {
         private val values = HashMap<String, String>()
