@@ -101,7 +101,7 @@ fun rememberSenderLogo(
  *   [LogoRules.FAILED_TTL_MS] only.
  * - Fetch: never when [enabled] is false. With [Prefs.LogoSource.WEBSITE], only for a sender that is [known] (a
  *   contact, or an earlier message): else the server of the sender would see when a first message is read. One
- *   fetch per domain at a time, at most [LogoRules.MAX_BYTES] per domain.
+ *   fetch per domain at a time, at most [LogoRules.MAX_BYTES] per URL (the website source tries two URLs).
  * - [clear] starts a new generation: a fetch that ends under an older generation writes nothing.
  */
 internal class LogoCache<T : Any>(
@@ -208,7 +208,7 @@ internal class LogoCache<T : Any>(
         if (failures[domain]?.let { LogoRules.failureActive(it, now()) } == true) return null
         if (!enabled()) return null
         if (source == Prefs.LogoSource.WEBSITE && !isKnown(email, before, exceptId)) return null
-        val outcome = inflightFor(domain, hash, source, gen).await()
+        val outcome = inflightFor(domain, hash, source, gen)?.await() ?: return null
         // After clear() (logos off, another source) an older answer is not shown.
         if (gen != generation) return null
         return when (outcome) {
@@ -257,13 +257,17 @@ internal class LogoCache<T : Any>(
         return known(email, before, exceptId).also { if (it) knownAddresses += key }
     }
 
-    /** The running fetch of [domain], or a new one: one fetch per domain at a time. */
-    private fun inflightFor(domain: String, hash: String, source: Prefs.LogoSource, gen: Int): Deferred<Outcome<T>> {
-        inflight[domain]?.let { return it }
-        val job = scope.async(start = CoroutineStart.LAZY) { fetchAndStore(domain, hash, source, gen) }
-        inflight.putIfAbsent(domain, job)?.let { running ->
-            job.cancel()
-            return running
+    /**
+     * The running fetch of [domain], or a new one: one fetch per domain at a time. Null when [gen] is not the
+     * current generation. The check and the insert run under the lock of [clear], so that no fetch of an older
+     * generation goes into the map after [clear] emptied it (a newer caller would wait for it and get no logo).
+     */
+    private fun inflightFor(domain: String, hash: String, source: Prefs.LogoSource, gen: Int): Deferred<Outcome<T>>? {
+        val job = synchronized(lock) {
+            if (gen != generation) return null
+            inflight[domain]?.let { return it }
+            scope.async(start = CoroutineStart.LAZY) { fetchAndStore(domain, hash, source, gen) }
+                .also { inflight[domain] = it }
         }
         job.invokeOnCompletion { inflight.remove(domain, job) }
         job.start()
@@ -271,9 +275,11 @@ internal class LogoCache<T : Any>(
     }
 
     private fun fetchAndStore(domain: String, hash: String, source: Prefs.LogoSource, gen: Int): Outcome<T> {
-        val budget = RemoteFetcher.Budget(LogoRules.MAX_BYTES.toLong(), parallel = 1)
         for (url in LogoRules.urls(source, domain)) {
             if (gen != generation || !enabled()) return Outcome.Failed
+            // One budget per URL: a large first answer (also one that does not decode) must not make the next
+            // URL fail, else the domain gets no "no logo" entry and is fetched again after each failure time.
+            val budget = RemoteFetcher.Budget(LogoRules.MAX_BYTES.toLong(), parallel = 1)
             val request = RemoteFetcher.Request(url, "image/*", LogoRules.MAX_BYTES, type = { it.startsWith("image/") })
             when (val fetched = fetch(request, budget)) {
                 is RemoteFetcher.Fetched.Ok -> {

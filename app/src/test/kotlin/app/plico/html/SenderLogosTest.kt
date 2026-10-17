@@ -3,6 +3,8 @@ package app.plico.html
 import app.plico.data.Files
 import app.plico.data.Prefs
 import app.plico.html.RemoteFetcher.Fetched
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -32,6 +34,7 @@ class SenderLogosTest {
     /** URL → answer; anything else is Missing. */
     private val answers = HashMap<String, Fetched>()
     private var onFetch: () -> Unit = {}
+    private var onKnown: () -> Unit = {}
 
     @AfterTest
     fun cleanUp() {
@@ -55,12 +58,16 @@ class SenderLogosTest {
         psl = { testPsl },
         known = { email, _, _ ->
             knownCalls += email
+            onKnown()
             knownResult
         },
-        fetch = { request, _ ->
+        fetch = { request, budget ->
             requests += request.url
             onFetch()
-            answers[request.url] ?: Fetched.Missing
+            val answer = answers[request.url] ?: Fetched.Missing
+            // Like RemoteFetcher: the body comes out of the budget, and a spent budget fails the fetch.
+            val size = (answer as? Fetched.Ok)?.resource?.bytes?.size ?: 0
+            if (budget != null && !budget.spend(size)) Fetched.Failed else answer
         },
         dispatcher = StandardTestDispatcher(testScheduler),
         now = { clock },
@@ -145,6 +152,16 @@ class SenderLogosTest {
         answers[touchIcon] = Fetched.Ok(RemoteFetcher.Resource("image/png", "<svg/>".toByteArray()))
         answers[favicon] = ok("fav")
         assertEquals("fav", cache().load("a@example.com", Prefs.LogoSource.WEBSITE, 0, 1))
+    }
+
+    @Test
+    fun eachWebsiteUrlHasItsOwnByteBudget() = runTest {
+        knownResult = true
+        // A touch icon of the full size that does not decode must not use up the bytes of the favicon.
+        answers[touchIcon] = Fetched.Ok(RemoteFetcher.Resource("image/png", ByteArray(LogoRules.MAX_BYTES)))
+        answers[favicon] = ok("fav")
+        assertEquals("fav", cache().load("a@example.com", Prefs.LogoSource.WEBSITE, 0, 1))
+        assertEquals(listOf(touchIcon, favicon), requests)
     }
 
     @Test
@@ -239,6 +256,28 @@ class SenderLogosTest {
         assertNull(cache.load("a@example.com", Prefs.LogoSource.DUCKDUCKGO, 0, 1))
         assertNull(cache.cached("a@example.com"))
         assertTrue(dir.listFiles().isNullOrEmpty())
+    }
+
+    @Test
+    fun aNewerLoadNeverWaitsForAFetchOfAnOlderGeneration() = runTest {
+        knownResult = true
+        answers[touchIcon] = ok("new")
+        lateinit var cache: LogoCache<String>
+        var second: Deferred<String?>? = null
+        onKnown = {
+            if (second == null) {
+                // clear() comes after the first load read its generation and before it starts its fetch; a
+                // second load for the same domain starts at once.
+                cache.clear()
+                second = async(start = CoroutineStart.UNDISPATCHED) {
+                    cache.load("b@example.com", Prefs.LogoSource.WEBSITE, 0, 2)
+                }
+            }
+        }
+        cache = cache()
+        assertNull(cache.load("a@example.com", Prefs.LogoSource.WEBSITE, 0, 1))
+        assertEquals("new", second!!.await())
+        assertEquals(listOf(touchIcon), requests)
     }
 
     @Test

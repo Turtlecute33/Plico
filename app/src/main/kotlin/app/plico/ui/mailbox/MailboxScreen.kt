@@ -111,6 +111,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val app = context.app
     val vm = viewModel { MailboxViewModel(app, view) }
     val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val identities by vm.identities.collectAsStateWithLifecycle()
     val folders by vm.folders.collectAsStateWithLifecycle()
     val unread by vm.unread.collectAsStateWithLifecycle()
     val unifiedUnread by vm.unifiedUnread.collectAsStateWithLifecycle()
@@ -135,7 +136,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val shownView = listView ?: view
     // Gmail rows carry \Inbox for sure only in the inbox views; elsewhere Archive could change nothing.
     val inboxView = shownView == MailView.Unified || folder?.role == FolderRole.INBOX && shownView is MailView.InFolder
-    val listContext = remember(accounts, folders, inboxView) { ListContext(accounts, folders, inboxView) }
+    val listContext = remember(accounts, folders, inboxView, identities) { ListContext(accounts, folders, inboxView, identities) }
     val infos = remember(rows, listContext) { rows.associate { it.id to listContext.info(it) } }
     val viewAccount: Account? = when (view) {
         is MailView.InFolder -> folder?.let { listContext.accounts[it.accountId] }
