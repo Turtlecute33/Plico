@@ -41,14 +41,20 @@ internal class SyncContext(
             knownMessages = session.knownMessages,
             progress = session::progress,
             onNewMail = session::onServerNewMail,
+            movedIn = session.movedIn,
         ),
     )
+
+    override val movedIn: MovedIn get() = session.movedIn
 
     /**
      * SELECTs [folder] unless it is already selected; returns the last SELECT result for it, with EXISTS kept up
      * to date. For a kind-0 mailbox, or the Gmail `\Inbox` view (INBOX). The caller compares UIDVALIDITY.
      */
     override fun select(folder: Folder): SelectResult = sync.env.selection.ensure(mailboxOf(folder))
+
+    /** SELECTs [folder] again, even when it is selected: unsolicited responses do not update UIDNEXT. */
+    override fun reselect(folder: Folder): SelectResult = sync.env.selection.select(mailboxOf(folder))
 
     /** Runs the incremental sync of one mailbox now (DESIGN §7.2 / §7.3); a Gmail label view syncs All Mail. */
     override suspend fun syncFolder(folder: Folder) {

@@ -22,6 +22,7 @@ internal object HeaderParser {
 
     private const val SECTION = "HEADER.FIELDS"
     private const val ONE_CLICK = "List-Unsubscribe=One-Click"
+    private const val DELETED = "\\Deleted"
 
     /**
      * FETCH items for new rows. [modSeq] only with CONDSTORE; [gmMsgId] and [gmLabels] only on Gmail (labels only
@@ -44,7 +45,8 @@ internal object HeaderParser {
     /**
      * The row for [item]. The date is INTERNALDATE (protocol PS22); the Date header is only a fallback for a
      * server that sends none. [gmail] enables the `Authentication-Results` check (privacy PS4), which reads only
-     * the first (topmost) header. [labels] are the label-view ids from X-GM-LABELS, null on Riseup.
+     * the first (topmost) header. [labels] are the label-view ids from X-GM-LABELS, null on other servers. The
+     * server flag `\Deleted` marks the row deleted (not shown) on every server except Gmail (D19).
      */
     fun newMessage(
         item: FetchItem,
@@ -85,11 +87,12 @@ internal object HeaderParser {
             unsubscribePost = headers["List-Unsubscribe-Post"]?.trim().equals(ONE_CLICK, ignoreCase = true),
             notified = notified,
             labels = labels,
+            deleted = !gmail && item.has(DELETED),
         )
     }
 
-    /** Server flags of an existing row; null when the response has no FLAGS. */
-    fun serverFlags(item: FetchItem, labels: Set<Long>?): ServerFlags? {
+    /** Server flags of an existing row; null when the response has no FLAGS. [gmail]: `\Deleted` is ignored. */
+    fun serverFlags(item: FetchItem, labels: Set<Long>?, gmail: Boolean): ServerFlags? {
         if (item.flags == null) return null
         return ServerFlags(
             uid = item.uid,
@@ -99,6 +102,7 @@ internal object HeaderParser {
             draft = item.has("\\Draft"),
             modSeq = item.modSeq,
             labels = labels,
+            deleted = !gmail && item.has(DELETED),
         )
     }
 

@@ -31,9 +31,12 @@ abstract class OpFixture : DbFixture() {
 
     protected fun gmailAccount() = account("me@gmail.com", Provider.GMAIL)
 
-    /** A session context for [accountId] on [imap]; [smtp] servers answer the SMTP connections in order. */
-    internal fun session(accountId: Long, imap: FakeImap, vararg smtp: FakeSmtp) =
-        FakeOpContext(store, accounts.get(accountId)!!, imap, smtp.toMutableList()).also { host.context = it }
+    /**
+     * A session context for [accountId] on [imap]; [smtp] servers answer the SMTP connections in order. [movedIn] is
+     * shared with a sync of the same connection.
+     */
+    internal fun session(accountId: Long, imap: FakeImap, vararg smtp: FakeSmtp, movedIn: MovedIn = MovedIn()) =
+        FakeOpContext(store, accounts.get(accountId)!!, imap, smtp.toMutableList(), movedIn).also { host.context = it }
 }
 
 /** An [OpContext] on scripted servers; SELECT is skipped when the mailbox is selected, as in a session. */
@@ -42,6 +45,7 @@ internal class FakeOpContext(
     override val account: Account,
     imap: FakeImap,
     private val smtpServers: MutableList<FakeSmtp>,
+    override val movedIn: MovedIn = MovedIn(),
 ) : OpContext {
     override val client = ImapClient(ImapConnection(imap)).also { it.conn.greeting() }
     private var last: SelectResult? = null
@@ -49,6 +53,11 @@ internal class FakeOpContext(
 
     override fun select(folder: Folder): SelectResult {
         last?.let { if (client.selected == folder.path) return it }
+        return client.select(folder.path).also { last = it }
+    }
+
+    override fun reselect(folder: Folder): SelectResult {
+        last = null
         return client.select(folder.path).also { last = it }
     }
 

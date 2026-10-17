@@ -47,6 +47,17 @@ class SyncPlanTest {
     }
 
     @Test
+    fun flagsAreDueOnUserRefreshAndTheSixHourSweepOnly() {
+        // Without CONDSTORE the STATUS sweep skips unchanged mailboxes unless flags are due (D8).
+        assertTrue(plan(SyncTrigger(userRefresh = true)).fullFlags)
+        assertTrue(plan(SyncTrigger(poll = true), lastSweepAt = now - 6 * hour).fullFlags)
+        assertTrue(plan(SyncTrigger(poll = true), lastSweepAt = null).fullFlags)
+        assertFalse(plan(SyncTrigger(poll = true)).fullFlags, "a 15-min poll")
+        assertFalse(plan(SyncTrigger(changed = true)).fullFlags)
+        assertFalse(plan(SyncTrigger(connected = true)).fullFlags)
+    }
+
+    @Test
     fun refreshWakesSweepNotifyFoldersOrAllMail() {
         for (check in listOf(Action.REFRESH, Action.EARLY_REFRESH, Action.RE_IDLE)) {
             val riseup = plan(SyncTrigger(check = check))

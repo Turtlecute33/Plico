@@ -3,13 +3,20 @@ package app.plico.sync
 import app.plico.PlicoApp
 import app.plico.R
 import app.plico.account.MailError
+import app.plico.account.ProviderTable
 import app.plico.account.traits
+import app.plico.data.Account
 import app.plico.data.Db
 import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.Files
+import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.Tables
+import app.plico.mail.imap.ImapNoException
+import app.plico.mail.imap.UidSet
+import app.plico.mail.mime.HeaderBlock
+import app.plico.mail.mime.HeaderSafety
 import app.plico.mail.smtp.SmtpException
 import app.plico.mail.smtp.SmtpRecipientException
 import app.plico.mail.smtp.SmtpUncertainException
@@ -82,8 +89,8 @@ object Sender {
         try {
             val mime = DraftMime.builder(store, ctx.account, draft, strict = true, date = date)
             message = mime.build(includeBcc = false)
-            // Riseup keeps no copy of submitted mail; the copy records the Bcc recipients (protocol PS27).
-            sentCopy = if (traits.clientSavesSent) mime.build(includeBcc = true) else null
+            // Riseup and other servers keep no copy of submitted mail; the copy records the Bcc recipients (PS27).
+            sentCopy = if (savesSentCopy(ctx.account)) mime.build(includeBcc = true) else null
         } catch (_: IllegalArgumentException) {
             return fail(ctx, draft, store.text(R.string.ops_error_invalid_address))
         } catch (_: IOException) {
@@ -145,13 +152,15 @@ object Sender {
             }
         }
         val now = store.now()
+        // A server that may save its own copy gets time to do it; the upload then looks for it first (D6).
+        val copyAt = if (ctx.account.traits.checkSentCopy) now + SENT_COPY_DELAY_MS else now
         val recorded = store.db.tx(Tables.DRAFT, Tables.OP, Tables.MESSAGE, Tables.CONTACT) {
             // The row is gone (the account was removed during the send): nothing to follow up.
             if (!store.drafts.markSent(draft.id)) return@tx false
             // Revisions that were never uploaded are not needed any more.
             Drafts.dropUploads(store, accountId, draft.id)
             if (copy != null) {
-                store.ops.insert(OpArg.Append(draft.id, FolderRole.SENT, copy.name).toNewOp(accountId, now))
+                store.ops.insert(OpArg.Append(draft.id, FolderRole.SENT, copy.name).toNewOp(accountId, copyAt))
             }
             if (store.drafts.get(draft.id)?.onServer == true) Drafts.queueDelete(store, accountId, draft.messageId)
             draft.sourceMessage?.let(store.messages::get)?.let { source ->
@@ -166,7 +175,18 @@ object Sender {
         cleanup(store, draft.id)
     }
 
-    /** Runs an [OpArg.Append] of a Sent copy (Riseup only). */
+    /**
+     * D6: the client APPENDs its own copy to Sent on Riseup and other servers; never on Gmail and Microsoft, and never
+     * on a table server that saves the copy itself (Yahoo, AOL).
+     */
+    internal fun savesSentCopy(account: Account): Boolean =
+        account.traits.clientSavesSent && !ProviderTable.serverSavesSent(account.servers.imap.host)
+
+    /**
+     * Runs an [OpArg.Append] of a Sent copy (Riseup and other servers). When the server may have saved its own copy
+     * (`traits.checkSentCopy`), the newest messages of Sent are checked for the Message-ID first, and a match skips
+     * the APPEND; this also makes a retried APPEND safe.
+     */
     internal fun uploadSentCopy(ctx: OpContext, arg: OpArg.Append) {
         val store = ctx.store
         val name = arg.file ?: return
@@ -174,9 +194,40 @@ object Sender {
         if (!file.isFile) return
         val bytes = file.readBytes()
         Ops.checkAppendSize(ctx, bytes.size)
-        val path = store.mailbox(ctx.account.id, FolderRole.SENT)?.path ?: DEFAULT_SENT
+        val sent = store.mailbox(ctx.account.id, FolderRole.SENT)
+        if (sent != null && ctx.account.traits.checkSentCopy && hasCopy(ctx, sent, messageIdOf(store, arg.draftId, bytes))) return
+        val path = sent?.path ?: Ops.defaultPath(ctx, DEFAULT_SENT)
         ctx.progress(uploadMs(bytes.size))
         Ops.creating(ctx, path, FolderRole.SENT) { ctx.client.append(path, listOf(SEEN), bytes) }
+    }
+
+    /** The Message-ID of the sent draft, else of the copy's header. */
+    private fun messageIdOf(store: OpStore, draftId: Long, copy: ByteArray): String? =
+        store.drafts.get(draftId)?.messageId ?: messageIdOf(copy)
+
+    private fun messageIdOf(header: ByteArray): String? =
+        HeaderBlock.parse(header)["Message-ID"]?.let(HeaderSafety::messageIds)?.firstOrNull()
+
+    /**
+     * True when one of the newest [SENT_CHECK] messages of [sent] has [messageId] (exact comparison): the server
+     * saved its own copy. `UID FETCH` of the header field needs no search index (a SEARCH HEADER can be late).
+     */
+    private fun hasCopy(ctx: OpContext, sent: Folder, messageId: String?): Boolean {
+        if (messageId == null) return false
+        // The stored UIDs of Sent are not used, so a new UIDVALIDITY does not matter here. A refused SELECT (the
+        // mailbox is gone) means no copy: the APPEND creates the mailbox.
+        val sel = try {
+            ctx.select(sent)
+        } catch (_: ImapNoException) {
+            return false
+        }
+        if (sel.exists == 0L) return false
+        var found = false
+        ctx.client.uidFetch(UidSet.range(maxOf(1, sel.uidNext - SENT_CHECK)), SENT_CHECK_ITEMS) { item ->
+            val header = item.sections.entries.firstOrNull { it.key.startsWith(HEADER_FIELDS, ignoreCase = true) }?.value
+            if (header != null && messageIdOf(header) == messageId) found = true
+        }
+        return found
     }
 
     /** Deletes a sent draft and its outbox dir once no op needs them any more. */
@@ -211,6 +262,14 @@ object Sender {
     }
 
     private const val SENT_FILE = "sent.eml"
+
+    /** The wait before the Sent copy of a server that may save its own (D6). */
+    internal const val SENT_COPY_DELAY_MS = 60_000L
+
+    /** Newest Sent messages checked for a copy that the server saved. */
+    private const val SENT_CHECK = 50
+    private const val HEADER_FIELDS = "HEADER.FIELDS"
+    private const val SENT_CHECK_ITEMS = "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"
     private const val DEFAULT_SENT = "Sent"
     private const val SEEN = "\\Seen"
     private const val ANSWERED = "\\Answered"

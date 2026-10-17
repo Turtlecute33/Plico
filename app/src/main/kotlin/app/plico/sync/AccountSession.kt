@@ -3,14 +3,18 @@ package app.plico.sync
 import android.os.SystemClock
 import android.util.Log
 import app.plico.PlicoApp
+import app.plico.R
 import app.plico.account.AndroidSocketHooks
 import app.plico.account.Credentials
 import app.plico.account.MailError
 import app.plico.account.MailErrors
+import app.plico.account.ProviderTable
 import app.plico.account.credentialsFor
 import app.plico.account.traits
 import app.plico.data.Account
 import app.plico.data.AccountState
+import app.plico.data.AuthKind
+import app.plico.data.Provider
 import app.plico.mail.imap.IdleEvent
 import app.plico.mail.imap.IdleHooks
 import app.plico.mail.imap.ImapByeException
@@ -51,9 +55,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * One per account: owns at most one IMAP connection and one worker loop on Dispatchers.IO (DESIGN.md §7.1, §8.3).
  * All IMAP work of the account runs on the loop, in order. No public call touches a socket on the caller's thread.
  *
- * Loop: connect → authenticate → capabilities → COMPRESS → ENABLE CONDSTORE → work → IDLE (mode [Mode.IDLE]) or
- * LOGOUT (the other modes; after 2 min without work while the UI is visible). A kick sets the work-pending flag
- * that IDLE checks before it starts and right after `+` (push PB1).
+ * Loop: connect → authenticate → capabilities → COMPRESS → ENABLE CONDSTORE → work → IDLE (mode [Mode.IDLE], on a
+ * server with IDLE) or LOGOUT (the other modes; after 2 min without work while the UI is visible). A kick sets the
+ * work-pending flag that IDLE checks before it starts and right after `+` (push PB1).
  */
 class AccountSession(val app: PlicoApp, val accountId: Long, private val host: SessionHost) {
 
@@ -170,6 +174,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     /** Server message counts per folder, kept across connections. */
     internal val knownMessages = ConcurrentHashMap<Long, Long>()
+
+    /** Moves without COPYUID on the current connection (DESIGN §7.4); a new connection starts empty. */
+    internal val movedIn = MovedIn()
 
     internal val store: OpStore by lazy { OpStore.of(app) }
 
@@ -383,7 +390,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     private suspend fun work() {
         val first = app.accounts.get(accountId) ?: return
-        policy = KeepalivePolicy(first.traits.idleStartMinutes, first.provider.id, app.learnedIntervals)
+        policy = policyFor(first)
         authStopped = first.state == AccountState.SIGN_IN_NEEDED
         while (true) {
             currentCoroutineContext().ensureActive()
@@ -400,11 +407,11 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                     }
                 }
             } catch (e: TimeoutCancellationException) {
-                fail(IOException("Work took too long", e), c, first.isGmail)
+                fail(IOException("Work took too long", e), c, first)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                fail(e, c, first.isGmail)
+                fail(e, c, first)
             }
         }
     }
@@ -434,7 +441,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Throwable) {
-                        fail(e, null, account.isGmail)
+                        fail(e, null, account)
                     }
                     return true
                 } else {
@@ -451,20 +458,40 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     private suspend fun connect(account: Account, network: NetState) {
         _status.value = Status.Connecting
         wakeLock.renew()
+        val scope = KeepalivePolicy.scopeOf(account.provider, account.servers.imap.host)
+        if (policy?.scope != scope) {
+            // The servers changed (sign-in with new servers): their learned intervals and their folders are others.
+            policy?.onIdleEnded()
+            policy = policyFor(account)
+            relist = true
+        }
+        movedIn.clear()
         val credentials = credentialsFor(app, account)
         val client = ImapClient.connect(account.servers.imap, AndroidSocketHooks, debugLog("imap"))
         try {
             credentials.authImap(client)
             client.requireCapabilities()
+            // The generic MOVE and expunge rules must never run on Gmail's All Mail (X-GM-EXT-1 never promotes, D18).
+            if (!account.isGmail && client.isGmail) throw MailError.Setup(app.getString(R.string.account_error_gmail_server))
+            // NetEase refuses SELECT until the client sends ID; only the minimal form, only to these hosts (§11.2).
+            if (ProviderTable.needsId(account.servers.imap.host)) client.id(listOf("name" to "Mail"))
             client.compress()
-            if ("CONDSTORE" in client.caps) client.enable("CONDSTORE")
+            if ("CONDSTORE" in client.caps && "ENABLE" in client.caps) client.enable("CONDSTORE")
         } catch (e: Throwable) {
             client.close()
             throw e
         }
+        // A server without IDLE polls (D7); the push engine reads the stored value and sets the mode.
+        val idle = "IDLE" in client.caps
+        if (idle != account.idle) {
+            app.accounts.setIdle(accountId, idle)
+            app.push.onAccountsChanged()
+        }
         val ctx = SyncContext(app, account, client, credentials, this)
         connection = Connection(client, ctx, credentials, network.handle, network.key)
-        // Gmail setup states are decided by the folder list; a Riseup one could only be a missing capability.
+        // Gmail setup states are decided by the folder list. On other servers a setup problem comes from the
+        // connection (a missing capability, a Gmail server) or from a mailbox command (Microsoft "not connected"):
+        // a working connection clears it, and the folder list or the next SELECT sets it again when it stays.
         val cleared = account.state == AccountState.SIGN_IN_NEEDED || account.state == AccountState.TLS_PROBLEM ||
             (account.state == AccountState.SETUP_PROBLEM && !account.isGmail)
         if (cleared) app.accounts.setState(accountId, AccountState.OK, null)
@@ -506,7 +533,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             if (plan.notifySweep) sync.notifySweep(report)
             if (plan.allMailStatus) sync.checkAllMail(report)
             if (plan.fullSweep) {
-                sync.fullSweep(report)
+                sync.fullSweep(report, plan.fullFlags)
                 lastSweepAt = now
             }
             publish(sync, report)
@@ -536,6 +563,13 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             throw e
         }
     }
+
+    /** The keepalive policy of [account]: its start interval and its scope of learned intervals (§8.3). */
+    private fun policyFor(account: Account) = KeepalivePolicy(
+        account.traits.idleStartMinutes,
+        KeepalivePolicy.scopeOf(account.provider, account.servers.imap.host),
+        app.learnedIntervals,
+    )
 
     private fun takeTriggers(c: Connection): SyncTrigger = synchronized(lock) {
         workPending.set(false)
@@ -589,7 +623,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
      * for the socket timeout, so the socket is only closed.
      */
     private suspend fun after(c: Connection) {
-        if (mode == Mode.IDLE) {
+        // Without IDLE the account polls (D7); the engine switches the mode soon after the first connection.
+        if (mode == Mode.IDLE && "IDLE" in c.client.caps) {
             idle(c)
             return
         }
@@ -711,7 +746,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         }
     }
 
-    private suspend fun fail(e: Throwable, c: Connection?, gmail: Boolean) {
+    /** [account]: the account as the loop read it; it decides the session-expiry and server-close rules. */
+    private suspend fun fail(e: Throwable, c: Connection?, account: Account) {
         val now = elapsed()
         val p = policy
         val pendingCheck = synchronized(lock) { check.also { check = null } }
@@ -725,8 +761,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                 p?.onIdleEnded()
                 return
             }
-            // Gmail ends a session when its token or its 24 h are over: a normal reconnect (§6, push PB17).
-            c != null && gmail && isSessionExpiry(e) && now - c.connectedAt >= MINUTE_MS -> {
+            // Gmail ends a session when its token or its 24 h are over, and an OAuth server when its token is over:
+            // a normal reconnect (§6, push PB17).
+            c != null && sessionExpiry(account) && isSessionExpiry(e) && now - c.connectedAt >= MINUTE_MS -> {
                 c.credentials.invalidate()
                 p?.onIdleEnded()
                 synchronized(lock) { immediate = true }
@@ -734,11 +771,11 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             }
             c?.inIdle == true && p != null -> when {
                 pendingCheck != null -> p.onChecked(pendingCheck, now, alive = false)
-                closedBy == null -> p.onServerClosed(now, networkChangedDuringIdle)
+                closedBy == null && isIdleTimeout(e, account) -> p.onServerClosed(now, networkChangedDuringIdle)
             }
         }
         p?.onIdleEnded()
-        val error = MailErrors.classify(e, host.network()?.validated ?: false)
+        val error = MailErrors.localized(app, MailErrors.classify(e, host.network()?.validated ?: false))
         // The database write comes last: when it fails, the alert and the retry are already done.
         when (error) {
             is MailError.AuthRequired -> {
@@ -936,6 +973,21 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         fun elapsed() = SystemClock.elapsedRealtime()
 
         fun isSessionExpiry(e: Throwable) = e is ImapByeException && SESSION_EXPIRED.containsMatchIn(e.message.orEmpty())
+
+        /** Gmail, and every OAuth or device sign-in: an "expired" BYE is the end of a token or session. */
+        fun sessionExpiry(account: Account) = account.isGmail || account.auth != AuthKind.PASSWORD
+
+        /** A BYE text of an idle or inactivity timeout (other servers also send BYE when they shut down). */
+        val IDLE_BYE = Regex("idle|inactiv|autologout|timeout", RegexOption.IGNORE_CASE)
+
+        /**
+         * True when the end of an IDLE counts as a NAT or server timeout for the keepalive interval. Riseup and
+         * Gmail: every end that the app did not cause. Other servers: an end without BYE (EOF, reset), or a BYE
+         * whose text names a timeout; a shutdown BYE must not lock a short interval for 24 h.
+         */
+        fun isIdleTimeout(e: Throwable, account: Account): Boolean =
+            account.provider == Provider.RISEUP || account.provider == Provider.GMAIL ||
+                e !is ImapByeException || IDLE_BYE.containsMatchIn(e.message.orEmpty())
 
         const val LOG_TAG = "Plico"
     }

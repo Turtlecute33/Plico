@@ -12,7 +12,13 @@ class TextsTest {
         assertNull(Texts.publicLabel("Riseup"))
         assertNull(Texts.publicLabel("Gmail"))
         assertNull(Texts.publicLabel("Gmail 2"))
+        assertNull(Texts.publicLabel("Outlook"))
+        assertNull(Texts.publicLabel("Outlook 3"))
+        assertNull(Texts.publicLabel("Mail"))
+        assertNull(Texts.publicLabel("Mail 2"))
         assertNull(Texts.publicLabel("  "))
+        assertEquals("Mailbox", Texts.publicLabel("Mailbox"))
+        assertEquals("Outlook work", Texts.publicLabel("Outlook work"))
         assertEquals("Work", Texts.publicLabel(" Work "))
         assertEquals("Riseup old", Texts.publicLabel("Riseup old"))
     }

@@ -14,11 +14,17 @@ import java.util.Locale
 
 /**
  * An IMAP server in memory for sync tests. It holds mailboxes and answers the commands that sync sends (SELECT,
- * EXAMINE, STATUS, LIST, FETCH, UID FETCH with CHANGEDSINCE, UID SEARCH RETURN with UID and X-GM-RAW criteria)
- * synchronously: a command line written by the client queues its responses for the next reads.
+ * EXAMINE, STATUS, LIST, FETCH, UID FETCH with CHANGEDSINCE, UID SEARCH with and without RETURN, with UID, DELETED
+ * and X-GM-RAW criteria, UID STORE, UID EXPUNGE, EXPUNGE, NAMESPACE, CAPABILITY) synchronously: a command line
+ * written by the client queues its responses for the next reads.
+ *
+ * It is honest about [caps]: an extension that is not advertised gets BAD (ESEARCH for `RETURN`, CONDSTORE for
+ * `CHANGEDSINCE`, `MODSEQ` and HIGHESTMODSEQ, ENABLE, LIST-STATUS, SPECIAL-USE with LIST-EXTENDED for `RETURN
+ * (SPECIAL-USE)`, NAMESPACE, QUOTA, UIDPLUS for `UID EXPUNGE`), and no response carries data of an extension that
+ * is not advertised. Without ESEARCH, a search answers `* SEARCH`.
  */
 class SyncFakeServer(
-    caps: String = "IMAP4rev1 IDLE MOVE UIDPLUS ESEARCH CONDSTORE LIST-STATUS QUOTA",
+    private val caps: String = "IMAP4rev1 IDLE MOVE UIDPLUS ESEARCH CONDSTORE LIST-STATUS QUOTA",
     private val delimiter: String = ".",
 ) : MailStream {
 
@@ -90,6 +96,13 @@ class SyncFakeServer(
     /** Commands for which this is true get a tagged NO. */
     var refuse: ((String) -> Boolean)? = null
 
+    /** False: SELECT and EXAMINE send no `[UIDNEXT]` (RFC 3501 makes it a SHOULD); the client must estimate it. */
+    var selectUidNext = true
+
+    /** The NAMESPACE reply (sent only when NAMESPACE is advertised). */
+    var namespace = "((\"\" \"$delimiter\")) NIL NIL"
+
+    private val advertised = caps.split(' ').filter { it.isNotEmpty() }.map { it.uppercase(Locale.ROOT) }.toSet()
     private var selected: Box? = null
     private var nextMsgId = 1_000L
     private var pendingUntagged = ArrayList<String>()
@@ -112,6 +125,8 @@ class SyncFakeServer(
 
     /** Commands received since the last call, for assertions. */
     fun take(): List<String> = commands.toList().also { commands.clear() }
+
+    private fun has(cap: String) = cap in advertised
 
     // ---- MailStream
 
@@ -159,17 +174,26 @@ class SyncFakeServer(
             "LIST" -> list(tag, args)
             "FETCH" -> fetch(tag, args, byUid = false)
             "UID" -> uid(tag, args)
-            "ENABLE" -> reply("* ENABLED CONDSTORE", "$tag OK Enabled")
-            "NOOP", "CAPABILITY" -> reply("$tag OK Done")
+            "ENABLE" -> enable(tag, args)
+            "NOOP" -> reply("$tag OK Done")
+            "CAPABILITY" -> reply("* CAPABILITY $caps", "$tag OK Capability completed")
+            "NAMESPACE" -> if (has("NAMESPACE")) reply("* NAMESPACE $namespace", "$tag OK Namespace") else bad(tag)
+            "EXPUNGE" -> expunge(tag, null)
             "CREATE" -> {
                 box(astring(args).first)
                 reply("$tag OK Created")
             }
-            "GETQUOTAROOT" -> reply("* QUOTAROOT INBOX \"\"", "* QUOTA \"\" (STORAGE 512 1048576)", "$tag OK Quota")
+            "GETQUOTAROOT" -> if (has("QUOTA")) {
+                reply("* QUOTAROOT INBOX \"\"", "* QUOTA \"\" (STORAGE 512 1048576)", "$tag OK Quota")
+            } else {
+                bad(tag)
+            }
             "LOGOUT" -> reply("* BYE Bye", "$tag OK Logged out")
-            else -> reply("$tag BAD Unknown command")
+            else -> bad(tag)
         }
     }
+
+    private fun bad(tag: String) = reply("$tag BAD Unknown command")
 
     private fun uid(tag: String, args: String) {
         val verb = args.substringBefore(' ').uppercase(Locale.ROOT)
@@ -177,29 +201,41 @@ class SyncFakeServer(
         when (verb) {
             "FETCH" -> fetch(tag, rest, byUid = true)
             "SEARCH" -> search(tag, rest)
+            "STORE" -> store(tag, rest)
+            "EXPUNGE" -> if (has("UIDPLUS")) expunge(tag, rest.substringBefore(' ')) else bad(tag)
             else -> reply("$tag BAD Unknown UID command")
         }
+    }
+
+    private fun enable(tag: String, args: String) {
+        if (!has("ENABLE")) return bad(tag)
+        val enabled = args.split(' ').filter { it.uppercase(Locale.ROOT) in advertised }
+        reply("* ENABLED ${enabled.joinToString(" ")}".trimEnd(), "$tag OK Enabled")
     }
 
     private fun open(tag: String, name: String) {
         val box = boxes[name] ?: return reply("$tag NO [NONEXISTENT] No such mailbox")
         selected = box
-        reply(
-            "* ${box.msgs.size} EXISTS",
-            "* OK [UIDVALIDITY ${box.uidValidity}] UIDs valid",
-            "* OK [UIDNEXT ${box.uidNext}] Predicted next UID",
-            "* OK [HIGHESTMODSEQ ${box.modSeq}] Highest",
-            "$tag OK [READ-WRITE] Select completed",
-        )
+        val lines = ArrayList<String>()
+        lines += "* ${box.msgs.size} EXISTS"
+        lines += "* OK [UIDVALIDITY ${box.uidValidity}] UIDs valid"
+        if (selectUidNext) lines += "* OK [UIDNEXT ${box.uidNext}] Predicted next UID"
+        if (has("CONDSTORE")) lines += "* OK [HIGHESTMODSEQ ${box.modSeq}] Highest"
+        lines += "$tag OK [READ-WRITE] Select completed"
+        reply(*lines.toTypedArray())
     }
 
     private fun status(tag: String, args: String) {
+        if ("HIGHESTMODSEQ" in args && !has("CONDSTORE")) return bad(tag)
         val box = boxes[astring(args).first] ?: return reply("$tag NO [NONEXISTENT] No such mailbox")
         reply("* STATUS ${quote(box.name)} ${statusItems(box)}", "$tag OK Status completed")
     }
 
     private fun list(tag: String, args: String) {
-        val withStatus = "STATUS" in args
+        val withStatus = "RETURN (STATUS" in args
+        if (withStatus && !has("LIST-STATUS")) return bad(tag)
+        if ("RETURN (SPECIAL-USE)" in args && !(has("SPECIAL-USE") && has("LIST-EXTENDED"))) return bad(tag)
+        if (withStatus && "HIGHESTMODSEQ" in args && !has("CONDSTORE")) return bad(tag)
         for (box in boxes.values) {
             reply("* LIST (${(listOf("\\HasNoChildren") + box.attributes).joinToString(" ")}) \"$delimiter\" ${quote(box.name)}")
             if (withStatus && box.attributes.none { it.equals("\\Noselect", true) }) {
@@ -210,7 +246,8 @@ class SyncFakeServer(
     }
 
     private fun statusItems(box: Box) =
-        "(MESSAGES ${box.msgs.size} UIDNEXT ${box.uidNext} UIDVALIDITY ${box.uidValidity} HIGHESTMODSEQ ${box.modSeq})"
+        "(MESSAGES ${box.msgs.size} UIDNEXT ${box.uidNext} UIDVALIDITY ${box.uidValidity}" +
+            (if (has("CONDSTORE")) " HIGHESTMODSEQ ${box.modSeq}" else "") + ")"
 
     /** `FETCH 3:* (items)` or, by UID, `5:* (items) (CHANGEDSINCE n)`. */
     private fun fetch(tag: String, args: String, byUid: Boolean) {
@@ -218,6 +255,7 @@ class SyncFakeServer(
         val set = args.substringBefore(' ')
         val items = group(args, args.indexOf('('))
         val changedSince = Regex("""\(CHANGEDSINCE (\d+)\)\s*$""").find(args)?.groupValues?.get(1)?.toLong()
+        if ((changedSince != null || "MODSEQ" in items.split(' ')) && !has("CONDSTORE")) return bad(tag)
         val out = ByteArrayOutputStream()
         box.msgs.forEachIndexed { index, msg ->
             val seq = index + 1L
@@ -250,22 +288,58 @@ class SyncFakeServer(
         return out.toByteArray()
     }
 
-    /** `RETURN (COUNT|ALL|MAX) UID <set> [X-GM-RAW "category:a OR category:b"]`. */
+    /**
+     * `[RETURN (COUNT|ALL|MAX)] [UID <set>] [DELETED] [X-GM-RAW "category:a OR category:b"]`. With RETURN (needs
+     * ESEARCH) the answer is `* ESEARCH`, else `* SEARCH` with every hit.
+     */
     private fun search(tag: String, args: String) {
         val box = selected ?: return reply("$tag BAD No mailbox selected")
-        val returns = Regex("""RETURN \((\w+)\)""").find(args)!!.groupValues[1]
-        val set = Regex("""\bUID (\S+)""").find(args.substringAfter(')'))!!.groupValues[1]
+        val returns = Regex("""RETURN \((\w+)\)""").find(args)?.groupValues?.get(1)
+        if (returns != null && !has("ESEARCH")) return reply("$tag BAD Unknown search option")
+        val criteria = if (returns != null) args.substringAfter(')') else args
+        val set = Regex("""\bUID (\S+)""").find(criteria)?.groupValues?.get(1)
+        val deleted = Regex("""\bDELETED\b""").containsMatchIn(criteria.substringBefore("X-GM-RAW"))
         val categories = Regex("""X-GM-RAW "([^"]*)"""").find(args)?.groupValues?.get(1)
             ?.split(" OR ")?.map { it.removePrefix("category:") }
         val maxUid = box.msgs.lastOrNull()?.uid ?: 0
-        val hits = box.msgs.filter { inSet(set, it.uid, maxUid) && (categories == null || it.category in categories) }
-            .map { it.uid }
+        val hits = box.msgs.filter { msg ->
+            (set == null || inSet(set, msg.uid, maxUid)) &&
+                (!deleted || msg.flags.any { it.equals("\\Deleted", true) }) &&
+                (categories == null || msg.category in categories)
+        }.map { it.uid }
+        if (returns == null) return reply("* SEARCH ${hits.joinToString(" ")}".trimEnd(), "$tag OK Search completed")
         val result = when (returns) {
             "COUNT" -> " COUNT ${hits.size}"
             "ALL" -> if (hits.isEmpty()) "" else " ALL ${hits.joinToString(",")}"
             else -> hits.maxOrNull()?.let { " MAX $it" }.orEmpty()
         }
         reply("* ESEARCH (TAG \"$tag\") UID$result", "$tag OK Search completed")
+    }
+
+    /** `UID STORE <set> ±FLAGS[.SILENT] (<flags>)`. */
+    private fun store(tag: String, args: String) {
+        val box = selected ?: return reply("$tag BAD No mailbox selected")
+        val set = args.substringBefore(' ')
+        val item = args.substringAfter(' ').substringBefore(' ')
+        val flags = group(args, args.indexOf('(')).split(' ').filter { it.isNotEmpty() }
+        val maxUid = box.msgs.lastOrNull()?.uid ?: 0
+        for (msg in box.msgs.filter { inSet(set, it.uid, maxUid) }) {
+            if (item.startsWith("+")) msg.flags += flags else msg.flags -= flags.toSet()
+            msg.modSeq = ++box.modSeq
+        }
+        reply("$tag OK Store completed")
+    }
+
+    /** `EXPUNGE` ([set] null) or `UID EXPUNGE <set>`: removes the `\Deleted` messages, with `* n EXPUNGE` for each. */
+    private fun expunge(tag: String, set: String?) {
+        val box = selected ?: return reply("$tag BAD No mailbox selected")
+        val maxUid = box.msgs.lastOrNull()?.uid ?: 0
+        val gone = box.msgs.filter { msg ->
+            msg.flags.any { it.equals("\\Deleted", true) } && (set == null || inSet(set, msg.uid, maxUid))
+        }
+        for (msg in gone.asReversed()) reply("* ${box.msgs.indexOf(msg) + 1} EXPUNGE")
+        box.expunge(gone.map { it.uid })
+        reply("$tag OK Expunge completed")
     }
 
     // ---- Helpers

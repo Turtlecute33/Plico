@@ -122,13 +122,25 @@ class HeaderParserTest {
 
     @Test
     fun serverFlags() {
-        val flags = HeaderParser.serverFlags(item("", flags = setOf("\\Flagged", "\\Draft")), setOf(4L))!!
+        val flags = HeaderParser.serverFlags(item("", flags = setOf("\\Flagged", "\\Draft")), setOf(4L), gmail = true)!!
         assertTrue(flags.flagged)
         assertTrue(flags.draft)
         assertFalse(flags.seen)
+        assertFalse(flags.deleted)
         assertEquals(9, flags.modSeq)
         assertEquals(setOf(4L), flags.labels)
-        assertNull(HeaderParser.serverFlags(item("", flags = null), null))
+        assertNull(HeaderParser.serverFlags(item("", flags = null), null, gmail = false))
+    }
+
+    @Test
+    fun deletedFlagHidesTheRowExceptOnGmail() {
+        val deleted = setOf("\\Seen", "\\deleted")
+        assertTrue(parse("Subject: x\n\n", flags = deleted).deleted, "D19: stored, not shown")
+        assertFalse(parse("Subject: x\n\n", gmail = true, flags = deleted).deleted, "Gmail: never")
+        assertFalse(parse("Subject: x\n\n", flags = setOf("\\Seen")).deleted)
+        assertTrue(HeaderParser.serverFlags(item("", flags = deleted), null, gmail = false)!!.deleted)
+        assertFalse(HeaderParser.serverFlags(item("", flags = deleted), emptySet(), gmail = true)!!.deleted)
+        assertFalse(HeaderParser.serverFlags(item("", flags = emptySet()), null, gmail = false)!!.deleted, "undeleted again")
     }
 
     @Test

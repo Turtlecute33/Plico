@@ -113,7 +113,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     // ---- List actions (DESIGN §7.3, §7.4)
 
-    /** Gmail removes `\Inbox`; Riseup moves to the archive folder (created on first use). */
+    /** Gmail removes `\Inbox`; other servers move to the archive folder (created on first use). */
     fun archive(ids: List<Long>): Undo? = archive(ids, store.now() + UNDO_MS)
 
     /** To Trash; inside Trash/Spam use [deleteForever] (the UI confirms). */
@@ -162,7 +162,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
         }
     }
 
-    /** Riseup: move to the mailbox. Gmail: label move from the view's label (DESIGN §7.3). */
+    /** Other servers: move to the mailbox. Gmail: label move from the view's label (DESIGN §7.3). */
     fun moveTo(ids: List<Long>, folderId: Long, fromView: MailView): Undo? {
         val target = store.folders.get(folderId) ?: return null
         val runAt = store.now() + UNDO_MS
@@ -197,7 +197,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
         }
     }
 
-    /** Spam: MOVE to Spam (Riseup creates exactly "Spam"). Not spam: MOVE from Spam to INBOX. */
+    /**
+     * Spam: MOVE to Spam (other servers create "Spam" when they have no Spam mailbox; on Riseup exactly this name).
+     * Not spam: MOVE from Spam to INBOX.
+     */
     fun spam(ids: List<Long>, isSpam: Boolean): Undo? {
         val runAt = store.now() + UNDO_MS
         return undoable(ids) {
@@ -265,13 +268,17 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     // ---- Folders
 
-    /** Online: CREATE on the server (Gmail: a label), then a folder row. */
+    /**
+     * Online: CREATE on the server (Gmail: a label), then a folder row. On a server whose mailboxes are below a
+     * personal root (`INBOX.` on Courier), the new folder goes there too ([Ops.defaultPath]).
+     */
     suspend fun createFolder(accountId: Long, name: String): Folder {
-        val path = HeaderSafety.clean(name)
-        if (path.isEmpty()) throw ActionError(store.text(R.string.ops_error_folder_name))
+        val clean = HeaderSafety.clean(name)
+        if (clean.isEmpty()) throw ActionError(store.text(R.string.ops_error_folder_name))
         return host.request(accountId) {
+            val path = Ops.defaultPath(this, clean)
             client.create(path)
-            store.folders.get(store.folders.upsert(Ops.createdFolder(store, account, path, null)))!!
+            store.folders.get(store.folders.upsert(Ops.createdFolder(this, path, null)))!!
         }
     }
 
@@ -329,7 +336,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     /**
      * The local ids of the server hits, every one stored now, so that the list can show them next to the local
-     * matches. Riseup searches [folderId] (INBOX for the unified view), Gmail All Mail. Cancelling closes the
+     * matches. Other servers search [folderId] (INBOX for the unified view), Gmail All Mail. Cancelling closes the
      * connection (DESIGN §7.7).
      */
     suspend fun searchServerIds(query: String, accountId: Long?, folderId: Long?): List<Long> {
@@ -603,7 +610,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
             folders.values.firstOrNull { it.kind == FolderKind.MAILBOX && it.role == role }?.let { Target(it.path, role) }
                 ?: fallback?.let { Target(it, role) }
 
-        /** Riseup (protocol PS5): the archive of [FolderRules.archiveOf], else a new "Archive". */
+        /** Not Gmail (protocol PS5): the archive of [FolderRules.archiveOf], else a new "Archive". */
         fun archiveTarget(): Target =
             Target(FolderRules.archiveOf(account, folders.values.toList())?.path ?: ARCHIVE, FolderRole.ARCHIVE)
 
@@ -690,7 +697,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     private fun allAccounts(): List<Account> = store.accounts.all()
 
-    /** The mailbox that holds a view's mail: Gmail All Mail, Riseup INBOX. */
+    /** The mailbox that holds a view's mail: Gmail All Mail, INBOX on other servers. */
     private fun mainMailbox(accountId: Long, gmail: Boolean): Folder? =
         store.mailbox(accountId, if (gmail) FolderRole.ALL else FolderRole.INBOX)
 

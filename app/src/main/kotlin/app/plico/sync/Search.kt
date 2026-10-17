@@ -9,10 +9,11 @@ import app.plico.mail.imap.UidSet
 import app.plico.push.policy.NotifyRule
 
 /**
- * Server search (DESIGN.md §7.7): Gmail `X-GM-RAW` in All Mail, Riseup `UID SEARCH TEXT` in the open folder
- * (INBOX for the unified view). `CHARSET UTF-8` is added for non-ASCII queries (protocol PS16). Hits that are
- * not stored yet are fetched as header rows with their bodies, so that the local search finds them. They do not
- * notify (`notified = 1`), except new mail above the folder's UIDNEXT, which the notification rule decides.
+ * Server search (DESIGN.md §7.7): Gmail `X-GM-RAW` in All Mail, other servers `UID SEARCH TEXT` in the open folder
+ * (INBOX for the unified view); without ESEARCH in UID windows from the newest down. `CHARSET UTF-8` is added for
+ * non-ASCII queries (protocol PS16). Hits that are not stored yet are fetched as header rows with their bodies, so
+ * that the local search finds them. They do not notify (`notified = 1`), except new mail above the folder's UIDNEXT,
+ * which the notification rule decides.
  */
 object Search {
     /** At most this many unknown hits are fetched per search, newest first. */
@@ -33,12 +34,16 @@ object Search {
             folder?.takeIf { it.accountId == account.id && it.kind == FolderKind.MAILBOX }
                 ?: store.mailbox(account.id, FolderRole.INBOX)
         } ?: return emptyList()
-        Ops.selectChecked(ctx, mailbox)
-        val criteria = Command.build {
-            raw(if (account.isGmail) "X-GM-RAW" else "TEXT")
-            string(text)
+        val sel = Ops.selectChecked(ctx, mailbox)
+        val hits = if (account.isGmail || "ESEARCH" in ctx.client.caps) {
+            val criteria = Command.build {
+                raw(if (account.isGmail) "X-GM-RAW" else "TEXT")
+                string(text)
+            }
+            ctx.client.uidSearch(criteria).toList().sortedDescending()
+        } else {
+            windowHits(ctx, mailbox, sel.uidNext, text)
         }
-        val hits = ctx.client.uidSearch(criteria).toList().sortedDescending()
         if (hits.isEmpty()) return emptyList()
         val known = store.messages.idsByUid(mailbox.id, hits)
         val missing = hits.filter { it !in known }.take(MAX_NEW)
@@ -46,6 +51,32 @@ object Search {
         Bodies.fetch(ctx, added.values.take(MAX_BODIES))
         val ids = known + added
         return hits.mapNotNull { ids[it] }
+    }
+
+    /**
+     * `UID SEARCH UID a:b TEXT` in windows of 50,000 UIDs from [uidNext] down (no ESEARCH: each `* SEARCH` line lists
+     * every hit). The first window ends at `*`, so that mail newer than a SELECT of earlier in the session is
+     * included. Stops when [MAX_NEW] hits are not stored yet, or at UID 1. Newest first.
+     */
+    private fun windowHits(ctx: OpContext, mailbox: Folder, uidNext: Long, text: String): List<Long> {
+        val hits = ArrayList<Long>()
+        val seen = HashSet<Long>()
+        var unknown = 0
+        for ((i, window) in MailboxMath.searchWindows(maxOf(uidNext, 2)).withIndex()) {
+            val criteria = Command.build {
+                raw("UID")
+                raw(if (i == 0) "${window.first}:*" else "${window.first}:${window.last}")
+                raw("TEXT")
+                string(text)
+            }
+            // `n:*` also matches the last message when n is above it, which a lower window can find again.
+            val found = ctx.client.uidSearch(criteria).toList().filter(seen::add).sortedDescending()
+            hits += found
+            unknown += found.size - ctx.store.messages.idsByUid(mailbox.id, found).size
+            if (unknown >= MAX_NEW) break
+            ctx.progress()
+        }
+        return hits
     }
 
     /** Fetches and stores header rows for [uids] of the selected [mailbox] (HeaderParser of the sync); uid -> id. */

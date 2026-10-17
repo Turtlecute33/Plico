@@ -55,6 +55,77 @@ class DraftsTest : OpFixture() {
     }
 
     @Test
+    fun withoutAppendUidTheUidNextBeforeTheAppendIsKept() {
+        val other = otherAccount()
+        val box = mailbox(other, "Drafts", FolderRole.DRAFTS)
+        val id = newDraft(other)
+        edit(id)
+        actions.leaveDraft(id)
+        val messageId = drafts.get(id)!!.messageId
+        // A revision that the server search does not find yet (its index is late), stored by the sync.
+        val local = insert(header(other, box, 6, messageId = messageId).copy(draft = true)).single()
+
+        val imap = FakeImap()
+            .select("Drafts") // UIDNEXT 1000: the new revision gets 1000 or more.
+            .expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved")
+            .expect(search(messageId), "* ESEARCH UID ALL 4,1000")
+            .expect("UID STORE 4,6 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 4,6")
+        run(session(other, imap))
+        imap.finish()
+        assertTrue(drafts.get(id)!!.onServer)
+        assertTrue(ops.byAccount(other).isEmpty())
+        assertNull(messages.get(local), "the old revision's row goes with it")
+    }
+
+    @Test
+    fun twoUploadsOnOneConnectionReadAFreshUidNext() {
+        val other = otherAccount()
+        mailbox(other, "Drafts", FolderRole.DRAFTS)
+        val id = newDraft(other)
+        edit(id)
+        actions.leaveDraft(id)
+        val messageId = drafts.get(id)!!.messageId
+        fun select(uidNext: Long) = arrayOf(
+            "* 1 EXISTS", "* OK [UIDVALIDITY 7] ok", "* OK [UIDNEXT $uidNext] ok", "OK [READ-WRITE] done",
+        )
+
+        val imap = FakeImap()
+            .expect("SELECT \"Drafts\"", *select(10))
+            .expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved") // revision UID 10
+            .expect(search(messageId), "* ESEARCH UID ALL 4,10")
+            .expect("UID STORE 4 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 4")
+            // Drafts stays selected, but its UIDNEXT is now 11: a new SELECT reads it.
+            .expect("SELECT \"Drafts\"", *select(11))
+            .expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved") // revision UID 11
+            .expect(search(messageId), "* ESEARCH UID ALL 10,11")
+            .expect("UID STORE 10 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 10")
+        val ctx = session(other, imap)
+        run(ctx)
+        edit(id, to = "Carol <carol@example.org>")
+        actions.leaveDraft(id)
+        run(ctx)
+        imap.finish()
+        assertEquals(2, imap.commands.count { it == "SELECT \"Drafts\"" })
+        assertTrue(ops.byAccount(other).isEmpty())
+    }
+
+    @Test
+    fun riseupDoesNotSelectBeforeTheUpload() {
+        mailbox(riseup, "Drafts", FolderRole.DRAFTS)
+        val id = newDraft()
+        edit(id)
+        actions.leaveDraft(id)
+        val imap = FakeImap().expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved")
+        run(session(riseup, imap))
+        imap.finish()
+        assertTrue(drafts.get(id)!!.onServer)
+        assertTrue(ops.byAccount(riseup).isEmpty(), "without APPENDUID Riseup deletes no revision (as before)")
+    }
+
+    @Test
     fun oneUploadIsQueuedUntilTheDraftIsSent() {
         val id = newDraft(prefill = DraftPrefill(to = "bob@example.org", subject = "Shared"))
         assertTrue(ops.byAccount(riseup).isEmpty(), "A new draft stays local until compose leaves it after an edit")

@@ -22,7 +22,7 @@ internal class SyncAccount(val env: SyncEnv) {
         gmail?.fill(newViews)
     }
 
-    /** §7.1 step 1: new mail of the IDLE mailbox (Riseup INBOX; Gmail All Mail behind INBOX). */
+    /** §7.1 step 1: new mail of the IDLE mailbox (INBOX; Gmail All Mail behind INBOX). */
     fun fastPath(report: SyncReport) {
         if (gmail != null) gmail.fastPath(report) else inbox()?.let { mailbox.newMail(it, report) }
     }
@@ -32,7 +32,7 @@ internal class SyncAccount(val env: SyncEnv) {
         idleMailbox()?.let { mailbox.flagsAndExpunge(it, fullFlags, report) }
     }
 
-    /** Riseup: STATUS of the folders with notify = 1; a new UIDNEXT runs that folder's sync (push PB16). */
+    /** Not Gmail: STATUS of the folders with notify = 1; a new UIDNEXT runs that folder's sync (push PB16). */
     fun notifySweep(report: SyncReport) {
         if (env.gmail) return
         val folders = synced().filter { it.notify && it.role != FolderRole.INBOX }
@@ -53,14 +53,18 @@ internal class SyncAccount(val env: SyncEnv) {
         gmail?.checkAllMail(report)
     }
 
-    /** The other synced mailboxes: a STATUS sweep, then the sync of the changed ones; Riseup also reads the quota. */
-    fun fullSweep(report: SyncReport) {
+    /**
+     * The other synced mailboxes: a STATUS sweep, then the sync of the changed ones; servers other than Gmail also
+     * report the quota. [fullFlags]: a flag check is due (SyncPlan.fullFlags); without it, a server without CONDSTORE
+     * skips the mailboxes whose STATUS is unchanged (D8).
+     */
+    fun fullSweep(report: SyncReport, fullFlags: Boolean = true) {
         val idle = idleMailbox()
         val folders = synced().filter { it.id != idle?.id }
         val statuses = folderList.statuses(folders)
         for (folder in folders) {
             val status = statuses[folder.id]
-            if (status == null) report.relist = true else mailbox.sync(folder, status, fullFlags = true, report)
+            if (status == null) report.relist = true else mailbox.sync(folder, status, fullFlags, report)
         }
         if (!env.gmail) {
             env.client.quota()?.let { env.accounts.setQuota(env.accountId, it.usedKiB * KIB, it.limitKiB * KIB) }
@@ -109,7 +113,7 @@ internal class SyncAccount(val env: SyncEnv) {
 
     private fun inbox(): Folder? = env.folders.byRole(env.accountId, FolderRole.INBOX, FolderKind.MAILBOX)
 
-    /** The synced mailbox behind IDLE: Riseup INBOX, Gmail All Mail. */
+    /** The synced mailbox behind IDLE: INBOX, Gmail All Mail. */
     fun idleMailbox(): Folder? = if (gmail != null) gmail.allMail() else inbox()
 
     private fun synced(): List<Folder> =

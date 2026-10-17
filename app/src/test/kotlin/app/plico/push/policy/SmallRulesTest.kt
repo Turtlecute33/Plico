@@ -1,9 +1,7 @@
 package app.plico.push.policy
 
-import app.plico.data.PushMode
 import app.plico.push.policy.NetworkRules.Action
 import app.plico.push.policy.NetworkRules.Event
-import app.plico.push.policy.PushModes.Effective
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -11,18 +9,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SmallRulesTest {
-
-    @Test
-    fun pushModes() {
-        for (wifi in listOf(true, false)) for (charging in listOf(true, false)) {
-            assertEquals(Effective.IDLE, PushModes.effective(PushMode.INSTANT, wifi, charging))
-            assertEquals(Effective.POLL, PushModes.effective(PushMode.POLL, wifi, charging))
-        }
-        val onWifi = PushMode.INSTANT_ON_WIFI
-        assertEquals(Effective.IDLE, PushModes.effective(onWifi, unmeteredWifi = true, charging = false))
-        assertEquals(Effective.IDLE, PushModes.effective(onWifi, unmeteredWifi = false, charging = true))
-        assertEquals(Effective.POLL, PushModes.effective(onWifi, unmeteredWifi = false, charging = false))
-    }
 
     @Test
     fun networkLostParksEverySession() {

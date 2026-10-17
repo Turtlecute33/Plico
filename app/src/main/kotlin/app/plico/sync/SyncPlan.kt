@@ -24,9 +24,12 @@ internal data class SyncPlan(
     val listFolders: Boolean,
     /** New mail of the IDLE mailbox (Gmail: All Mail), then its flags and expunges. */
     val fastPath: Boolean,
-    /** Flags without CONDSTORE: the full local range instead of the newest 200 rows. */
+    /**
+     * A flag check is due (user refresh, the 6-h sweep). Without CONDSTORE: the full local range instead of the
+     * newest 200 rows, and the STATUS sweep does not skip unchanged mailboxes (D8).
+     */
     val fullFlags: Boolean,
-    /** Riseup: STATUS of the folders with notify = 1 (push PB16). */
+    /** Not Gmail: STATUS of the folders with notify = 1 (push PB16). */
     val notifySweep: Boolean,
     /** Gmail: STATUS of All Mail at a refresh wake (push PB16, simplicity EM7). */
     val allMailStatus: Boolean,

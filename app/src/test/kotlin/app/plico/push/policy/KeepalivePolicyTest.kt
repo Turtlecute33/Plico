@@ -1,5 +1,6 @@
 package app.plico.push.policy
 
+import app.plico.data.Provider
 import app.plico.push.policy.KeepalivePolicy.Action
 import app.plico.push.policy.KeepalivePolicy.Mode
 import kotlin.test.Test
@@ -559,6 +560,28 @@ class KeepalivePolicyTest {
         assertEquals(28 * MIN, policy.intervalMs)
         policy.idle("wifi:b")
         assertEquals(5 * MIN, policy.intervalMs)
+    }
+
+    @Test
+    fun scopeIsTheProviderForRiseupAndGmailAndTheHostForOthers() {
+        assertEquals("riseup", KeepalivePolicy.scopeOf(Provider.RISEUP, "mail.riseup.net"))
+        assertEquals("gmail", KeepalivePolicy.scopeOf(Provider.GMAIL, "imap.gmail.com"))
+        assertEquals("outlook.office365.com", KeepalivePolicy.scopeOf(Provider.MICROSOFT, "outlook.office365.com"))
+        assertEquals("imap.example.org", KeepalivePolicy.scopeOf(Provider.OTHER, " IMAP.Example.org "))
+        assertEquals("other", KeepalivePolicy.scopeOf(Provider.OTHER, ""), "never empty")
+        assertEquals("ab.example", KeepalivePolicy.scopeOf(Provider.OTHER, "a=b;@.example|"), "no separator of the store")
+    }
+
+    @Test
+    fun twoOtherServersLearnApart() {
+        val a = KeepalivePolicy(15, KeepalivePolicy.scopeOf(Provider.OTHER, "imap.a.example"), learned)
+        val b = KeepalivePolicy(15, KeepalivePolicy.scopeOf(Provider.OTHER, "imap.b.example"), learned)
+        a.idle("wifi:x")
+        a.refresh("wifi:x", alive = false)
+        assertEquals(13 * MIN, a.intervalMs)
+        b.idle("wifi:x")
+        assertEquals(15 * MIN, b.intervalMs, "the NAT interval of another server is not shared")
+        assertEquals(setOf("imap.a.example|wifi:x"), LearnedIntervals.decode(store.get(LearnedIntervals.STORE_KEY)).keys)
     }
 
     @Test

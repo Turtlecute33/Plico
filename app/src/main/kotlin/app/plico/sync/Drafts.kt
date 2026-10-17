@@ -2,10 +2,12 @@ package app.plico.sync
 
 import app.plico.R
 import app.plico.data.DraftState
+import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.OpKind
 import app.plico.data.Tables
 import app.plico.mail.imap.Command
+import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.UidSet
 import java.io.IOException
 
@@ -67,9 +69,10 @@ internal object Drafts {
             throw OpRefused(store.text(R.string.ops_error_attachment_missing))
         }
         Ops.checkAppendSize(ctx, bytes.size)
-        val path = mailbox?.path ?: DEFAULT_PATH
+        val path = mailbox?.path ?: Ops.defaultPath(ctx, DEFAULT_PATH)
+        val before = if (mailbox != null && ctx.account.generic) uidNextBefore(ctx, mailbox) else null
         ctx.progress(uploadMs(bytes.size))
-        val uid = Ops.creating(ctx, path, FolderRole.DRAFTS) { ctx.client.append(path, FLAGS, bytes) }
+        val uid = Ops.creating(ctx, path, FolderRole.DRAFTS) { ctx.client.append(path, FLAGS, bytes) } ?: before
         store.db.tx(Tables.DRAFT, Tables.OP) {
             // Discarded meanwhile: no copy may stay, this one included.
             val kept = store.drafts.get(draft.id)
@@ -80,10 +83,23 @@ internal object Drafts {
     }
 
     /**
-     * Runs an [OpArg.DeleteDraft]: `UID SEARCH HEADER Message-ID` in Drafts, then Riseup `\Deleted` +
-     * `UID EXPUNGE`; Gmail `UID MOVE` to Trash and the expunge of the COPYUID there, because an expunge in
-     * Drafts would leave the revision in Trash. With a kept UID only older revisions go: APPENDUIDs grow, so
-     * two uploads in a row cannot delete each other's revision.
+     * Without APPENDUID, the UIDNEXT before the APPEND is a UID that the new revision is at or above (§7.6). A fresh
+     * SELECT: the UIDNEXT of a mailbox that stays selected does not change, so a second upload would keep the first
+     * one's revision. Null when the server refuses the SELECT (the mailbox is gone: the APPEND creates it, and no
+     * revision is deleted).
+     */
+    private fun uidNextBefore(ctx: OpContext, mailbox: Folder): Long? = try {
+        ctx.reselect(mailbox).uidNext
+    } catch (_: ImapNoException) {
+        null
+    }
+
+    /**
+     * Runs an [OpArg.DeleteDraft]: `UID SEARCH HEADER Message-ID` in Drafts (plus the local Drafts rows with that
+     * Message-ID, for a search index that is late), then `\Deleted` + expunge (other servers); Gmail `UID MOVE` to
+     * Trash and the expunge of the COPYUID there, because an expunge in Drafts would leave the revision in Trash.
+     * With a kept UID only older revisions go: APPENDUIDs grow (and without APPENDUID the kept UID is the UIDNEXT
+     * before the APPEND), so two uploads in a row cannot delete each other's revision.
      */
     fun deleteRevisions(ctx: OpContext, arg: OpArg.DeleteDraft) {
         val store = ctx.store
@@ -94,19 +110,21 @@ internal object Drafts {
             string("Message-ID")
             string(arg.messageId)
         }
-        val uids = ctx.client.uidSearch(criteria).toList().filter { arg.keep == 0L || it < arg.keep }
+        val local = store.messages.byMessageId(ctx.account.id, arg.messageId).filter { it.folderId == drafts.id }.map { it.uid }
+        val uids = (ctx.client.uidSearch(criteria).toList() + local).distinct().sorted()
+            .filter { arg.keep == 0L || it < arg.keep }
         val trash = if (ctx.account.isGmail) store.mailbox(ctx.account.id, FolderRole.TRASH) else null
         when {
             uids.isEmpty() -> Unit
             trash == null -> {
-                Ops.deleteForever(ctx, UidSet.of(uids))
+                Ops.deleteForever(ctx, UidSet.of(uids), drafts)
                 store.messages.deleteUids(drafts.id, uids)
             }
             else -> {
                 val moved = ctx.client.uidMove(UidSet.of(uids), trash.path)
                 if (moved.isNotEmpty()) {
                     ctx.select(trash)
-                    Ops.deleteForever(ctx, UidSet.of(moved.values))
+                    Ops.deleteForever(ctx, UidSet.of(moved.values), trash)
                 }
             }
         }

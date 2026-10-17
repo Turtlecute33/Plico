@@ -311,7 +311,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
     }
 
     private fun modeOf(account: Account, net: NetState?) =
-        when (PushModes.effective(account.pushMode, net?.unmeteredWifi == true, net?.charging == true)) {
+        when (PushModes.effective(account.pushMode, account.idle, net?.unmeteredWifi == true, net?.charging == true)) {
             PushModes.Effective.IDLE -> AccountSession.Mode.IDLE
             PushModes.Effective.POLL -> AccountSession.Mode.POLL
         }

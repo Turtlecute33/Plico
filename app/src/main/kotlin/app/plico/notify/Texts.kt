@@ -1,8 +1,11 @@
 package app.plico.notify
 
+import app.plico.data.Provider
+
 /** Pure text rules of the notifications (DESIGN §9, privacy PS11). */
 internal object Texts {
-    private val DEFAULT_LABEL = Regex("(Riseup|Gmail)( [0-9]+)?")
+    /** The default labels: a provider brand ("Riseup", "Gmail", "Outlook", "Mail"), with a number for the second one. */
+    private val DEFAULT_LABEL = Regex("(" + Provider.entries.joinToString("|") { Regex.escape(it.brand) } + ")( [0-9]+)?")
 
     /**
      * The account label for public (lock screen) versions: only a label the user set, and never one that

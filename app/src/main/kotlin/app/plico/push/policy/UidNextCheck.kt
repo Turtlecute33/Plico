@@ -6,8 +6,8 @@ package app.plico.push.policy
  */
 object UidNextCheck {
     /**
-     * [expected]: Riseup `folder.uidnext` after this cycle; Gmail [gmailExpected]. 0 = no baseline yet (first
-     * sync), which never triggers.
+     * [expected]: `folder.uidnext` of INBOX after this cycle (servers other than Gmail); Gmail [gmailExpected].
+     * 0 = no baseline yet (first sync), which never triggers.
      */
     fun missedMail(serverUidNext: Long, expected: Long): Boolean = expected > 0 && serverUidNext > expected
 

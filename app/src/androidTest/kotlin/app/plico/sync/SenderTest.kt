@@ -1,10 +1,12 @@
 package app.plico.sync
 
 import app.plico.R
+import app.plico.account.ProviderTable
 import app.plico.data.DraftState
 import app.plico.data.FolderRole
 import app.plico.data.NewDraft
 import app.plico.data.OpKind
+import app.plico.data.Provider
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -270,6 +272,122 @@ class SenderTest : OpFixture() {
         assertNull(drafts.get(done), "its Message-ID would hide the sent message (protocol PS7)")
         assertFalse(File(context.filesDir, "outbox/$done").exists())
         assertEquals(DraftState.SENT, drafts.get(copying)!!.state, "the Sent copy still needs it")
+    }
+
+    // ---- Sent copy on other servers (D6)
+
+    /** A sent message from [accountId] (Bob only, no Bcc) through a fake SMTP server; returns the draft id. */
+    private fun sendOne(accountId: Long, from: String): Long {
+        val id = queued(accountId, from = from, bcc = "")
+        val server = smtp(from)
+            .expect("RCPT TO:<bob@example.org>", "250 ok")
+            .expect("DATA", "354 go on")
+            .expect(".", "250 2.0.0 queued")
+            .expect("QUIT", "221 bye")
+        send(session(accountId, FakeImap(), server))
+        server.finish()
+        return id
+    }
+
+    private val sentCheck = "UID FETCH 950:* (UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])"
+
+    @Test
+    fun otherServersAppendTheSentCopyAfterAMinuteWhenTheServerKeptNone() {
+        val other = otherAccount()
+        mailbox(other, "Sent", FolderRole.SENT)
+        val id = sendOne(other, "me@example.org")
+        val messageId = drafts.get(id)!!.messageId
+        val append = ops.byAccount(other).single()
+        assertEquals(OpKind.APPEND, append.kind)
+        assertEquals(clock + Sender.SENT_COPY_DELAY_MS, append.runAt, "the server may save its own copy first")
+
+        runOps(session(other, FakeImap())) // Not due yet: no command.
+        clock += Sender.SENT_COPY_DELAY_MS
+        val imap = FakeImap()
+            .select("Sent")
+            .expect(sentCheck, "* 1 FETCH (UID 999 BODY[HEADER.FIELDS (MESSAGE-ID)] \"Message-ID: <other@example.org>\")")
+            .expect("APPEND \"Sent\" (\\Seen) {literal}", "OK [APPENDUID 7 1000] Saved")
+        runOps(session(other, imap))
+        imap.finish()
+        assertTrue("Message-ID: $messageId\r\n" in imap.literals.single().toString(Charsets.UTF_8))
+        assertTrue(ops.byAccount(other).isEmpty())
+        assertNull(drafts.get(id))
+    }
+
+    @Test
+    fun aCopyThatTheServerSavedIsNotAppendedAgain() {
+        val other = otherAccount()
+        mailbox(other, "Sent", FolderRole.SENT)
+        val id = sendOne(other, "me@example.org")
+        val messageId = drafts.get(id)!!.messageId
+        clock += Sender.SENT_COPY_DELAY_MS
+        val imap = FakeImap()
+            .select("Sent")
+            .expect(
+                sentCheck,
+                "* 1 FETCH (UID 998 BODY[HEADER.FIELDS (MESSAGE-ID)] \"Message-ID: <other@example.org>\")",
+                "* 2 FETCH (UID 999 BODY[HEADER.FIELDS (MESSAGE-ID)] \"Message-ID: $messageId\")",
+            )
+        runOps(session(other, imap))
+        imap.finish()
+        assertTrue(imap.literals.isEmpty(), "no second copy")
+        assertTrue(ops.byAccount(other).isEmpty())
+        assertNull(drafts.get(id))
+        assertFalse(File(context.filesDir, "outbox/$id").exists(), "the copy with the Bcc recipients is gone")
+    }
+
+    @Test
+    fun aSentMailboxThatIsGoneIsCreatedForTheCopy() {
+        val other = otherAccount()
+        mailbox(other, "Sent", FolderRole.SENT)
+        val id = sendOne(other, "me@example.org")
+        clock += Sender.SENT_COPY_DELAY_MS
+        val imap = FakeImap()
+            .expect("SELECT \"Sent\"", "NO [NONEXISTENT] No such mailbox")
+            .expect("APPEND \"Sent\" (\\Seen) {literal}", "NO [TRYCREATE] No such mailbox")
+            .expect("CREATE \"Sent\"")
+            .expect("APPEND \"Sent\" (\\Seen) {literal}", "OK Saved")
+        runOps(session(other, imap))
+        imap.finish()
+        assertTrue(ops.byAccount(other).isEmpty())
+        assertNull(drafts.get(id))
+    }
+
+    @Test
+    fun yahooSavesItsOwnCopy() {
+        val yahoo = account("me@yahoo.com", Provider.OTHER, ProviderTable.byDomain("yahoo.com")!!.servers!!)
+        mailbox(yahoo, "Sent", FolderRole.SENT)
+        val id = queued(yahoo, from = "me@yahoo.com", bcc = "hidden@example.org")
+        val server = smtp("me@yahoo.com")
+            .expect("RCPT TO:<bob@example.org>", "250 ok")
+            .expect("RCPT TO:<hidden@example.org>", "250 ok")
+            .expect("DATA", "354 go on")
+            .expect(".", "250 2.0.0 queued")
+            .expect("QUIT", "221 bye")
+        send(session(yahoo, FakeImap(), server))
+        server.finish()
+        assertTrue(ops.byAccount(yahoo).isEmpty(), "no APPEND: the server keeps the copy")
+        assertNull(drafts.get(id))
+        assertFalse(File(context.filesDir, "outbox/$id").exists(), "no Bcc copy was written")
+    }
+
+    @Test
+    fun microsoftKeepsNoClientCopy() {
+        val outlook = account("me@outlook.com", Provider.MICROSOFT)
+        mailbox(outlook, "Sent Items", FolderRole.SENT)
+        val id = sendOne(outlook, "me@outlook.com")
+        assertTrue(ops.byAccount(outlook).isEmpty())
+        assertNull(drafts.get(id))
+    }
+
+    @Test
+    fun riseupAppendsAtOnceWithoutACheck() {
+        mailbox(riseup, "Sent", FolderRole.SENT)
+        sendOne(riseup, "user@riseup.net")
+        assertEquals(clock, ops.byAccount(riseup).single().runAt)
+        val imap = FakeImap().expect("APPEND \"Sent\" (\\Seen) {literal}", "OK [APPENDUID 3 20] Saved")
+        runOps(session(riseup, imap))
+        imap.finish()
     }
 
     @Test

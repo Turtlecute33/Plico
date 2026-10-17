@@ -412,6 +412,30 @@ class MessageDaoTest : DbFixture() {
         assertTrue(m.flagged && m.answered)
     }
 
+    @Test
+    fun deletedRowsAreStoredButLeftOutOfEveryListCountAndNotification() {
+        val (shown, struck) = insert(
+            header(riseup, inbox, 1, subject = "Quarterly plan", notified = false, flagged = true),
+            header(riseup, inbox, 2, subject = "Quarterly struck", notified = false, flagged = true).copy(deleted = true),
+        )
+        assertEquals(listOf(shown), list(MailView.InFolder(inbox)))
+        assertEquals(listOf(shown), list(MailView.Unified))
+        assertEquals(listOf(shown), list(MailView.Starred(null)))
+        assertEquals(listOf(shown), list(MailView.Search("quarterly", null)))
+        assertEquals(mapOf(inbox to 1), folders.observeUnread().now())
+        assertEquals(1, folders.observeUnifiedUnread().now())
+        assertEquals(listOf(shown), messages.needingBodies(inbox, 0, 10).map { it.id })
+        assertEquals(listOf(shown), messages.claimNotifications(riseup, 0).map { it.id }, "D19: never notifies")
+        assertEquals(setOf(shown), messages.stillNotifiable(listOf(shown, struck)))
+        assertNotNull(messages.get(struck), "the row stays for the expunge check")
+
+        // The flag is server state: a flags FETCH and an upsert both write it.
+        messages.syncFlags(inbox, listOf(ServerFlags(2, seen = false, flagged = true, answered = false, draft = false)))
+        assertEquals(listOf(shown, struck).sorted(), list(MailView.InFolder(inbox)).sorted())
+        insert(header(riseup, inbox, 1).copy(deleted = true))
+        assertEquals(listOf(struck), list(MailView.InFolder(inbox)))
+    }
+
     private fun memberships(id: Long) =
         db.sql.list("SELECT folder_id FROM message_folder WHERE message_id = ?", id) { it.getLong(0) }.toSet()
 }
