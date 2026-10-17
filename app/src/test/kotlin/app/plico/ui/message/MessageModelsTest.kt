@@ -332,4 +332,18 @@ class MessageModelsTest {
         assertTrue(sameContentId("<Logo@Example>", "logo@example"))
         assertFalse(sameContentId("logo@example", "logo2@example"))
     }
+
+    @Test
+    fun senderBlockLogoHasTheGateOfTheList() {
+        val own = setOf("me@example.org")
+        assertTrue(logoAllowed("news@example.com", draft = false, ownMessage = false, own, SenderTrust.FROM_ONLY))
+        assertTrue(logoAllowed("news@example.com", draft = false, ownMessage = false, own, SenderTrust.VERIFIED))
+        // Spam, and Gmail without a DMARC pass.
+        assertFalse(logoAllowed("news@example.com", draft = false, ownMessage = false, own, SenderTrust.NONE))
+        // In Sent or Drafts, a draft, or a forged own From.
+        assertFalse(logoAllowed("news@example.com", draft = false, ownMessage = true, own, SenderTrust.FROM_ONLY))
+        assertFalse(logoAllowed("news@example.com", draft = true, ownMessage = false, own, SenderTrust.FROM_ONLY))
+        assertFalse(logoAllowed("Me@Example.org", draft = false, ownMessage = false, own, SenderTrust.FROM_ONLY))
+        assertFalse(logoAllowed("", draft = false, ownMessage = false, own, SenderTrust.FROM_ONLY))
+    }
 }

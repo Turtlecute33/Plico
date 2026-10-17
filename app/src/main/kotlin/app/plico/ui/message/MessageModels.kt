@@ -132,6 +132,14 @@ data class Placement(
 fun sentByUser(folders: List<Folder>): Boolean =
     folders.any { it.role == FolderRole.SENT || it.role == FolderRole.DRAFTS }
 
+/**
+ * True when the sender block may show the cached logo of [fromEmail] (DESIGN §12), with the same gate as the
+ * list: received mail only (not in Sent or Drafts ([ownMessage]), not a [draft], From not one of the user's [own]
+ * lower-case addresses), and a [trust] other than NONE (never in Spam, never Gmail mail without a DMARC pass).
+ */
+fun logoAllowed(fromEmail: String, draft: Boolean, ownMessage: Boolean, own: Set<String>, trust: SenderTrust): Boolean =
+    !ownMessage && !draft && fromEmail.isNotBlank() && fromEmail.lowercase() !in own && trust != SenderTrust.NONE
+
 /** [folders] = the source mailbox and the label views of the message ([app.plico.data.MessageDetail.folders]). */
 fun placementOf(sourceFolderId: Long, folders: List<Folder>, gmail: Boolean): Placement {
     val source = folders.firstOrNull { it.id == sourceFolderId }

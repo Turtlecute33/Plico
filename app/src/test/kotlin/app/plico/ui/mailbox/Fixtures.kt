@@ -2,6 +2,7 @@ package app.plico.ui.mailbox
 
 import app.plico.data.Account
 import app.plico.data.AccountState
+import app.plico.data.Auth
 import app.plico.data.AuthKind
 import app.plico.data.Folder
 import app.plico.data.FolderKind
@@ -50,9 +51,13 @@ fun summary(
     seen: Boolean = true,
     flagged: Boolean = false,
     draft: Boolean = false,
+    fromEmail: String = "e@example.org",
+    toList: String = "",
+    auth: Int = Auth.UNKNOWN,
 ) = MessageSummary(
-    id = id, accountId = accountId, folderId = folderId, subject = "s", fromName = "n", fromEmail = "e@example.org",
-    date = 0, seen = seen, flagged = flagged, draft = draft, attachments = false, snippet = "",
+    id = id, accountId = accountId, folderId = folderId, subject = "s", fromName = "n", fromEmail = fromEmail,
+    date = 0, seen = seen, flagged = flagged, draft = draft, attachments = false, snippet = "", toList = toList,
+    auth = auth,
 )
 
 fun pushStatus(

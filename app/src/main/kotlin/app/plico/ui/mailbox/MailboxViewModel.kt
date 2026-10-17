@@ -22,6 +22,8 @@ import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.MailView
 import app.plico.data.MessageSummary
+import app.plico.html.SenderCheck
+import app.plico.html.SenderTrust
 import app.plico.sync.FolderRules
 import app.plico.sync.Undo
 import app.plico.ui.components.ErrorText
@@ -84,25 +86,52 @@ internal sealed interface ServerSearch {
 /**
  * The accounts and folders a list needs to decide what each row allows. [inboxView]: the list shows inboxes
  * (all inboxes, or one inbox); only there are Gmail rows sure to carry the `\Inbox` label that Archive removes.
+ * [identities]: the identity addresses of each account; the rows of an account without an entry (not read yet)
+ * get no logo.
  */
-internal class ListContext(accounts: List<Account>, folders: List<Folder>, private val inboxView: Boolean) {
+internal class ListContext(
+    accounts: List<Account>,
+    folders: List<Folder>,
+    private val inboxView: Boolean,
+    private val identities: Map<Long, List<String>>,
+) {
     val accounts: Map<Long, Account> = accounts.associateBy { it.id }
     private val folders = folders.associateBy { it.id }
     private val archives = accounts.associate { it.id to FolderRules.archiveOf(it, folders)?.id }
     private val abilities = accounts.associate { it.id to AccountAbilities.of(it, folders) }
 
-    fun info(row: MessageSummary) = RowInfo(
-        id = row.id,
-        accountId = row.accountId,
-        seen = row.seen,
-        flagged = row.flagged,
-        place = RowActions.placeOf(row, folders[row.folderId], archives[row.accountId]),
-        gmail = accounts[row.accountId]?.isGmail == true,
-        abilities = abilities[row.accountId] ?: AccountAbilities(),
-        canArchive = inboxView || accounts[row.accountId]?.isGmail != true,
-        sent = folders[row.folderId]?.role == FolderRole.SENT ||
-            row.fromEmail.equals(accounts[row.accountId]?.email, ignoreCase = true),
-    )
+    /** The lower-case addresses of the user in every account: account addresses and identities. */
+    private val own: Set<String> = (accounts.map { it.email } + identities.values.flatten()).mapTo(HashSet()) { it.lowercase() }
+
+    fun info(row: MessageSummary): RowInfo {
+        val place = RowActions.placeOf(row, folders[row.folderId], archives[row.accountId])
+        val gmail = accounts[row.accountId]?.isGmail == true
+        val sent = folders[row.folderId]?.role == FolderRole.SENT ||
+            row.fromEmail.equals(accounts[row.accountId]?.email, ignoreCase = true)
+        return RowInfo(
+            id = row.id,
+            accountId = row.accountId,
+            seen = row.seen,
+            flagged = row.flagged,
+            place = place,
+            gmail = gmail,
+            abilities = abilities[row.accountId] ?: AccountAbilities(),
+            canArchive = inboxView || !gmail,
+            sent = sent,
+            logoAllowed = logoAllowed(row, place, gmail, sent),
+        )
+    }
+
+    /**
+     * DESIGN §12: a logo only for received mail ([sent] rows and drafts never: no recipient domain is sent), never
+     * for a From with an address of the user ([own]: a copy to self from an identity, or spam with a forged own
+     * From; the same rule as the message view), never in Spam, and never for Gmail mail without a DMARC pass.
+     * The logo is always the one of From.
+     */
+    private fun logoAllowed(row: MessageSummary, place: Place, gmail: Boolean, sent: Boolean): Boolean =
+        !sent && !row.draft && place != Place.DRAFTS && accounts.containsKey(row.accountId) &&
+            identities.containsKey(row.accountId) && row.fromEmail.lowercase() !in own &&
+            SenderCheck.trust(gmail, row.auth, inJunk = place == Place.SPAM) != SenderTrust.NONE
 }
 
 /**
@@ -122,6 +151,21 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         private set
 
     val accounts: StateFlow<List<Account>> = app.accounts.observeAll().state(emptyList())
+
+    /**
+     * The identity addresses of each account, for [ListContext] (no logo for the user's own mail). An account
+     * has no entry until its identities are read.
+     */
+    val identities: StateFlow<Map<Long, List<String>>> = app.accounts.observeAll().flatMapLatest { list ->
+        if (list.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(list.map { a -> app.accounts.observeIdentities(a.id).map { ids -> a.id to ids.map { it.email } } }) {
+                it.toMap()
+            }
+        }
+    }.state(emptyMap())
+
     val folders: StateFlow<List<Folder>> = app.folders.observeVisible().state(emptyList())
     val unread: StateFlow<Map<Long, Int>> = app.folders.observeUnread().state(emptyMap())
     val unifiedUnread: StateFlow<Int> = app.folders.observeUnifiedUnread().state(0)
