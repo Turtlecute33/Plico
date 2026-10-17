@@ -47,6 +47,7 @@ import app.plico.data.Account
 import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.MessageSummary
+import app.plico.html.rememberSenderLogo
 import app.plico.mail.mime.Addresses
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.ConfirmDialog
@@ -65,7 +66,9 @@ private const val REMOVE_GRACE_MS = 700L
  * One message of the list (DESIGN §13) with swipe actions (apis AF4): the state is remembered per
  * message id (not saveable, so that an undone row starts fresh), `onDismiss` captures only the id,
  * and toggles reset the row before they change the message. [account] is set in lists of several
- * accounts: the avatar takes its colour. A [sent] row shows its first recipient instead of the sender.
+ * accounts: its colour goes on the avatar, or on the account dot when sender colours are on ([look]).
+ * A [sent] row shows its first recipient instead of the sender. [logoAllowed]: the row may show the
+ * sender's logo when logos are on (DESIGN §12).
  */
 @Composable
 internal fun MessageRow(
@@ -77,6 +80,8 @@ internal fun MessageRow(
     account: Account?,
     draft: Boolean,
     sent: Boolean,
+    look: RowLook,
+    logoAllowed: Boolean,
     onOpen: (MessageSummary) -> Unit,
     onSelect: (Long) -> Unit,
     onAction: (Long, RowAction) -> Unit,
@@ -116,7 +121,7 @@ internal fun MessageRow(
         gesturesEnabled = !selecting,
         onDismiss = onDismiss,
     ) {
-        RowContent(row, swipe, date, selected, selecting, account, draft, sent, onOpen, onSelect, onAction)
+        RowContent(row, swipe, date, selected, selecting, account, draft, sent, look, logoAllowed, onOpen, onSelect, onAction)
     }
 }
 
@@ -168,6 +173,8 @@ private fun RowContent(
     account: Account?,
     draft: Boolean,
     sent: Boolean,
+    look: RowLook,
+    logoAllowed: Boolean,
     onOpen: (MessageSummary) -> Unit,
     onSelect: (Long) -> Unit,
     onAction: (Long, RowAction) -> Unit,
@@ -176,8 +183,15 @@ private fun RowContent(
     val scheme = MaterialTheme.colorScheme
     val type = MaterialTheme.typography
     val unread = !row.seen
-    val weight = if (unread) FontWeight.Bold else FontWeight.Normal
-    // In lists of several accounts the avatar colour shows the account; TalkBack says its name (WCAG 1.4.1).
+    val emphasis = rowEmphasis(look, row.seen)
+    val weight = if (emphasis.bold) FontWeight.Bold else FontWeight.Normal
+    val textColor = if (emphasis.dim) scheme.onSurfaceVariant else scheme.onSurface
+    val avatar = remember(look, row.seen, row.fromEmail, row.toList, sent, draft, account?.color) {
+        avatarStyle(look, row.seen, senderKey(row, sent, draft), account?.color)
+    }
+    // The logo of From only; the gate in ListContext keeps it off for sent mail, drafts and Spam.
+    val logo = rememberSenderLogo(row.fromEmail, look.logos, logoAllowed, before = row.date, exceptId = row.id)
+    // In lists of several accounts a colour shows the account; TalkBack says its name (WCAG 1.4.1).
     val stateText = listOfNotNull(stringResource(R.string.mailbox_unread).takeIf { unread }, account?.label)
         .joinToString(", ")
     val selectLabel = stringResource(if (selected) R.string.mailbox_deselect else R.string.mailbox_select)
@@ -206,7 +220,16 @@ private fun RowContent(
                 .padding(start = 16.dp, top = 12.dp, end = 4.dp, bottom = 8.dp),
         ) {
             Box(Modifier.padding(top = 2.dp)) {
-                if (selected) SelectedMark() else Avatar(recipient ?: row.fromName.ifBlank { row.fromEmail }, colorIndex = account?.color)
+                if (selected) {
+                    SelectedMark()
+                } else {
+                    Avatar(
+                        name = recipient ?: row.fromName.ifBlank { row.fromEmail },
+                        colorIndex = avatar.colorIndex,
+                        logo = logo,
+                        badge = avatar.badge,
+                    )
+                }
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
@@ -217,7 +240,7 @@ private fun RowContent(
                             recipient != null -> stringResource(R.string.mailbox_draft_to, recipient)
                             else -> row.fromName.ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.ui_no_sender) }
                         },
-                        color = if (draft) scheme.error else scheme.onSurface,
+                        color = if (draft) scheme.error else textColor,
                         style = type.bodyLarge,
                         fontWeight = weight,
                         maxLines = 1,
@@ -234,22 +257,31 @@ private fun RowContent(
                                 .size(16.dp),
                         )
                     }
+                    if (emphasis.dot) {
+                        // Decorative: TalkBack already says "Unread".
+                        Box(
+                            Modifier
+                                .padding(start = 8.dp)
+                                .size(UNREAD_DOT)
+                                .background(scheme.primary, CircleShape),
+                        )
+                    }
                     Text(
                         text = date,
-                        color = if (unread) scheme.primary else scheme.onSurfaceVariant,
+                        color = if (emphasis.bold) scheme.primary else scheme.onSurfaceVariant,
                         style = type.labelMedium,
                         fontWeight = weight,
                         maxLines = 1,
-                        modifier = Modifier.padding(start = 8.dp),
+                        modifier = Modifier.padding(start = if (emphasis.dot) 6.dp else 8.dp),
                     )
                 }
                 Row {
                     Column(Modifier.weight(1f)) {
                         Text(
                             text = row.subject.ifBlank { stringResource(R.string.ui_no_subject) },
-                            color = scheme.onSurface,
+                            color = textColor,
                             style = type.bodyMedium,
-                            fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = if (emphasis.bold) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -401,6 +433,13 @@ private fun DraftStateLabel(state: Int) {
 /** The name, else the address, of the first recipient in a stored `to_list`; null when there is none. */
 internal fun firstRecipient(toList: String): String? =
     Addresses.parseList(toList).firstOrNull()?.let { it.name?.takeIf(String::isNotBlank) ?: it.email }
+
+/** The address of the first recipient in a stored `to_list`; null when there is none. */
+internal fun firstRecipientAddress(toList: String): String? =
+    Addresses.parseList(toList).firstOrNull()?.email?.takeIf(String::isNotBlank)
+
+/** The unread dot before the date (unread style on). */
+private val UNREAD_DOT = 8.dp
 
 /** True when a failed send may have gone out (DESIGN §7.5): Retry asks first. */
 internal val Draft.mayHaveBeenSent: Boolean get() = state == DraftState.UNCERTAIN

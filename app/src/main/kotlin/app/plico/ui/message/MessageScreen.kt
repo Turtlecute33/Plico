@@ -433,10 +433,17 @@ private fun LabelChips(names: List<String>) {
     }
 }
 
-/** Name and real address always; recipients and the full date on a tap. */
+/**
+ * Name and real address always; recipients and the full date on a tap. The avatar shows the sender's logo only
+ * from the cache (DESIGN §12): opening a message never fetches one, so it cannot act as a read receipt.
+ */
 @Composable
 private fun SenderBlock(view: MessageView) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    val logos = LocalContext.current.app.logos
+    val logosOn by rememberPref(initial = false) { senderLogos }
+    val email = view.message.fromEmail
+    val logo = if (logosOn && view.logoAllowed) remember(email) { logos.cached(email) } else null
     val formats = rememberDateFormats()
     val scheme = MaterialTheme.colorScheme
     val toggleLabel = stringResource(if (expanded) R.string.message_hide_details else R.string.message_show_details)
@@ -449,7 +456,7 @@ private fun SenderBlock(view: MessageView) {
                 .padding(vertical = 8.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            Avatar(view.sender.name)
+            Avatar(view.sender.name, logo = logo)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

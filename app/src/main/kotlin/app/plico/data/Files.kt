@@ -8,9 +8,12 @@ import java.io.File
  * `<base>/<ownerId>/<safeName>`. Names from senders or other apps never become path parts as they are;
  * the original name lives only in the database.
  */
-class Files(context: Context) {
-    private val attBase = File(context.cacheDir, "att")
-    private val outboxBase = File(context.filesDir, "outbox")
+class Files internal constructor(cacheDir: File, filesDir: File) {
+    constructor(context: Context) : this(context.cacheDir, context.filesDir)
+
+    private val attBase = File(cacheDir, "att")
+    private val outboxBase = File(filesDir, "outbox")
+    private val logoBase = File(cacheDir, "logos")
 
     /** cacheDir/att/<messageId>/<attachmentId> (parent dir created) */
     fun attachment(messageId: Long, attachmentId: Long): File =
@@ -56,6 +59,19 @@ class Files(context: Context) {
             dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.deleteRecursively() }
             if (oldDir && dir.list().isNullOrEmpty()) dir.delete()
         }
+    }
+
+    /** cacheDir/logos/: the sender logo cache (DESIGN.md §12). Not created here. */
+    fun logoDir(): File = logoBase
+
+    /**
+     * cacheDir/logos/<hash>.<ext> (parent dir created). [hash] is the lower-case hex SHA-256 of a domain, never
+     * the domain itself; [ext] is a plain extension such as `png` or `none`.
+     */
+    fun logo(hash: String, ext: String): File {
+        require(hash.length == 64 && hash.all { it in '0'..'9' || it in 'a'..'f' }) { "Not a SHA-256 hex" }
+        require(ext.isNotEmpty() && ext.all { it in 'a'..'z' }) { "Not a plain extension" }
+        return inside(logoBase, "$hash.$ext").also { it.parentFile?.mkdirs() }
     }
 
     companion object {

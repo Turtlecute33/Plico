@@ -128,6 +128,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val swipeStart by rememberPref(Prefs.Swipe.NONE) { swipeStart }
     val swipeEnd by rememberPref(Prefs.Swipe.NONE) { swipeEnd }
     val gmailIpNoteShown by rememberPref(true) { gmailIpNoteShown }
+    val look = rememberRowLook(app.prefs)
     val dates = rememberDateFormats()
 
     val rows = messages.orEmpty()
@@ -438,6 +439,8 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                             account = if (crossAccount) listContext.accounts[row.accountId] else null,
                             draft = info?.place == Place.DRAFTS,
                             sent = info?.sent == true,
+                            look = look,
+                            logoAllowed = info?.logoAllowed == true,
                             onOpen = ::open,
                             onSelect = vm::toggleSelected,
                             onAction = { id, action -> act(listOf(id), action) },
@@ -497,6 +500,18 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
 
 private val FAB_SPACE = 88.dp
 private val NO_SWIPE = RowSwipe(null, null)
+
+/**
+ * The [RowLook] of every row, read once for the list (rows never read settings). It starts with the stored
+ * value (an in-memory read), so that a changed setting does not flicker when the list opens.
+ */
+@Composable
+private fun rememberRowLook(prefs: Prefs): RowLook {
+    val look by rememberPref(remember(prefs) { prefs.rowLook() }) { rowLook() }
+    return look
+}
+
+private fun Prefs.rowLook() = RowLook(markUnread, avatarColors, logoSource.takeIf { senderLogos })
 
 /** The "Empty" entry of the Trash and Spam overflow menu. */
 @Composable

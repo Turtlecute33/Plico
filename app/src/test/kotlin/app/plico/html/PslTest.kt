@@ -110,6 +110,74 @@ class PslTest {
     }
 
     @Test
+    fun matchedRuleRecordsTheSection() {
+        val com = psl.matchedRule("www.example.com")
+        assertEquals("com", com?.suffix)
+        assertEquals(false, com?.private)
+        assertEquals(false, psl.matchedRule("news.bbc.co.uk")?.private)
+        assertEquals("co.uk", psl.matchedRule("news.bbc.co.uk")?.suffix)
+
+        for ((host, suffix) in listOf(
+            "x.github.io" to "github.io",
+            "www.x.pages.dev" to "pages.dev",
+            "blog.blogspot.com" to "blogspot.com",
+            "a.netlify.app" to "netlify.app",
+            "a.b.workers.dev" to "workers.dev",
+        )) {
+            val rule = psl.matchedRule(host)
+            assertEquals(suffix, rule?.suffix, host)
+            assertEquals(true, rule?.private, host)
+        }
+    }
+
+    @Test
+    fun matchedRuleOfWildcardsAndExceptions() {
+        // *.ck: the wildcard gives the suffix foo.ck; !www.ck gives ck.
+        assertEquals("foo.ck", psl.matchedRule("a.foo.ck")?.suffix)
+        assertEquals("ck", psl.matchedRule("a.www.ck")?.suffix)
+        assertEquals(false, psl.matchedRule("a.www.ck")?.private)
+    }
+
+    @Test
+    fun matchedRuleIsNullForUnlistedSuffixesAndBadHosts() {
+        assertNull(psl.matchedRule("example.notatld"))
+        assertNull(psl.matchedRule("foo.unknowntld"))
+        assertNull(psl.matchedRule("192.168.1.1"))
+        assertNull(psl.matchedRule(""))
+    }
+
+    @Test
+    fun sectionsOfASmallList() {
+        val small = Psl(
+            """
+            // ===BEGIN ICANN DOMAINS===
+            com
+            *.jp
+            // ===END ICANN DOMAINS===
+            // ===BEGIN PRIVATE DOMAINS===
+            // Some company
+            pages.example.com
+            *.cloud.example.com
+            !www.cloud.example.com
+            // ===END PRIVATE DOMAINS===
+            org
+            """.trimIndent(),
+        )
+        assertEquals(false, small.matchedRule("a.com")?.private)
+        assertEquals(false, small.matchedRule("a.tokyo.jp")?.private)
+        assertEquals(true, small.matchedRule("x.pages.example.com")?.private)
+        assertEquals("x.cloud.example.com", small.matchedRule("a.x.cloud.example.com")?.suffix)
+        assertEquals(true, small.matchedRule("a.x.cloud.example.com")?.private)
+        assertEquals(true, small.matchedRule("a.www.cloud.example.com")?.private)
+        // After the END marker the section is ICANN again.
+        assertEquals(false, small.matchedRule("a.org")?.private)
+        // The results that existed before stay the same.
+        assertEquals("x.pages.example.com", small.registrableDomain("y.x.pages.example.com"))
+        assertTrue(small.hasListedSuffix("a.org"))
+        assertFalse(small.hasListedSuffix("a.net"))
+    }
+
+    @Test
     fun bundledListLoads() {
         val text = File("src/main/assets/public_suffix_list.dat").readText()
         assertTrue(text.startsWith("// This Source Code Form is subject to the terms of the Mozilla Public"))

@@ -78,6 +78,8 @@ data class MessageView(
     /** Gmail without a visible Trash or Spam mailbox turns Delete or Spam off (DESIGN §7.3). */
     val canDelete: Boolean,
     val canSpam: Boolean,
+    /** The sender block may show a cached logo of From (DESIGN §12); never fetched when a message opens. */
+    val logoAllowed: Boolean = false,
 )
 
 sealed interface MessageState {
@@ -535,6 +537,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
             replyAll = replyAllUseful(m.fromEmail, m.toList, m.ccList, f.own),
             canDelete = placement.deletesForever || f.canDelete,
             canSpam = placement.inJunk || f.canSpam,
+            logoAllowed = logoAllowed(m.fromEmail, m.draft, f.ownMessage, f.own, trust),
         )
     }
 

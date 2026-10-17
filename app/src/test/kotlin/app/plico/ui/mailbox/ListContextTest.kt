@@ -3,6 +3,7 @@ package app.plico.ui.mailbox
 import app.plico.R
 import app.plico.account.MailError
 import app.plico.data.AccountAbilities
+import app.plico.data.Auth
 import app.plico.data.FolderRole
 import app.plico.data.Provider
 import app.plico.ui.components.ErrorText
@@ -40,6 +41,50 @@ class ListContextTest {
         val elsewhere = ListContext(listOf(riseup, gmail), folders, inboxView = false)
         assertFalse(elsewhere.info(summary(4, 10, accountId = 2)).archivable)
         assertTrue(elsewhere.info(summary(1, 1)).archivable)
+    }
+
+    @Test
+    fun logoOnlyForReceivedMailOutsideSpam() {
+        val riseup = account(1)
+        val folders = listOf(
+            folder(1, 1, "INBOX", FolderRole.INBOX),
+            folder(2, 1, "Spam", FolderRole.JUNK),
+            folder(3, 1, "Sent", FolderRole.SENT),
+            folder(4, 1, "Drafts", FolderRole.DRAFTS),
+            folder(5, 1, "Trash", FolderRole.TRASH),
+        )
+        val context = ListContext(listOf(riseup), folders, inboxView = true)
+        val own = riseup.email
+        // Received mail in INBOX (and Trash) may show the sender's logo.
+        assertTrue(context.info(summary(1, 1, fromEmail = "news@example.com")).logoAllowed)
+        assertTrue(context.info(summary(2, 5, fromEmail = "news@example.com")).logoAllowed)
+        // Never in Spam.
+        assertFalse(context.info(summary(3, 2, fromEmail = "news@example.com")).logoAllowed)
+        // Never for mail the user sent: no recipient domain is ever sent.
+        assertFalse(context.info(summary(4, 3, fromEmail = own, toList = "x@example.com")).logoAllowed)
+        // A forged own From, in Spam and in INBOX.
+        assertFalse(context.info(summary(5, 2, fromEmail = own)).logoAllowed)
+        assertFalse(context.info(summary(6, 1, fromEmail = own.uppercase())).logoAllowed)
+        // Drafts: in the Drafts folder, and with the draft flag elsewhere.
+        assertFalse(context.info(summary(7, 4, fromEmail = "news@example.com")).logoAllowed)
+        assertFalse(context.info(summary(8, 1, draft = true, fromEmail = "news@example.com")).logoAllowed)
+    }
+
+    @Test
+    fun gmailLogoNeedsADmarcPass() {
+        val gmail = account(2, Provider.GMAIL)
+        val folders = listOf(folder(10, 2, "[Gmail]/All Mail", FolderRole.ALL), folder(11, 2, "[Gmail]/Spam", FolderRole.JUNK))
+        val context = ListContext(listOf(gmail), folders, inboxView = true)
+        assertTrue(context.info(summary(1, 10, accountId = 2, auth = Auth.PASS)).logoAllowed)
+        assertFalse(context.info(summary(2, 10, accountId = 2, auth = Auth.UNKNOWN)).logoAllowed)
+        assertFalse(context.info(summary(3, 10, accountId = 2, auth = Auth.FAIL)).logoAllowed)
+        assertFalse(context.info(summary(4, 11, accountId = 2, auth = Auth.PASS)).logoAllowed)
+    }
+
+    @Test
+    fun noLogoForARowWithoutItsAccount() {
+        val context = ListContext(emptyList(), listOf(folder(1, 9, "INBOX", FolderRole.INBOX)), inboxView = true)
+        assertFalse(context.info(summary(1, 1, accountId = 9)).logoAllowed)
     }
 
     @Test

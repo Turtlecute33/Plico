@@ -9,18 +9,31 @@ import android.content.Context
  * @param text the content of `public_suffix_list.dat`.
  */
 class Psl(text: String) {
-    private val rules = HashSet<String>()
-    private val wildcards = HashSet<String>()
-    private val exceptions = HashSet<String>()
+    /** One rule of the list that matched a host: its public [suffix] and its section ([private] = PRIVATE DOMAINS). */
+    class Rule(val suffix: String, val private: Boolean)
+
+    // Rule (ASCII, without `*.` or `!`) → true when it is in the PRIVATE DOMAINS section.
+    private val rules = HashMap<String, Boolean>()
+    private val wildcards = HashMap<String, Boolean>()
+    private val exceptions = HashMap<String, Boolean>()
 
     init {
+        var private = false
         for (line in text.lineSequence()) {
-            val rule = line.trim().substringBefore(' ').substringBefore('\t')
-            if (rule.isEmpty() || rule.startsWith("//")) continue
+            val trimmed = line.trim()
+            if (trimmed.startsWith("//")) {
+                when {
+                    PRIVATE_BEGIN in trimmed -> private = true
+                    PRIVATE_END in trimmed -> private = false
+                }
+                continue
+            }
+            val rule = trimmed.substringBefore(' ').substringBefore('\t')
+            if (rule.isEmpty()) continue
             when {
-                rule.startsWith('!') -> Idn.toAscii(rule.substring(1))?.let(exceptions::add)
-                rule.startsWith("*.") -> Idn.toAscii(rule.substring(2))?.let(wildcards::add)
-                else -> Idn.toAscii(rule)?.let(rules::add)
+                rule.startsWith('!') -> Idn.toAscii(rule.substring(1))?.let { exceptions[it] = private }
+                rule.startsWith("*.") -> Idn.toAscii(rule.substring(2))?.let { wildcards[it] = private }
+                else -> Idn.toAscii(rule)?.let { rules[it] = private }
             }
         }
     }
@@ -42,7 +55,13 @@ class Psl(text: String) {
     }
 
     /** True when a rule of the list (not only the implicit `*` rule) matches [host]. */
-    fun hasListedSuffix(host: String): Boolean = labels(host)?.let { match(it).listed } == true
+    fun hasListedSuffix(host: String): Boolean = labels(host)?.let { match(it).rule != null } == true
+
+    /**
+     * The rule of the list that decides the public suffix of [host], with its section. Null when only the
+     * implicit `*` rule matches (an unlisted suffix), and for IP addresses and invalid names.
+     */
+    fun matchedRule(host: String): Rule? = labels(host)?.let { match(it).rule }
 
     /** The registrable domain of [host], else its ASCII form; for comparing two sites. */
     internal fun site(host: String): String =
@@ -54,20 +73,23 @@ class Psl(text: String) {
         .mapNotNull(::registrableDomain)
         .toList()
 
-    private class Match(val size: Int, val listed: Boolean)
+    /** [size] labels of the host form the public suffix; [rule] null = only the implicit `*` rule matched. */
+    private class Match(val size: Int, val rule: Rule?)
 
     private fun match(labels: List<String>): Match {
         fun suffix(from: Int) = labels.subList(from, labels.size).joinToString(".")
         // An exception rule wins over every other rule; its leftmost label is not part of the suffix.
         for (i in labels.indices) {
-            if (suffix(i) in exceptions) return Match(labels.size - i - 1, true)
+            val exception = suffix(i)
+            exceptions[exception]?.let { return Match(labels.size - i - 1, Rule(suffix(i + 1), it)) }
         }
         // Longest match first.
         for (i in labels.indices) {
-            val wildcard = i + 1 < labels.size && suffix(i + 1) in wildcards
-            if (wildcard || suffix(i) in rules) return Match(labels.size - i, true)
+            val wildcard = if (i + 1 < labels.size) wildcards[suffix(i + 1)] else null
+            val section = wildcard ?: rules[suffix(i)]
+            if (section != null) return Match(labels.size - i, Rule(suffix(i), section))
         }
-        return Match(1, false)
+        return Match(1, null)
     }
 
     private fun labels(host: String): List<String>? =
@@ -75,6 +97,8 @@ class Psl(text: String) {
 
     companion object {
         private const val ASSET = "public_suffix_list.dat"
+        private const val PRIVATE_BEGIN = "===BEGIN PRIVATE DOMAINS==="
+        private const val PRIVATE_END = "===END PRIVATE DOMAINS==="
         private val domainLike = Regex("""[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+""")
 
         @Volatile

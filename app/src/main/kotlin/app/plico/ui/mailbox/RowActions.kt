@@ -28,7 +28,8 @@ internal enum class RowAction(val removesRow: Boolean = false) {
 /**
  * One list row with what the actions need to know about it. Gmail Archive removes `\Inbox`, so [canArchive] is
  * off for Gmail rows outside the inbox views, where a row may not have it. [sent]: mail the user sent (in Sent, or
- * from the account's address); the row shows its recipient.
+ * from the account's address); the row shows its recipient. [logoAllowed]: the row may show the logo of its
+ * sender (DESIGN §12): received mail outside Spam whose sender passes the trust check.
  */
 internal data class RowInfo(
     val id: Long,
@@ -40,6 +41,7 @@ internal data class RowInfo(
     val abilities: AccountAbilities = AccountAbilities(),
     val canArchive: Boolean = true,
     val sent: Boolean = false,
+    val logoAllowed: Boolean = false,
 ) {
     val archivable: Boolean get() = place == Place.NORMAL && canArchive
 }

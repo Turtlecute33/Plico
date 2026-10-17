@@ -22,6 +22,8 @@ import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.MailView
 import app.plico.data.MessageSummary
+import app.plico.html.SenderCheck
+import app.plico.html.SenderTrust
 import app.plico.sync.FolderRules
 import app.plico.sync.Undo
 import app.plico.ui.components.ErrorText
@@ -91,18 +93,33 @@ internal class ListContext(accounts: List<Account>, folders: List<Folder>, priva
     private val archives = accounts.associate { it.id to FolderRules.archiveOf(it, folders)?.id }
     private val abilities = accounts.associate { it.id to AccountAbilities.of(it, folders) }
 
-    fun info(row: MessageSummary) = RowInfo(
-        id = row.id,
-        accountId = row.accountId,
-        seen = row.seen,
-        flagged = row.flagged,
-        place = RowActions.placeOf(row, folders[row.folderId], archives[row.accountId]),
-        gmail = accounts[row.accountId]?.isGmail == true,
-        abilities = abilities[row.accountId] ?: AccountAbilities(),
-        canArchive = inboxView || accounts[row.accountId]?.isGmail != true,
-        sent = folders[row.folderId]?.role == FolderRole.SENT ||
-            row.fromEmail.equals(accounts[row.accountId]?.email, ignoreCase = true),
-    )
+    fun info(row: MessageSummary): RowInfo {
+        val place = RowActions.placeOf(row, folders[row.folderId], archives[row.accountId])
+        val gmail = accounts[row.accountId]?.isGmail == true
+        val sent = folders[row.folderId]?.role == FolderRole.SENT ||
+            row.fromEmail.equals(accounts[row.accountId]?.email, ignoreCase = true)
+        return RowInfo(
+            id = row.id,
+            accountId = row.accountId,
+            seen = row.seen,
+            flagged = row.flagged,
+            place = place,
+            gmail = gmail,
+            abilities = abilities[row.accountId] ?: AccountAbilities(),
+            canArchive = inboxView || !gmail,
+            sent = sent,
+            logoAllowed = logoAllowed(row, place, gmail, sent),
+        )
+    }
+
+    /**
+     * DESIGN §12: a logo only for received mail ([sent] rows and drafts never: no recipient domain is sent, and
+     * spam with a forged own From gets none), never in Spam, and never for Gmail mail without a DMARC pass. The
+     * logo is always the one of From.
+     */
+    private fun logoAllowed(row: MessageSummary, place: Place, gmail: Boolean, sent: Boolean): Boolean =
+        !sent && !row.draft && place != Place.DRAFTS && accounts.containsKey(row.accountId) &&
+            SenderCheck.trust(gmail, row.auth, inJunk = place == Place.SPAM) != SenderTrust.NONE
 }
 
 /**

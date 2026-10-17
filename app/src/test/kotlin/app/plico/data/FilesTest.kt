@@ -125,6 +125,30 @@ class FilesTest {
     }
 
     @Test
+    fun logoPathsStayInTheLogoDir() {
+        val files = Files(cacheDir = base, filesDir = base)
+        val dir = File(base, "logos")
+        assertEquals(dir, files.logoDir())
+        val hash = "0123456789abcdef".repeat(4)
+        val png = files.logo(hash, "png")
+        assertEquals(File(dir.canonicalFile, "$hash.png"), png)
+        assertTrue(dir.isDirectory)
+        assertEquals(File(dir.canonicalFile, "$hash.none"), files.logo(hash, "none"))
+    }
+
+    @Test
+    fun logoPathsRefuseOtherNames() {
+        val files = Files(cacheDir = base, filesDir = base)
+        val hash = "a".repeat(64)
+        for (bad in listOf("../" + "a".repeat(61), "A".repeat(64), "a".repeat(63), "", "example.com", "a".repeat(65))) {
+            assertFailsWith<IllegalArgumentException>(bad) { files.logo(bad, "png") }
+        }
+        for (bad in listOf("", "PNG", "png/../../x", ".png", "png.tmp", "p g")) {
+            assertFailsWith<IllegalArgumentException>(bad) { files.logo(hash, bad) }
+        }
+    }
+
+    @Test
     fun safeNamesStayInside() {
         val hostile = listOf(
             "../../shared_prefs/plico.xml", "..\\..\\databases\\plico.db", "..%2F..%2Fx", "\u0000",
