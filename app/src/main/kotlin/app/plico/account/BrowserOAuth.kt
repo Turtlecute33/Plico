@@ -1,5 +1,6 @@
 package app.plico.account
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -120,6 +121,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
      * client ID, and when another app can also receive the redirect URI (PKCE stops it from using the code, but
      * its chooser would block the sign-in).
      */
+    @SuppressLint("UseKtx") // core-ktx is not a dependency (DESIGN §2)
     fun start(activity: Activity, email: String) {
         val clientId = clientId(issuer)
         val handlers = activity.packageManager.queryIntentActivities(
