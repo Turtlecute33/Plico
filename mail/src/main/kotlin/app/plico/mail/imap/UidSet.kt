@@ -26,6 +26,30 @@ class UidSet private constructor(val ranges: List<LongRange>) {
         return false
     }
 
+    /** True when every UID of [range] is in this set. */
+    internal fun containsAll(range: LongRange): Boolean {
+        if (range.isEmpty()) return true
+        var lo = 0
+        var hi = ranges.size - 1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            val r = ranges[mid]
+            when {
+                range.first < r.first -> hi = mid - 1
+                range.first > r.last -> lo = mid + 1
+                else -> return range.last <= r.last
+            }
+        }
+        return false
+    }
+
+    /** The UIDs of both sets. */
+    internal fun union(other: UidSet): UidSet = when {
+        other.isEmpty -> this
+        isEmpty -> other
+        else -> fromRanges(ranges + other.ranges)
+    }
+
     /** All UIDs in ascending order. Do not call on a set that contains `*`. */
     fun toList(): List<Long> {
         require(max != MAX) { "open range" }

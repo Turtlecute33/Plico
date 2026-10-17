@@ -1,6 +1,13 @@
 package app.plico.mail.imap
 
 import app.plico.mail.imap.FakeStream.Companion.literal
+import app.plico.mail.net.Endpoint
+import app.plico.mail.net.SocketHooks
+import app.plico.mail.net.StartTlsException
+import app.plico.mail.net.StartTlsServer
+import app.plico.mail.net.TestTls
+import app.plico.mail.net.TlsMode
+import javax.net.ssl.SSLSession
 import app.plico.mail.sasl.Sasl
 import java.time.OffsetDateTime
 import kotlin.test.Test
@@ -33,6 +40,18 @@ class ImapClientTest {
     }
 
     private fun epoch(iso: String) = OffsetDateTime.parse(iso).toInstant().toEpochMilli()
+
+    /** The greeting of a server with exactly [caps], on the encrypted [fake]. */
+    private fun greet(caps: String) {
+        fake.server("* OK [CAPABILITY $caps] ready")
+        client.conn.greeting()
+    }
+
+    /** A plaintext stream (STARTTLS mode before the switch) that sends [greeting]. */
+    private fun plaintext(greeting: String) = FakeStream().apply {
+        encrypted = false
+        server(greeting)
+    }
 
     @Test
     fun dovecotLoginWithSaslIr() {
@@ -69,7 +88,7 @@ class ImapClientTest {
         for ((caps, ok) in listOf("IMAP4rev1" to true, "IMAP4rev2" to true, "IDLE MOVE UIDPLUS ESEARCH" to false)) {
             val fake = FakeStream()
             val client = ImapClient(ImapConnection(fake))
-            fake.server("* OK ready")
+            fake.server("* OK [CAPABILITY $caps AUTH=PLAIN SASL-IR] ready")
             client.conn.greeting()
             fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("a", "b")}").server("A1 OK [CAPABILITY $caps] Logged in")
             client.authenticatePassword("a", "b")
@@ -81,6 +100,29 @@ class ImapClientTest {
             }
             fake.finish()
         }
+    }
+
+    @Test
+    fun imap4rev2WithoutRev1GetsTheBaseExtensions() {
+        fake.server("* OK ready")
+        client.conn.greeting()
+        fake.client("A1 CAPABILITY").server("* CAPABILITY IMAP4rev2 AUTH=PLAIN", "A1 OK done")
+        fake.client("A2 AUTHENTICATE PLAIN ${Sasl.plain("a", "b")}").server("A2 OK [CAPABILITY IMAP4rev2 QUOTA] Logged in")
+        client.authenticatePassword("a", "b") // SASL-IR comes from the base set
+        client.requireCapabilities()
+        val base = setOf(
+            "IDLE", "MOVE", "UIDPLUS", "ESEARCH", "NAMESPACE", "ENABLE", "SPECIAL-USE", "LIST-EXTENDED", "LIST-STATUS",
+            "SASL-IR", "UNSELECT",
+        )
+        assertEquals(base + setOf("IMAP4REV2", "QUOTA"), client.caps)
+        assertEquals(setOf("IMAP4REV2", "QUOTA"), client.conn.capabilities, "the advertised set stays as sent")
+        fake.finish()
+
+        // A server with both keeps exactly what it advertises.
+        val both = FakeStream().server("* OK [CAPABILITY IMAP4rev1 IMAP4rev2 IDLE] ready")
+        val bothClient = ImapClient(ImapConnection(both)).apply { conn.greeting() }
+        assertEquals(setOf("IMAP4REV1", "IMAP4REV2", "IDLE"), bothClient.caps)
+        both.finish()
     }
 
     @Test
@@ -117,7 +159,7 @@ class ImapClientTest {
 
     @Test
     fun enableSendsNothingWithoutEnable() {
-        fake.server("* OK ready")
+        fake.server("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN SASL-IR] ready")
         client.conn.greeting()
         fake.client("A1 AUTHENTICATE PLAIN ${Sasl.plain("a", "b")}").server("A1 OK [CAPABILITY IMAP4rev1 CONDSTORE] Logged in")
         client.authenticatePassword("a", "b")
@@ -130,7 +172,303 @@ class ImapClientTest {
         dovecot()
         fake.client("A2 ID (\"name\" \"Mail\")").server("* ID NIL", "A2 OK ID completed.")
         client.id(listOf("name" to "Mail"))
+        fake.client("A3 ID (\"name\" \"Mail\")").server("A3 BAD Unknown command")
+        client.id(listOf("name" to "Mail")) // the reply is ignored, also a BAD
         fake.finish()
+    }
+
+    @Test
+    fun namespaceParsesAllThreeGroups() {
+        greet("IMAP4rev1 NAMESPACE")
+        fake.client("A1 NAMESPACE").server(
+            "* NAMESPACE ((\"\" \"/\")) ((\"Other Users/\" \"/\")) ((\"Public/\" \"/\") (\"Gemeinsam &APw-/\" NIL \"X-PARAM\" (\"a\")))",
+            "A1 OK Namespace completed.",
+        )
+        val expected = Namespaces(
+            personal = listOf(Namespace("", "/")),
+            otherUsers = listOf(Namespace("Other Users/", "/")),
+            shared = listOf(Namespace("Public/", "/"), Namespace("Gemeinsam ü/", null)),
+        )
+        assertEquals(expected, client.namespace())
+        assertEquals(expected, client.namespace(), "asked once per connection")
+        fake.finish()
+    }
+
+    @Test
+    fun namespaceWithNilGroups() {
+        greet("IMAP4rev1 NAMESPACE")
+        fake.client("A1 NAMESPACE").server("* NAMESPACE ((\"INBOX.\" \".\")) NIL NIL", "A1 OK done")
+        assertEquals(Namespaces(listOf(Namespace("INBOX.", ".")), emptyList(), emptyList()), client.namespace())
+        fake.finish()
+    }
+
+    @Test
+    fun namespaceIsNullWithoutTheCapabilityOrAnAnswer() {
+        greet("IMAP4rev1")
+        assertNull(client.namespace())
+        fake.finish()
+
+        val refused = FakeStream().server("* OK [CAPABILITY IMAP4rev1 NAMESPACE] ready")
+        val other = ImapClient(ImapConnection(refused)).apply { conn.greeting() }
+        refused.client("A1 NAMESPACE").server("A1 BAD Error in IMAP command")
+        assertNull(other.namespace())
+        assertNull(other.namespace(), "not asked again")
+        refused.finish()
+    }
+
+    // STARTTLS
+
+    @Test
+    fun starttlsUpgradesAndAsksForCapabilitiesBeforeTheLogin() {
+        val fake = plaintext("* OK [CAPABILITY IMAP4rev1 SASL-IR STARTTLS LOGINDISABLED AUTH=PLAIN] Dovecot ready.")
+        fake.client("A1 STARTTLS").server("A1 OK [CAPABILITY IMAP4rev1 LOGINDISABLED] Begin TLS negotiation now.")
+            .client("A2 CAPABILITY").server("* CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN IDLE", "A2 OK Pre-login capabilities listed.")
+        val client = ImapClient.start(fake, STARTTLS_ENDPOINT)
+        assertEquals(1, fake.tlsStarts)
+        assertTrue(fake.encrypted)
+        assertEquals("imap.example.org", client.host)
+        assertEquals(setOf("IMAP4REV1", "SASL-IR", "AUTH=PLAIN", "IDLE"), client.caps)
+        fake.client("A3 AUTHENTICATE PLAIN ${Sasl.plain("alice", "pw")}").server("A3 OK [CAPABILITY IMAP4rev1 IDLE MOVE] Logged in")
+        client.authenticatePassword("alice", "pw")
+        client.requireCapabilities()
+        fake.finish()
+    }
+
+    @Test
+    fun loginDisabledFromBeforeTlsIsIgnored() {
+        val fake = plaintext("* OK [CAPABILITY IMAP4rev1 STARTTLS LOGINDISABLED] ready")
+        fake.client("A1 STARTTLS").server("A1 OK Begin TLS")
+            .client("A2 CAPABILITY").server("* CAPABILITY IMAP4rev1", "A2 OK done")
+        val client = ImapClient.start(fake, STARTTLS_ENDPOINT)
+        fake.client("A3 LOGIN \"alice\" \"pw\"").server("A3 OK Logged in")
+        client.authenticatePassword("alice", "pw")
+        fake.finish()
+    }
+
+    @Test
+    fun starttlsIsSentEvenWhenNotAdvertised() {
+        val fake = plaintext("* OK [CAPABILITY IMAP4rev1] ready")
+        fake.client("A1 STARTTLS").server("A1 OK Begin TLS")
+            .client("A2 CAPABILITY").server("* CAPABILITY IMAP4rev1 AUTH=PLAIN", "A2 OK done")
+        ImapClient.start(fake, STARTTLS_ENDPOINT)
+        assertTrue(fake.encrypted)
+        fake.finish()
+    }
+
+    @Test
+    fun bytesAfterTheStarttlsReplyFailBeforeAnySecret() {
+        val fake = plaintext("* OK [CAPABILITY IMAP4rev1 STARTTLS] ready")
+        fake.client("A1 STARTTLS").server("A1 OK Begin TLS\r\n* CAPABILITY IMAP4rev1 AUTH=PLAIN")
+        assertFailsWith<StartTlsException> { ImapClient.start(fake, STARTTLS_ENDPOINT) }
+        assertFalse(fake.encrypted)
+        assertTrue(fake.closed)
+        fake.finish(unreadServerBytes = true)
+    }
+
+    @Test
+    fun refusedStarttlsClosesAndNeverFallsBack() {
+        for (reply in listOf("A1 NO [UNAVAILABLE] TLS not available", "A1 BAD Unknown command")) {
+            val fake = plaintext("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready")
+            fake.client("A1 STARTTLS").server(reply)
+            assertFailsWith<StartTlsException>(reply) { ImapClient.start(fake, STARTTLS_ENDPOINT) }
+            assertFalse(fake.encrypted)
+            assertTrue(fake.closed)
+            fake.finish()
+        }
+    }
+
+    @Test
+    fun preauthGreetingFailsInStarttlsMode() {
+        val fake = plaintext("* PREAUTH [CAPABILITY IMAP4rev1] Logged in as alice")
+        assertFailsWith<StartTlsException> { ImapClient.start(fake, STARTTLS_ENDPOINT) }
+        assertTrue(fake.closed)
+        fake.finish()
+
+        // With implicit TLS a PREAUTH greeting is accepted as before.
+        val tls = FakeStream().server("* PREAUTH [CAPABILITY IMAP4rev1] Logged in as alice")
+        val client = ImapClient.start(tls, Endpoint("imap.example.org", 993, TlsMode.IMPLICIT))
+        assertTrue("IMAP4REV1" in client.caps)
+        tls.finish()
+    }
+
+    @Test
+    fun byeGreetingInStarttlsModeCloses() {
+        val fake = plaintext("* BYE Too many connections")
+        assertFailsWith<ImapByeException> { ImapClient.start(fake, STARTTLS_ENDPOINT) }
+        assertTrue(fake.closed)
+    }
+
+    @Test
+    fun aPlaintextStreamIsNeverReturnedForImplicitTls() {
+        val fake = plaintext("* OK [CAPABILITY IMAP4rev1] ready")
+        assertFailsWith<IllegalStateException> {
+            ImapClient.start(fake, Endpoint("imap.example.org", 993, TlsMode.IMPLICIT))
+        }
+        assertTrue(fake.closed)
+        fake.finish()
+    }
+
+    @Test(timeout = 30_000)
+    fun connectWithStarttlsOverRealTls() {
+        StartTlsServer("localhost") { c ->
+            c.send("* OK [CAPABILITY IMAP4rev1 STARTTLS LOGINDISABLED] ready\r\n")
+            assertEquals("A1 STARTTLS", c.line())
+            c.send("A1 OK Begin TLS negotiation now.\r\n")
+            c.upgrade()
+            assertEquals("A2 CAPABILITY", c.line())
+            c.send("* CAPABILITY IMAP4rev1 AUTH=PLAIN SASL-IR\r\nA2 OK done\r\n")
+            assertEquals("A3 AUTHENTICATE PLAIN ${Sasl.plain("alice", "pw")}", c.line())
+            c.send("A3 OK [CAPABILITY IMAP4rev1 IDLE] Logged in\r\n")
+            assertEquals("A4 LOGOUT", c.line())
+            c.send("* BYE Logging out\r\nA4 OK Logout completed.\r\n")
+        }.use { server ->
+            val endpoint = Endpoint("localhost", server.port, TlsMode.STARTTLS)
+            val client = ImapClient.connect(endpoint, AcceptAll, {}, TestTls.clientFactory("localhost"))
+            assertTrue(client.conn.encrypted)
+            client.authenticatePassword("alice", "pw")
+            assertTrue("IDLE" in client.caps)
+            client.logout()
+            server.join()
+        }
+    }
+
+    private object AcceptAll : SocketHooks {
+        override fun verifyHostname(host: String, session: SSLSession) = true
+    }
+
+    // Password and token sign-in
+
+    @Test
+    fun plainWithoutSaslIrAnswersTheContinuation() {
+        greet("IMAP4rev1 AUTH=PLAIN")
+        fake.client("A1 AUTHENTICATE PLAIN").server("+ ").client(Sasl.plain("alice", "pw")).server("A1 OK Logged in")
+        client.authenticatePassword("alice", "pw")
+        fake.finish()
+    }
+
+    @Test
+    fun plainErrorChallengeGetsTheCancel() {
+        greet("IMAP4rev1 AUTH=PLAIN")
+        fake.client("A1 AUTHENTICATE PLAIN").server("+")
+            .client(Sasl.plain("alice", "pw")).server("+ c29ycnk=")
+            .client("*").server("A1 BAD Authentication aborted")
+        assertFailsWith<ImapBadException> { client.authenticatePassword("alice", "pw") }
+        fake.finish()
+    }
+
+    @Test
+    fun capabilitiesAreAskedWhenTheGreetingHasNone() {
+        fake.server("* OK Microsoft Exchange Server IMAP4 service is ready.")
+        client.conn.greeting()
+        fake.client("A1 CAPABILITY").server("* CAPABILITY IMAP4 IMAP4rev1 AUTH=PLAIN AUTH=XOAUTH2 SASL-IR UIDPLUS ID", "A1 OK done")
+        fake.client("A2 AUTHENTICATE PLAIN ${Sasl.plain("alice@example.org", "pw")}").server("A2 OK AUTHENTICATE completed.")
+        client.authenticatePassword("alice@example.org", "pw")
+        fake.client("A3 CAPABILITY").server("* CAPABILITY IMAP4 IMAP4rev1 IDLE UIDPLUS MOVE", "A3 OK done")
+        client.requireCapabilities() // the capabilities after the login are asked again
+        fake.finish()
+    }
+
+    @Test
+    fun loginQuotesSimpleStrings() {
+        greet("IMAP4rev1")
+        fake.client("A1 LOGIN \"alice@example.org\" \"pass word\"").server("A1 OK [CAPABILITY IMAP4rev1 IDLE] Logged in")
+        client.authenticatePassword("alice@example.org", "pass word")
+        client.requireCapabilities() // capabilities came with the tagged OK
+        fake.finish()
+    }
+
+    @Test
+    fun loginSendsOtherPasswordsAsLiterals() {
+        greet("IMAP4rev1")
+        fake.client("A1 LOGIN \"alice\" {6}").server("+ Ready for literal data").client("p\"w\\ x").server("A1 OK Logged in")
+        client.authenticatePassword("alice", "p\"w\\ x")
+        fake.finish()
+
+        val plus = FakeStream().server("* OK [CAPABILITY IMAP4rev1 LITERAL+] ready")
+        val withPlus = ImapClient(ImapConnection(plus)).apply { conn.greeting() }
+        plus.client("A1 LOGIN \"alice\" {10+}\r\npässwörd").server("A1 NO [AUTHENTICATIONFAILED] Authentication failed.")
+        val e = assertFailsWith<ImapNoException> { withPlus.authenticatePassword("alice", "pässwörd") }
+        assertEquals("AUTHENTICATIONFAILED", e.code?.name)
+        plus.finish()
+    }
+
+    @Test
+    fun loginDisabledWithoutPlainFailsBeforeAnySecret() {
+        greet("IMAP4rev1 LOGINDISABLED AUTH=GSSAPI")
+        val e = assertFailsWith<ImapMissingCapabilityException> { client.authenticatePassword("alice", "pw") }
+        assertEquals(setOf("AUTH=PLAIN"), e.missing)
+        fake.finish()
+    }
+
+    @Test
+    fun passwordMechanismChoice() {
+        assertEquals(ImapClient.PasswordAuth.PLAIN_IR, ImapClient.passwordAuth(setOf("AUTH=PLAIN", "SASL-IR", "LOGINDISABLED")))
+        assertEquals(ImapClient.PasswordAuth.PLAIN, ImapClient.passwordAuth(setOf("AUTH=PLAIN", "AUTH=LOGIN")))
+        assertEquals(ImapClient.PasswordAuth.LOGIN, ImapClient.passwordAuth(setOf("IMAP4REV1", "SASL-IR")))
+        assertEquals(ImapClient.PasswordAuth.LOGIN, ImapClient.passwordAuth(emptySet()))
+        assertFailsWith<ImapMissingCapabilityException> { ImapClient.passwordAuth(setOf("LOGINDISABLED", "SASL-IR")) }
+    }
+
+    @Test
+    fun xoauth2WithSaslIrIsInline() {
+        greet("IMAP4rev1 SASL-IR AUTH=XOAUTH2")
+        fake.client("A1 AUTHENTICATE XOAUTH2 ${Sasl.xoauth2("me@outlook.com", "tok")}").server("A1 OK done")
+        client.authenticateXoauth2("me@outlook.com", "tok")
+        fake.finish()
+    }
+
+    @Test
+    fun xoauth2WithoutSaslIrAnswersTheFirstContinuation() {
+        greet("IMAP4rev1 AUTH=XOAUTH2")
+        val ir = Sasl.xoauth2("me@outlook.com", "tok")
+        fake.client("A1 AUTHENTICATE XOAUTH2").server("+ ").client(ir).server("A1 OK done")
+        client.authenticateXoauth2("me@outlook.com", "tok")
+        fake.client("A2 AUTHENTICATE XOAUTH2").server("+ ").client(ir)
+            .server("+ eyJzdGF0dXMiOiI0MDEifQ==").client("")
+            .server("A2 NO AUTHENTICATE failed.")
+        assertFailsWith<ImapNoException> { client.authenticateXoauth2("me@outlook.com", "tok") }
+        fake.finish()
+    }
+
+    @Test
+    fun noSecretBeforeTls() {
+        for (greeting in listOf("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN SASL-IR STARTTLS] ready", "* OK ready")) {
+            val fake = plaintext(greeting)
+            val client = ImapClient(ImapConnection(fake)).apply { conn.greeting() }
+            assertFailsWith<IllegalStateException> { client.authenticatePassword("alice", "pw") }
+            assertFailsWith<IllegalStateException> { client.authenticateXoauth2("alice", "tok") }
+            fake.finish() // nothing was written, not even CAPABILITY
+        }
+    }
+
+    @Test
+    fun logHasOnlyVerbsForTheNewPaths() {
+        val logs = ArrayList<String>()
+        val fake = plaintext("* OK [CAPABILITY IMAP4rev1 STARTTLS] ready")
+        fake.client("A1 STARTTLS").server("A1 OK Begin TLS")
+            .client("A2 CAPABILITY").server("* CAPABILITY IMAP4rev1 AUTH=PLAIN", "A2 OK done")
+            .client("A3 AUTHENTICATE PLAIN").server("+ ").client(Sasl.plain("alice@example.org", "s3cret"))
+            .server("A3 NO [AUTHENTICATIONFAILED] Authentication failed.")
+        val client = ImapClient.start(fake, STARTTLS_ENDPOINT) { logs += it }
+        assertFailsWith<ImapNoException> { client.authenticatePassword("alice@example.org", "s3cret") }
+        fake.finish()
+
+        val login = FakeStream().server("* OK [CAPABILITY IMAP4rev1] ready")
+        val loginClient = ImapClient.start(login, Endpoint("imap.example.org", 993, TlsMode.IMPLICIT)) { logs += it }
+        login.client("A1 LOGIN \"alice@example.org\" {6}").server("+ go").client("s3cr\"t").server("A1 OK done")
+        loginClient.authenticatePassword("alice@example.org", "s3cr\"t")
+        login.finish()
+
+        assertEquals(
+            listOf(
+                "<<< * OK [CAPABILITY]", ">>> A1 STARTTLS", "<<< A1 OK", ">>> A2 CAPABILITY", "<<< A2 OK",
+                ">>> A3 AUTHENTICATE", "<<< +", ">>> <sasl response>", "<<< A3 NO [AUTHENTICATIONFAILED]",
+                "<<< * OK [CAPABILITY]", ">>> A1 LOGIN", "<<< A1 OK",
+            ),
+            logs,
+        )
+        val secrets = listOf("alice", "s3cr", Sasl.plain("alice@example.org", "s3cret"))
+        assertTrue(logs.none { line -> secrets.any { it in line } })
     }
 
     @Test
@@ -169,6 +507,21 @@ class ImapClientTest {
         assertEquals("Café", boxes[6].name)
         assertEquals("Work \"x\"", boxes[7].name)
         fake.finish()
+    }
+
+    @Test
+    fun listReturnsSpecialUseOnlyWithListExtended() {
+        fake.server("* OK [CAPABILITY IMAP4rev1 SPECIAL-USE] ready")
+        client.conn.greeting()
+        fake.client("A1 LIST \"\" \"*\"").server("* LIST (\\HasNoChildren \\Sent) \"/\" Sent", "A1 OK done")
+        assertEquals(listOf(MailboxInfo("Sent", "/", setOf("\\HasNoChildren", "\\Sent"))), client.list())
+        fake.finish()
+
+        val extended = FakeStream().server("* OK [CAPABILITY IMAP4rev1 SPECIAL-USE LIST-EXTENDED] ready")
+        val other = ImapClient(ImapConnection(extended)).apply { conn.greeting() }
+        extended.client("A1 LIST \"\" \"*\" RETURN (SPECIAL-USE)").server("A1 OK done")
+        assertEquals(emptyList(), other.list())
+        extended.finish()
     }
 
     @Test
@@ -301,6 +654,23 @@ class ImapClientTest {
     }
 
     @Test
+    fun selectWithoutUidNextEstimatesItFromTheLastMessage() {
+        fake.server("* OK [CAPABILITY IMAP4rev1] ready")
+        client.conn.greeting()
+        fake.client("A1 SELECT \"INBOX\"")
+            .server("* 3 EXISTS", "* OK [UIDVALIDITY 5] UIDs valid", "A1 OK [READ-WRITE] done")
+            .client("A2 FETCH * (UID)")
+            .server("* 3 FETCH (UID 41)", "A2 OK done")
+        assertEquals(SelectResult(3, 5, 42, null, false), client.select("INBOX"))
+        assertEquals("INBOX", client.selected)
+        fake.client("A3 EXAMINE \"Empty\"").server("* 0 EXISTS", "* OK [UIDVALIDITY 6] x", "A3 OK [READ-ONLY] done")
+        assertEquals(SelectResult(0, 6, 1, null, false), client.examine("Empty"))
+        fake.client("A4 SELECT \"X\"").server("* 1 EXISTS", "A4 OK done")
+        assertFailsWith<ImapProtocolException> { client.select("X") }
+        fake.finish()
+    }
+
+    @Test
     fun failedSelectClearsSelected() {
         dovecot()
         fake.client("A2 SELECT \"INBOX\"")
@@ -325,12 +695,37 @@ class ImapClientTest {
     }
 
     @Test
-    fun uidSearchFallsBackToPlainSearch() {
-        dovecot()
-        fake.client("A2 UID SEARCH RETURN (ALL) FLAGGED").server("* SEARCH 7 2 5 6", "A2 OK done")
-        assertEquals(UidSet.parse("2,5:7"), client.uidSearch(Command.raw("FLAGGED")))
-        fake.client("A3 UID SEARCH RETURN (COUNT) FLAGGED").server("* SEARCH", "A3 OK done")
+    fun searchWithoutEsearchUsesThePlainForm() {
+        fake.server("* OK [CAPABILITY IMAP4rev1 LITERAL+] ready")
+        client.conn.greeting()
+        fake.client("A1 UID SEARCH FLAGGED").server("* SEARCH 7 2", "* SEARCH 5 6", "A1 OK done")
+        assertEquals(UidSet.parse("2,5:7"), client.uidSearch(Command.raw("FLAGGED")), "union of the lines")
+        fake.client("A2 UID SEARCH UNSEEN").server("* SEARCH 1 2", "* SEARCH 9", "A2 OK done")
+        assertEquals(3, client.uidSearchCount(Command.raw("UNSEEN")), "the lines are summed")
+        fake.client("A3 UID SEARCH UID 1:99").server("* SEARCH 3 9", "* SEARCH 4", "A3 OK done")
+        assertEquals(9, client.uidSearchMax(Command.raw("UID", "1:99")))
+        fake.client("A4 UID SEARCH CHARSET UTF-8 TEXT {7+}\r\nGrüße").server("* SEARCH", "A4 OK done")
+        assertEquals(UidSet.EMPTY, client.uidSearch(Command.build { raw("TEXT"); string("Grüße") }))
+        fake.client("A5 UID SEARCH FLAGGED").server("* SEARCH", "A5 OK done")
         assertEquals(0, client.uidSearchCount(Command.raw("FLAGGED")))
+        fake.client("A6 UID SEARCH FLAGGED").server("A6 OK done")
+        assertNull(client.uidSearchMax(Command.raw("FLAGGED")))
+        fake.finish()
+    }
+
+    @Test
+    fun plainSearchReadsAnEsearchReply() {
+        // An IMAP4rev2 server answers every UID SEARCH with ESEARCH.
+        fake.server("* OK [CAPABILITY IMAP4rev1] ready")
+        client.conn.greeting()
+        fake.client("A1 UID SEARCH ALL").server("* ESEARCH (TAG \"A1\") UID ALL 1:3,7", "A1 OK done")
+        assertEquals(UidSet.parse("1:3,7"), client.uidSearch(Command.raw("ALL")))
+        fake.client("A2 UID SEARCH ALL").server("* ESEARCH (TAG \"A2\") UID ALL 1:3,7", "A2 OK done")
+        assertEquals(4, client.uidSearchCount(Command.raw("ALL")))
+        fake.client("A3 UID SEARCH ALL").server("* ESEARCH (TAG \"A3\") UID ALL 1:3,7", "A3 OK done")
+        assertEquals(7, client.uidSearchMax(Command.raw("ALL")))
+        fake.client("A4 UID SEARCH ALL").server("* ESEARCH (TAG \"A4\") UID", "A4 OK done")
+        assertEquals(0, client.uidSearchCount(Command.raw("ALL")))
         fake.finish()
     }
 
@@ -546,6 +941,70 @@ class ImapClientTest {
         fake.client("A2 UID EXPUNGE 4:6").server("* 3 EXPUNGE", "A2 OK Expunge completed.")
         assertTrue(client.uidExpunge(UidSet.range(4, 6)))
         assertTrue(client.uidExpunge(UidSet.EMPTY))
+        fake.client("A3 UID EXPUNGE 8").server("A3 OK Expunge completed.")
+        assertTrue(client.uidExpunge(UidSet.of(8), guard = false), "UIDPLUS needs no guard")
+        fake.finish()
+    }
+
+    @Test
+    fun moveFallbackWithUidplusCopiesFlagsAndExpungesByUid() {
+        greet("IMAP4rev1 UIDPLUS")
+        fake.client("A1 UID COPY 3,5 \"Archive\"").server("A1 OK [COPYUID 7 3,5 10:11] Copy completed.")
+        fake.client("A2 UID STORE 3,5 +FLAGS.SILENT (\\Deleted)").server("A2 OK Store completed.")
+        fake.client("A3 UID EXPUNGE 3,5").server("* 2 EXPUNGE", "* 1 EXPUNGE", "A3 OK Expunge completed.")
+        assertEquals(mapOf(3L to 10L, 5L to 11L), client.uidMove(UidSet.of(3, 5), "Archive"))
+        fake.finish()
+    }
+
+    @Test
+    fun moveFallbackWorksInChunks() {
+        greet("IMAP4rev1 UIDPLUS")
+        val sparse = UidSet.of((1L..1001L step 2).toList())
+        val (first, second) = sparse.chunks()
+        fake.client("A1 UID COPY $first \"Archive\"").server("A1 OK done")
+        fake.client("A2 UID STORE $first +FLAGS.SILENT (\\Deleted)").server("A2 OK done")
+        fake.client("A3 UID COPY $second \"Archive\"").server("A3 OK done")
+        fake.client("A4 UID STORE $second +FLAGS.SILENT (\\Deleted)").server("A4 OK done")
+        fake.client("A5 UID EXPUNGE $first").server("A5 OK done")
+        fake.client("A6 UID EXPUNGE $second").server("A6 OK done")
+        assertEquals(emptyMap(), client.uidMove(sparse, "Archive"))
+        fake.finish()
+    }
+
+    @Test
+    fun moveFallbackWithoutUidplusKeepsForeignDeletedMail() {
+        greet("IMAP4rev1")
+        fake.client("A1 UID COPY 3,5 \"Archive\"").server("A1 OK Copy completed.")
+        fake.client("A2 UID STORE 3,5 +FLAGS.SILENT (\\Deleted)").server("A2 OK Store completed.")
+        // UID 9 is another client's struck-through message: a plain EXPUNGE would destroy it.
+        fake.client("A3 UID SEARCH DELETED").server("* SEARCH 3 9 5", "A3 OK Search completed.")
+        assertEquals(emptyMap(), client.uidMove(UidSet.of(3, 5), "Archive"))
+        fake.finish()
+    }
+
+    @Test
+    fun moveFallbackWithoutUidplusExpungesWhenOnlyItsOwnMailIsDeleted() {
+        greet("IMAP4rev1")
+        fake.client("A1 UID COPY 3:5 \"Archive\"").server("A1 OK Copy completed.")
+        fake.client("A2 UID STORE 3:5 +FLAGS.SILENT (\\Deleted)").server("A2 OK Store completed.")
+        fake.client("A3 UID SEARCH DELETED").server("* SEARCH 5 3", "A3 OK Search completed.")
+        fake.client("A4 EXPUNGE").server("* 1 EXPUNGE", "* 1 EXPUNGE", "A4 OK Expunge completed.")
+        assertEquals(emptyMap(), client.uidMove(UidSet.range(3, 5), "Archive"))
+        fake.finish()
+    }
+
+    @Test
+    fun guardedExpungeWithoutUidplus() {
+        greet("IMAP4rev1 ESEARCH")
+        fake.client("A1 UID SEARCH RETURN (ALL) DELETED").server("* ESEARCH (TAG \"A1\") UID ALL 4:6,20", "A1 OK done")
+        assertFalse(client.uidExpunge(UidSet.range(4, 6)), "UID 20 is not ours")
+        fake.client("A2 UID SEARCH RETURN (ALL) DELETED").server("* ESEARCH (TAG \"A2\") UID", "A2 OK done")
+        fake.client("A3 EXPUNGE").server("A3 OK done")
+        assertTrue(client.uidExpunge(UidSet.range(4, 6)), "nothing is deleted yet: the EXPUNGE is harmless")
+        // Empty Trash/Spam and deletes inside Trash/Spam: a plain EXPUNGE without SEARCH.
+        fake.client("A4 EXPUNGE").server("* 1 EXPUNGE", "A4 OK done")
+        assertTrue(client.uidExpunge(UidSet.of(4), guard = false))
+        assertTrue(client.uidExpunge(UidSet.EMPTY, guard = false))
         fake.finish()
     }
 
@@ -657,6 +1116,7 @@ class ImapClientTest {
     }
 
     private companion object {
+        val STARTTLS_ENDPOINT = Endpoint("imap.example.org", 143, TlsMode.STARTTLS)
         const val RISEUP_PRE = "IMAP4rev1 SASL-IR LOGIN-REFERRALS ID ENABLE IDLE LITERAL+ AUTH=PLAIN AUTH=LOGIN"
         const val RISEUP_POST = "IMAP4rev1 SASL-IR LOGIN-REFERRALS ID ENABLE IDLE SORT SORT=DISPLAY THREAD=REFERENCES " +
             "THREAD=REFS THREAD=ORDEREDSUBJECT MULTIAPPEND URL-PARTIAL CATENATE UNSELECT CHILDREN NAMESPACE UIDPLUS " +

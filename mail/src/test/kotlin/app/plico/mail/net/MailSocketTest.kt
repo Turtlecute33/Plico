@@ -4,6 +4,8 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
 import java.net.Socket
+import java.net.SocketTimeoutException
+import java.security.cert.CertificateException
 import java.util.Random
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.ExtendedSSLSession
@@ -178,9 +180,232 @@ class MailSocketTest {
         }
     }
 
-    private fun open(port: Int, hooks: SocketHooks = Hooks(), readTimeoutMs: Int = 60_000): MailSocket {
-        val factory = TestTls.clientFactory("localhost")
-        return MailSocket.open("localhost", port, hooks, readTimeoutMs = readTimeoutMs, factory = factory)
+    // STARTTLS and handshake failures
+
+    @Test(timeout = 30_000)
+    fun `STARTTLS upgrade uses TLS 1_3, SNI and the hostname hook`() {
+        val sni = AtomicReference<List<SNIServerName>>()
+        StartTlsServer("localhost") { c ->
+            c.send("* OK ready\r\n")
+            assertEquals("A1 STARTTLS", c.line())
+            c.send("A1 OK Begin TLS\r\n")
+            val ssl = c.upgrade()
+            sni.set((ssl.session as ExtendedSSLSession).requestedServerNames)
+            val line = c.line()
+            c.send("echo $line\r\n")
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks()
+            open(server.port, hooks, readTimeoutMs = 7_000, tls = TlsMode.STARTTLS).use { socket ->
+                assertFalse(socket.encrypted)
+                assertEquals(listOf("connected"), hooks.events)
+                assertFalse(hooks.socket is SSLSocket, "STARTTLS starts on a plain socket")
+                assertEquals(7_000, socket.readTimeoutMs)
+                assertEquals("* OK ready", socket.input.readCrlfLine())
+                socket.output.write("A1 STARTTLS\r\n".toByteArray())
+                socket.output.flush()
+                assertEquals("A1 OK Begin TLS", socket.input.readCrlfLine())
+
+                socket.startTls()
+                assertTrue(socket.encrypted)
+                assertEquals(listOf("connected", "verify localhost"), hooks.events)
+                assertEquals("TLSv1.3", hooks.session!!.protocol)
+                assertEquals(7_000, socket.readTimeoutMs)
+                socket.output.write("hello\r\n".toByteArray())
+                socket.output.flush()
+                assertEquals("echo hello", socket.input.readCrlfLine())
+                assertFailsWith<IllegalStateException> { socket.startTls() }
+            }
+            server.join()
+        }
+        assertEquals(listOf<SNIServerName>(SNIHostName("localhost")), sni.get())
+    }
+
+    @Test(timeout = 30_000)
+    fun `compression works after STARTTLS`() {
+        StartTlsServer("localhost") { c ->
+            c.upgrade()
+            assertEquals("C1 COMPRESS DEFLATE", c.line())
+            c.send("C1 OK\r\n")
+            val zOut = Deflate.deflating(c.output)
+            val zIn = Deflate.inflating(BufferedInputStream(c.input))
+            assertEquals("C2 NOOP", zIn.readCrlfLine())
+            zOut.write("C2 OK compressed\r\n".toByteArray())
+            zOut.flush()
+            zIn.drainQuietly()
+        }.use { server ->
+            open(server.port, tls = TlsMode.STARTTLS).use { socket ->
+                socket.startTls()
+                socket.output.write("C1 COMPRESS DEFLATE\r\n".toByteArray())
+                socket.output.flush()
+                assertEquals("C1 OK", socket.input.readCrlfLine())
+                socket.startCompression()
+                socket.output.write("C2 NOOP\r\n".toByteArray())
+                socket.output.flush()
+                assertEquals("C2 OK compressed", socket.input.readCrlfLine())
+                assertFailsWith<IllegalStateException> { socket.startTls() }
+            }
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `bytes after the STARTTLS reply fail and close the socket`() {
+        StartTlsServer("localhost") { c ->
+            c.send("* OK ready\r\n")
+            c.line()
+            // One write: the reply and an injected line arrive together.
+            c.send("A1 OK Begin TLS\r\n* CAPABILITY IMAP4rev1 AUTH=PLAIN\r\n")
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks()
+            val socket = open(server.port, hooks, tls = TlsMode.STARTTLS)
+            assertEquals("* OK ready", socket.input.readCrlfLine())
+            socket.output.write("A1 STARTTLS\r\n".toByteArray())
+            socket.output.flush()
+            assertEquals("A1 OK Begin TLS", socket.input.readCrlfLine())
+            val deadline = System.nanoTime() + 5_000_000_000
+            while (socket.input.available() == 0 && System.nanoTime() < deadline) Thread.sleep(10)
+            assertFailsWith<StartTlsException> { socket.startTls() }
+            assertFalse(socket.encrypted)
+            assertTrue(hooks.socket!!.isClosed)
+            assertEquals(listOf("connected"), hooks.events, "no handshake")
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `hostname hook rejection after STARTTLS closes the socket`() {
+        StartTlsServer("localhost") { c ->
+            runCatching { c.upgrade() }
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks(accept = false)
+            val socket = open(server.port, hooks, tls = TlsMode.STARTTLS)
+            assertFailsWith<SSLPeerUnverifiedException> { socket.startTls() }
+            assertFalse(socket.encrypted)
+            assertTrue(hooks.socket!!.isClosed)
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `certificate for another name fails the STARTTLS handshake as a certificate failure`() {
+        StartTlsServer("other.example") { c ->
+            runCatching { c.upgrade() }
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks()
+            val socket = open(server.port, hooks, tls = TlsMode.STARTTLS, factory = TestTls.clientFactory("other.example"))
+            val e = assertFailsWith<SSLHandshakeException> { socket.startTls() }
+            assertTrue(e.hasCause<CertificateException>(), "certificate failure in the cause chain")
+            assertNull(hooks.session)
+            assertFalse(socket.encrypted)
+            assertTrue(hooks.socket!!.isClosed)
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `an untrusted certificate is a certificate failure, not a TlsHandshakeException`() {
+        TlsServer("other.example") { s -> runCatching { s.startHandshake() } }.use { server ->
+            val e = assertFailsWith<SSLException> {
+                MailSocket.open("localhost", server.port, Hooks(), factory = TestTls.clientFactory("localhost"))
+            }
+            assertTrue(e.hasCause<CertificateException>(), "certificate failure in the cause chain: $e")
+        }
+        StartTlsServer("other.example") { c ->
+            runCatching { c.upgrade() }
+            c.drain()
+        }.use { server ->
+            val socket = open(server.port, tls = TlsMode.STARTTLS)
+            val e = assertFailsWith<SSLException> { socket.startTls() }
+            assertTrue(e.hasCause<CertificateException>(), "certificate failure in the cause chain: $e")
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `implicit TLS against a plaintext server is a TlsHandshakeException`() {
+        StartTlsServer("localhost") { c ->
+            c.send("* OK [CAPABILITY IMAP4rev1 STARTTLS] plaintext server\r\n")
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks()
+            val e = assertFailsWith<TlsHandshakeException> { open(server.port, hooks) }
+            assertTrue(e.cause is SSLException)
+            assertFalse(e.hasCause<CertificateException>())
+            assertTrue(hooks.socket!!.isClosed)
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `STARTTLS mode against a silent server times out at the greeting`() {
+        StartTlsServer("localhost") { c -> c.drain() }.use { server ->
+            open(server.port, tls = TlsMode.STARTTLS, readTimeoutMs = 300).use { socket ->
+                assertEquals(300, socket.readTimeoutMs)
+                assertFailsWith<SocketTimeoutException> { socket.input.read() }
+            }
+            server.join()
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `open caps the read timeout at 20 seconds until STARTTLS, then the full timeout applies`() {
+        StartTlsServer("localhost") { c ->
+            c.upgrade()
+            c.drain()
+        }.use { server ->
+            val hooks = Hooks()
+            open(server.port, hooks, tls = TlsMode.STARTTLS).use { socket ->
+                assertEquals(20_000, socket.readTimeoutMs)
+                assertEquals(20_000, hooks.socket!!.soTimeout)
+                socket.startTls()
+                assertEquals(60_000, socket.readTimeoutMs)
+            }
+            server.join()
+        }
+        StartTlsServer("localhost") { c -> c.drain() }.use { server ->
+            val hooks = Hooks()
+            open(server.port, hooks, tls = TlsMode.STARTTLS, readTimeoutMs = 0).use { socket ->
+                assertEquals(20_000, socket.readTimeoutMs)
+                assertEquals(20_000, hooks.socket!!.soTimeout)
+            }
+            server.join()
+        }
+    }
+
+    @Test
+    fun `the read timeout before TLS is at most 20 seconds`() {
+        assertEquals(20_000, MailSocket.plaintextTimeout(60_000))
+        assertEquals(20_000, MailSocket.plaintextTimeout(0))
+        assertEquals(20_000, MailSocket.plaintextTimeout(20_000))
+        assertEquals(500, MailSocket.plaintextTimeout(500))
+    }
+
+    @Test
+    fun `a host that is not ASCII is refused before any connection`() {
+        for (host in listOf("bücher.example", "", "a b.example", "mail.example\n")) {
+            val hooks = Hooks()
+            assertFailsWith<IllegalArgumentException>(host) { MailSocket.open(host, 993, hooks) }
+            assertEquals(emptyList(), hooks.events)
+        }
+    }
+
+    private fun open(
+        port: Int,
+        hooks: SocketHooks = Hooks(),
+        readTimeoutMs: Int = 60_000,
+        tls: TlsMode = TlsMode.IMPLICIT,
+        factory: javax.net.ssl.SSLSocketFactory = TestTls.clientFactory("localhost"),
+    ): MailSocket = MailSocket.open("localhost", port, hooks, tls, readTimeoutMs = readTimeoutMs, factory = factory)
+
+    private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean =
+        generateSequence(this) { it.cause }.take(16).any { it is T }
+
+    private fun java.io.InputStream.drainQuietly() {
+        runCatching { while (read() != -1) Unit }
     }
 
     private fun randomText(size: Int): ByteArray {

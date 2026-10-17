@@ -1,6 +1,7 @@
 package app.plico.mail.imap
 
 import app.plico.mail.net.MailStream
+import app.plico.mail.net.StartTlsException
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -16,7 +17,9 @@ import kotlin.test.fail
  * [waitMs] for it (another thread may write it), then fails. Client bytes that arrive before the script
  * expects them also fail. [finish] checks that the script is complete.
  *
- * [startCompression] replaces [input] and [output] with new objects; the old ones then fail when used.
+ * [startCompression] and [startTls] replace [input] and [output] with new objects; the old ones then fail
+ * when used. [startTls] throws [StartTlsException] when server bytes are still unread (as [MailSocket] does)
+ * and sets [encrypted]; set [encrypted] to false first for a plaintext start.
  */
 class FakeStream(private val waitMs: Long = 2_000) : MailStream {
     private sealed interface Step
@@ -39,6 +42,8 @@ class FakeStream(private val waitMs: Long = 2_000) : MailStream {
         private set
     var compressions = 0
         private set
+    var tlsStarts = 0
+        private set
     val timeouts = ArrayList<Int>()
 
     override val input: InputStream get() = lock.withLock { inStream }
@@ -50,9 +55,17 @@ class FakeStream(private val waitMs: Long = 2_000) : MailStream {
             timeouts += value
         }
 
+    @Volatile
     override var encrypted = true
 
-    override fun startTls() = throw UnsupportedOperationException()
+    override fun startTls(): Unit = lock.withLock {
+        if (encrypted) fail("STARTTLS on an encrypted stream")
+        if (serverPos != serverBytes.size) throw StartTlsException("Data after the STARTTLS reply")
+        if (unflushed.size() != 0) fail("STARTTLS with unflushed client bytes")
+        switchStreams()
+        encrypted = true
+        tlsStarts++
+    }
 
     /** Each line is sent with CRLF appended. Use `\r\n` inside a line for literals. */
     fun server(vararg lines: String) = apply { lines.forEach { lock.withLock { steps += Send(bytes(it)) } } }
@@ -63,10 +76,14 @@ class FakeStream(private val waitMs: Long = 2_000) : MailStream {
     override fun startCompression(): Unit = lock.withLock {
         if (serverPos != serverBytes.size) fail("Compression started with unread server bytes")
         if (unflushed.size() != 0) fail("Compression started with unflushed client bytes")
+        switchStreams()
+        compressions++
+    }
+
+    private fun switchStreams() {
         generation++
         inStream = In(generation)
         outStream = Out(generation)
-        compressions++
     }
 
     override fun close(): Unit = lock.withLock {
@@ -74,15 +91,18 @@ class FakeStream(private val waitMs: Long = 2_000) : MailStream {
         written.signalAll()
     }
 
-    /** Fails unless every step ran, all server bytes were read and the client sent nothing more. */
-    fun finish(): Unit = lock.withLock {
+    /**
+     * Fails unless every step ran, all server bytes were read (unless [unreadServerBytes]: the client stopped
+     * reading in the middle of a server step) and the client sent nothing more.
+     */
+    fun finish(unreadServerBytes: Boolean = false): Unit = lock.withLock {
         while (true) {
             when (val step = steps.removeFirstOrNull() ?: break) {
                 is Send -> fail("Server line not read: ${show(step.bytes)}")
                 is Expect -> awaitClient(step.bytes)
             }
         }
-        if (serverPos != serverBytes.size) fail("Server bytes not read")
+        if (!unreadServerBytes && serverPos != serverBytes.size) fail("Server bytes not read")
         if (flushed.isNotEmpty()) fail("Unexpected client bytes: ${show(flushed)}")
         if (unflushed.size() != 0) fail("Client bytes not flushed: ${show(unflushed.toByteArray())}")
     }
@@ -121,7 +141,7 @@ class FakeStream(private val waitMs: Long = 2_000) : MailStream {
     }
 
     private fun checkGeneration(gen: Int) {
-        if (gen != generation) fail("Stream used after the compression switch")
+        if (gen != generation) fail("Stream used after a compression or TLS switch")
     }
 
     private inner class In(private val gen: Int) : InputStream() {

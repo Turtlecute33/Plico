@@ -15,10 +15,11 @@ import java.io.EOFException
 import java.io.IOException
 import java.io.OutputStream
 import java.net.ProtocolException
+import java.util.Base64
 import javax.net.ssl.SSLSocketFactory
 
 /**
- * Minimal SMTP submission client over implicit TLS. See DESIGN.md §4.7.
+ * Minimal SMTP submission client over implicit TLS or STARTTLS (always required). See DESIGN.md §4.7.
  * [host] is the host of the endpoint ("" only in tests); credentials check it before they send a token.
  */
 class SmtpClient(
@@ -35,27 +36,69 @@ class SmtpClient(
     val maxSize: Long? get() = extensions["SIZE"]?.toLongOrNull()?.takeIf { it > 0 }
 
     /** Upper-case mechanisms from the "AUTH A B" and the legacy "AUTH=A B" EHLO lines (post-TLS EHLO only). */
-    val authMechanisms: Set<String> get() = emptySet()
+    var authMechanisms: Set<String> = emptySet()
+        private set
 
-    /** Reads the greeting and sends `EHLO [127.0.0.1]`. Called by [connect]. */
+    /**
+     * Reads the greeting and sends `EHLO [127.0.0.1]`. Called by [connect]. With [TlsMode.STARTTLS]: EHLO,
+     * STARTTLS (anything but 220 -> [StartTlsException] and the stream is closed; no fallback), the switch to
+     * TLS, then EHLO again. Only the EHLO after TLS sets [extensions] and [authMechanisms] (RFC 3207 §4.2).
+     */
     fun start(tls: TlsMode = TlsMode.IMPLICIT) {
-        if (tls == TlsMode.STARTTLS) throw StartTlsException("STARTTLS is not available yet")
         readReply().expect(Stage.CONNECT, 220)
-        val ehlo = command("EHLO [127.0.0.1]").expect(Stage.EHLO, 250)
-        extensions = ehlo.lines.drop(1).associate { line ->
+        if (tls == TlsMode.STARTTLS) {
+            command(EHLO).expect(Stage.EHLO, 250)
+            if (command("STARTTLS").code != 220) {
+                close()
+                throw StartTlsException("STARTTLS refused")
+            }
+            stream.startTls()
+        }
+        val ehlo = command(EHLO).expect(Stage.EHLO, 250)
+        val lines = ehlo.lines.drop(1)
+        extensions = lines.associate { line ->
             line.substringBefore(' ').uppercase() to line.substringAfter(' ', "").trim()
+        }
+        authMechanisms = lines.flatMapTo(HashSet()) { line ->
+            val upper = line.trim().uppercase()
+            when {
+                upper.startsWith("AUTH ") || upper.startsWith("AUTH=") -> upper.substring(5).split(' ').filter { it.isNotEmpty() }
+                else -> emptyList()
+            }
         }
     }
 
     /**
-     * Sign-in with a password or an app password: SASL PLAIN with an initial response. A wrong password ->
-     * [SmtpException] with stage AUTH (535).
+     * Sign-in with a password or an app password, only over TLS: AUTH PLAIN with an initial response when the
+     * server lists PLAIN, else AUTH LOGIN; no usable mechanism -> [SmtpAuthUnavailableException] before the
+     * password is sent. A wrong password -> [SmtpException] with stage AUTH (535).
      */
-    fun authPassword(user: String, password: String) = authPlain(user, password)
+    fun authPassword(user: String, password: String) {
+        check(stream.encrypted) { "Password sign-in before TLS" }
+        when {
+            "PLAIN" in authMechanisms -> authPlain(user, password)
+            "LOGIN" in authMechanisms -> authLogin(user, password)
+            else -> throw SmtpAuthUnavailableException()
+        }
+    }
 
-    /** Google XOAUTH2. On failure Gmail sends a 334 JSON challenge; the empty answer gets the final 5xx. */
-    fun authXoauth2(user: String, accessToken: String) =
-        authenticate("XOAUTH2", Sasl.xoauth2(user, accessToken), cancel = "")
+    /**
+     * XOAUTH2, only over TLS. On failure the server sends a 334 JSON challenge; the empty answer gets the final
+     * 5xx. A command line longer than 510 octets (RFC 4954 §4; Microsoft tokens) sends the initial response
+     * after a 334 instead.
+     */
+    fun authXoauth2(user: String, accessToken: String) {
+        check(stream.encrypted) { "Token sign-in before TLS" }
+        val ir = Sasl.xoauth2(user, accessToken)
+        if ("AUTH XOAUTH2 ".length + ir.length <= MAX_COMMAND_LINE) {
+            authenticate("XOAUTH2", ir, cancel = "")
+            return
+        }
+        var reply = command("AUTH XOAUTH2")
+        if (reply.code == 334) reply = command(ir, logAs = SASL_RESPONSE)
+        if (reply.code == 334) reply = command("", logAs = SASL_RESPONSE)
+        reply.expect(Stage.AUTH, 235)
+    }
 
     /**
      * Sends one message. [message] uses CRLF line endings; dot-stuffing is done here.
@@ -151,9 +194,20 @@ class SmtpClient(
     private fun authenticate(mechanism: String, initialResponse: String, cancel: String) {
         var reply = command("AUTH $mechanism $initialResponse")
         // Never log a 334 payload or the answer to it.
-        if (reply.code == 334) reply = command(cancel, logAs = "<sasl response>")
+        if (reply.code == 334) reply = command(cancel, logAs = SASL_RESPONSE)
         reply.expect(Stage.AUTH, 235)
     }
+
+    /** RFC 4954 AUTH LOGIN: 334 -> user, 334 -> password, 235. Another 334 gets the cancel `*`. */
+    private fun authLogin(user: String, password: String) {
+        var reply = command("AUTH LOGIN")
+        if (reply.code == 334) reply = command(base64(user), logAs = SASL_RESPONSE)
+        if (reply.code == 334) reply = command(base64(password), logAs = SASL_RESPONSE)
+        if (reply.code == 334) reply = command("*", logAs = SASL_RESPONSE)
+        reply.expect(Stage.AUTH, 235)
+    }
+
+    private fun base64(text: String): String = Base64.getEncoder().encodeToString(text.toByteArray(Charsets.UTF_8))
 
     /** Sends one command line and reads the reply. Only the verb is logged, never the arguments. */
     private fun command(line: String, logAs: String = line.substringBefore(' ')): Reply {
@@ -227,6 +281,11 @@ class SmtpClient(
 
     companion object {
         private const val FINAL_REPLY_TIMEOUT_MS = 600_000
+        private const val EHLO = "EHLO [127.0.0.1]"
+        private const val SASL_RESPONSE = "<sasl response>"
+
+        /** RFC 4954 §4: an AUTH command line has at most 512 octets with its CRLF. */
+        private const val MAX_COMMAND_LINE = 510
         private const val MAX_LINE = 8192
         private const val MAX_REPLY_LINES = 200
         private val REPLY_LINE = Regex("""(\d{3})(?:([ -])(.*))?""", RegexOption.DOT_MATCHES_ALL)
@@ -241,10 +300,12 @@ class SmtpClient(
             log: (String) -> Unit,
             factory: SSLSocketFactory,
         ): SmtpClient {
-            if (endpoint.tls == TlsMode.STARTTLS) throw StartTlsException("STARTTLS is not available yet")
-            val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, factory = factory)
+            val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, endpoint.tls, factory = factory)
             try {
-                return SmtpClient(socket, log, endpoint.host).apply { start(endpoint.tls) }
+                return SmtpClient(socket, log, endpoint.host).apply {
+                    start(endpoint.tls)
+                    check(stream.encrypted) { "No TLS" }
+                }
             } catch (e: Throwable) {
                 socket.close()
                 throw e

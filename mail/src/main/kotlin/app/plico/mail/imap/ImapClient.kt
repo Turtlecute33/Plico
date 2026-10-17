@@ -2,6 +2,7 @@ package app.plico.mail.imap
 
 import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
+import app.plico.mail.net.MailStream
 import app.plico.mail.net.SocketHooks
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsMode
@@ -20,19 +21,52 @@ import javax.net.ssl.SSLSocketFactory
  */
 class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
 
-    val caps: Set<String> get() = conn.capabilities
+    /**
+     * The effective capabilities: the advertised ones, plus the RFC 9051 base set for a server that advertises
+     * IMAP4rev2 without IMAP4rev1 (such a server need not list the base extensions).
+     */
+    val caps: Set<String>
+        get() {
+            val advertised = conn.capabilities
+            return if ("IMAP4REV2" in advertised && "IMAP4REV1" !in advertised) advertised + REV2_BASE else advertised
+        }
+
     val isGmail: Boolean get() = "X-GM-EXT-1" in caps
 
     /** True when the server sent its capabilities after authentication. */
     private var capsAfterAuth = false
     private var current: String? = null
 
-    /** Sign-in with a password or an app password: SASL PLAIN with an initial response (SASL-IR). */
-    fun authenticatePassword(user: String, password: String): Unit = authenticatePlain(user, password)
+    /** The [namespace] answer of this connection, once asked. */
+    private var namespaceAsked = false
+    private var namespaces: Namespaces? = null
 
-    /** Google XOAUTH2 with an initial response. A failed token gets a challenge, then NO. */
-    fun authenticateXoauth2(user: String, accessToken: String): Unit =
-        authenticate("XOAUTH2", Sasl.xoauth2(user, accessToken))
+    /**
+     * Sign-in with a password or an app password, only over TLS. The mechanism comes from the capabilities
+     * (asked first when the greeting had none): `AUTHENTICATE PLAIN` with SASL-IR, `AUTHENTICATE PLAIN` with a
+     * continuation, else `LOGIN`. LOGINDISABLED without AUTH=PLAIN -> [ImapMissingCapabilityException] before
+     * the password is sent.
+     */
+    fun authenticatePassword(user: String, password: String) {
+        check(conn.encrypted) { "Password sign-in before TLS" }
+        if (caps.isEmpty()) conn.execute(Command.raw("CAPABILITY"))
+        when (passwordAuth(caps)) {
+            PasswordAuth.PLAIN_IR -> authenticatePlain(user, password, inline = true)
+            PasswordAuth.PLAIN -> authenticatePlain(user, password, inline = false)
+            PasswordAuth.LOGIN -> login(user, password)
+        }
+    }
+
+    /**
+     * XOAUTH2, only over TLS. The initial response goes inline when the server has SASL-IR or its capabilities
+     * are not known yet (the Gmail greeting has none); else it answers the first continuation. A failed token
+     * gets an error challenge, which gets an empty answer, then NO.
+     */
+    fun authenticateXoauth2(user: String, accessToken: String) {
+        check(conn.encrypted) { "Token sign-in before TLS" }
+        val inline = caps.isEmpty() || "SASL-IR" in caps
+        authenticate("XOAUTH2", Sasl.xoauth2(user, accessToken), inline, cancel = "")
+    }
 
     /**
      * Sends CAPABILITY when the login did not report it. Throws [ImapMissingCapabilityException] when the server
@@ -56,12 +90,32 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         return enabled
     }
 
-    /** RFC 2342 namespaces; null when the server has no NAMESPACE. */
-    fun namespace(): Namespaces? = null
+    /**
+     * RFC 2342 namespaces, asked once per connection; null when the server has no NAMESPACE, refuses the command
+     * or sends no NAMESPACE response. Prefixes are decoded from modified UTF-7.
+     */
+    fun namespace(): Namespaces? {
+        if ("NAMESPACE" !in caps) return null
+        if (namespaceAsked) return namespaces
+        try {
+            conn.execute(Command.raw("NAMESPACE")) { r -> if (r.keyword == "NAMESPACE") namespaces = namespacesOf(r.values) }
+        } catch (_: ImapNoException) {
+        } catch (_: ImapBadException) {
+        }
+        namespaceAsked = true
+        return namespaces
+    }
 
-    /** RFC 2971 `ID` with [fields]; the reply is ignored. Only for servers that refuse mailboxes without it. */
+    /**
+     * RFC 2971 `ID` with [fields]. The reply is ignored, also a NO or BAD. Only for servers that refuse mailboxes
+     * without it.
+     */
     fun id(fields: List<Pair<String, String>>) {
-        conn.execute(Command.build { raw("ID"); list { fields.forEach { (key, value) -> string(key); string(value) } } })
+        try {
+            conn.execute(Command.build { raw("ID"); list { fields.forEach { (key, value) -> string(key); string(value) } } })
+        } catch (_: ImapNoException) {
+        } catch (_: ImapBadException) {
+        }
     }
 
     /** Starts COMPRESS=DEFLATE when the server advertises it. */
@@ -69,13 +123,16 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         if ("COMPRESS=DEFLATE" in caps) conn.startCompression()
     }
 
-    /** `LIST "" "*" RETURN (SPECIAL-USE)` (plain LIST when SPECIAL-USE is not advertised). */
+    /**
+     * `LIST "" "*" RETURN (SPECIAL-USE)`; a plain LIST unless both SPECIAL-USE and LIST-EXTENDED are advertised
+     * (RETURN options need LIST-EXTENDED; a plain LIST still carries the special-use attributes).
+     */
     fun list(): List<MailboxInfo> {
         val command = Command.build {
             raw("LIST")
             string("")
             string("*")
-            if ("SPECIAL-USE" in caps) raw("RETURN (SPECIAL-USE)")
+            if ("SPECIAL-USE" in caps && "LIST-EXTENDED" in caps) raw("RETURN (SPECIAL-USE)")
         }
         val out = ArrayList<MailboxInfo>()
         conn.execute(command) { r -> if (r.keyword == "LIST") mailboxInfo(r.values)?.let(out::add) }
@@ -119,27 +176,35 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
     /** The mailbox selected now, or null. */
     val selected: String? get() = current
 
-    /** `UID SEARCH RETURN (ALL) [CHARSET UTF-8] <criteria>`. */
+    /**
+     * `UID SEARCH RETURN (ALL) [CHARSET UTF-8] <criteria>`; without ESEARCH `UID SEARCH [CHARSET UTF-8]
+     * <criteria>`. The result is the union of every `* SEARCH` / `* ESEARCH` line.
+     */
     fun uidSearch(criteria: Command): UidSet {
         var result = UidSet.EMPTY
         search("ALL", criteria) { r ->
-            result = if (r.keyword == "ESEARCH") {
+            val found = if (r.keyword == "ESEARCH") {
                 esearchItems(r.values)["ALL"]?.let(::uidSet) ?: UidSet.EMPTY
             } else {
                 UidSet.of(r.values.mapNotNull { it.longOrNull() })
             }
+            result = result.union(found)
         }
         return result
     }
 
-    /** `UID SEARCH RETURN (COUNT) [CHARSET UTF-8] <criteria>`. */
+    /**
+     * `UID SEARCH RETURN (COUNT) [CHARSET UTF-8] <criteria>`. Without ESEARCH the server sends every matching UID
+     * and the count is their number, summed over the lines.
+     */
     fun uidSearchCount(criteria: Command): Long {
         var count = 0L
         search("COUNT", criteria) { r ->
-            count = if (r.keyword == "ESEARCH") {
-                esearchItems(r.values)["COUNT"]?.toLongOrNull() ?: 0
+            count += if (r.keyword == "ESEARCH") {
+                val items = esearchItems(r.values)
+                items["COUNT"]?.toLongOrNull() ?: items["ALL"]?.let(::uidSet)?.count ?: 0
             } else {
-                r.values.size.toLong()
+                r.values.count { it.longOrNull() != null }.toLong()
             }
         }
         return count
@@ -147,16 +212,20 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
 
     /**
      * `UID SEARCH RETURN (MAX) [CHARSET UTF-8] <criteria>`: the highest matching UID, or null when nothing
-     * matches. One short line however many UIDs match (the backfill step, DESIGN.md §7.2).
+     * matches. One short line however many UIDs match (the backfill step, DESIGN.md §7.2). Without ESEARCH the
+     * server sends every matching UID; callers keep such searches in UID windows.
      */
     fun uidSearchMax(criteria: Command): Long? {
         var max: Long? = null
         search("MAX", criteria) { r ->
-            max = if (r.keyword == "ESEARCH") {
-                esearchItems(r.values)["MAX"]?.let { it.toLongOrNull() ?: throw ImapProtocolException("Malformed MAX") }
+            val found = if (r.keyword == "ESEARCH") {
+                val items = esearchItems(r.values)
+                items["MAX"]?.let { it.toLongOrNull() ?: throw ImapProtocolException("Malformed MAX") }
+                    ?: items["ALL"]?.let(::uidSet)?.max
             } else {
                 r.values.mapNotNull { it.longOrNull() }.maxOrNull()
             }
+            if (found != null) max = maxOf(max ?: found, found)
         }
         return max
     }
@@ -198,23 +267,44 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         }
     }
 
-    /** `UID MOVE`. Returns the COPYUID mapping old UID -> new UID (empty when the server sent none). */
+    /**
+     * `UID MOVE`. Returns the COPYUID mapping old UID -> new UID (empty when the server sent none).
+     * Without MOVE: per chunk `UID COPY` and `UID STORE +FLAGS.SILENT (\Deleted)`, then [uidExpunge] with the
+     * guard. Not atomic: a retry after a lost connection can copy twice, and a skipped guarded expunge leaves
+     * the originals with `\Deleted` on the server.
+     */
     fun uidMove(uids: UidSet, dest: String): Map<Long, Long> {
         val moved = LinkedHashMap<Long, Long>()
+        val move = "MOVE" in caps
         forChunks(uids) { chunk ->
-            val command = Command.build { raw("UID MOVE"); raw(chunk.toString()); string(MailboxName.encode(dest)) }
+            val command = Command.build {
+                raw(if (move) "UID MOVE" else "UID COPY")
+                raw(chunk.toString())
+                string(MailboxName.encode(dest))
+            }
             val ok = conn.execute(command) { r -> if (r.keyword == "OK") copyUid(r.code, chunk, moved) }
             copyUid(ok.code, chunk, moved)
+            if (!move) store(chunk, "+FLAGS.SILENT") { raw(DELETED) }
         }
+        if (!move) uidExpunge(uids, guard = true)
         return moved
     }
 
     /**
-     * `UID EXPUNGE` per chunk. [guard] is for servers without UIDPLUS: it keeps the `\Deleted` messages of other
-     * clients. Returns false when the guard skipped the expunge.
+     * Removes [uids] (already flagged `\Deleted`) from the selected mailbox. With UIDPLUS: `UID EXPUNGE` per
+     * chunk. Without UIDPLUS only a plain `EXPUNGE` exists, which also removes every other `\Deleted` message;
+     * so with [guard] it first runs `UID SEARCH DELETED` and skips the EXPUNGE when a hit is not in [uids]
+     * (another client's struck-through mail). Returns false when the guard skipped the expunge.
+     * [guard] = false only for Empty Trash/Spam and permanent deletes inside Trash/Spam.
      */
     fun uidExpunge(uids: UidSet, guard: Boolean = true): Boolean {
-        forChunks(uids) { conn.execute(Command.raw("UID EXPUNGE", it.toString())) }
+        if (uids.isEmpty) return true
+        if ("UIDPLUS" in caps) {
+            forChunks(uids) { conn.execute(Command.raw("UID EXPUNGE", it.toString())) }
+            return true
+        }
+        if (guard && uidSearch(Command.raw("DELETED")).ranges.any { r -> !uids.containsAll(r) }) return false
+        conn.execute(Command.raw("EXPUNGE"))
         return true
     }
 
@@ -274,16 +364,41 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         conn.close()
     }
 
-    /** SASL PLAIN with an initial response (SASL-IR). */
-    private fun authenticatePlain(user: String, password: String): Unit = authenticate("PLAIN", Sasl.plain(user, password))
+    /** SASL PLAIN; a challenge after the initial response gets the cancel `*`. */
+    private fun authenticatePlain(user: String, password: String, inline: Boolean) =
+        authenticate("PLAIN", Sasl.plain(user, password), inline, cancel = "*")
 
-    private fun authenticate(mechanism: String, initialResponse: String) {
+    /**
+     * `AUTHENTICATE`. The initial response goes [inline] (SASL-IR) or answers the first continuation; every
+     * later continuation is an error report that gets [cancel] (`""` for XOAUTH2, `*` for PLAIN), then NO.
+     */
+    private fun authenticate(mechanism: String, initialResponse: String, inline: Boolean, cancel: String) {
+        var responded = inline
+        val command = if (inline) {
+            Command.raw("AUTHENTICATE", mechanism, initialResponse)
+        } else {
+            Command.raw("AUTHENTICATE", mechanism)
+        }
+        signIn(command) {
+            if (responded) {
+                cancel
+            } else {
+                responded = true
+                initialResponse
+            }
+        }
+    }
+
+    /** `LOGIN user password` as strings (quoted, or literals for other characters). Logged as `LOGIN` only. */
+    private fun login(user: String, password: String) =
+        signIn(Command.build { raw("LOGIN"); string(user); string(password) }) { null }
+
+    private fun signIn(command: Command, onContinuation: (String) -> String?) {
         var capsSeen = false
-        // A challenge after the initial response is an error report (XOAUTH2); an empty answer gets the NO.
         val ok = conn.execute(
-            Command.raw("AUTHENTICATE", mechanism, initialResponse),
+            command,
             onUntagged = { if (it.keyword == "CAPABILITY") capsSeen = true },
-            onContinuation = { "" },
+            onContinuation = onContinuation,
         )
         capsAfterAuth = capsSeen || ok.code?.name == "CAPABILITY"
         current = null
@@ -309,18 +424,31 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             }
         }
         current = mailbox
+        val count = exists ?: throw ImapProtocolException("$verb without EXISTS")
+        val validity = uidValidity ?: throw ImapProtocolException("$verb without UIDVALIDITY")
         return SelectResult(
-            exists = exists ?: throw ImapProtocolException("$verb without EXISTS"),
-            uidValidity = uidValidity ?: throw ImapProtocolException("$verb without UIDVALIDITY"),
-            uidNext = uidNext ?: throw ImapProtocolException("$verb without UIDNEXT"),
+            exists = count,
+            uidValidity = validity,
+            uidNext = uidNext ?: estimateUidNext(count),
             highestModSeq = highestModSeq,
             noModSeq = noModSeq,
         )
     }
 
+    /**
+     * For a server that sent no UIDNEXT: the UID of the last message + 1 (`FETCH * (UID)`), or 1 for an empty
+     * mailbox. A lower bound, because a deleted last message can have had a higher UID.
+     */
+    private fun estimateUidNext(exists: Long): Long {
+        if (exists == 0L) return 1
+        var max = 0L
+        fetch("*", "UID") { max = maxOf(max, it.uid) }
+        return max + 1
+    }
+
     private fun search(returns: String, criteria: Command, onResult: (Untagged) -> Unit) {
         val command = Command.build {
-            raw("UID SEARCH RETURN ($returns)")
+            raw(if ("ESEARCH" in caps) "UID SEARCH RETURN ($returns)" else "UID SEARCH")
             if (criteria.hasNonAscii) raw("CHARSET UTF-8")
             append(criteria)
         }
@@ -339,8 +467,24 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         if (!uids.isEmpty) uids.chunks().forEach(block)
     }
 
+    /** How [authenticatePassword] signs in. */
+    internal enum class PasswordAuth { PLAIN_IR, PLAIN, LOGIN }
+
     companion object {
-        /** Opens the TLS socket, reads the greeting and returns a client ready for authentication. */
+        /**
+         * RFC 9051 §7.2.2: the extensions that an IMAP4rev2 server has without listing them (`Wire` still uses
+         * only the advertised set for literals).
+         */
+        private val REV2_BASE = setOf(
+            "IDLE", "MOVE", "UIDPLUS", "ESEARCH", "NAMESPACE", "ENABLE", "SPECIAL-USE", "LIST-EXTENDED",
+            "LIST-STATUS", "SASL-IR", "UNSELECT",
+        )
+        private const val DELETED = "\\Deleted"
+
+        /**
+         * Opens the connection, reads the greeting and, for [TlsMode.STARTTLS], upgrades to TLS. The returned
+         * client is always encrypted and ready for authentication.
+         */
         fun connect(endpoint: Endpoint, hooks: SocketHooks, log: (String) -> Unit = {}): ImapClient =
             connect(endpoint, hooks, log, SSLSocketFactory.getDefault() as SSLSocketFactory)
 
@@ -350,16 +494,55 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             log: (String) -> Unit,
             factory: SSLSocketFactory,
         ): ImapClient {
-            if (endpoint.tls == TlsMode.STARTTLS) throw StartTlsException("STARTTLS is not available yet")
-            val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, factory = factory)
+            val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, endpoint.tls, factory = factory)
+            return start(socket, endpoint, log)
+        }
+
+        /**
+         * The greeting, then for [TlsMode.STARTTLS]: STARTTLS is always sent (capabilities before TLS are not
+         * trusted, so neither a missing STARTTLS nor LOGINDISABLED changes anything); PREAUTH, NO or BAD ->
+         * [StartTlsException]; after the switch CAPABILITY is asked again. Any failure closes [stream].
+         */
+        internal fun start(stream: MailStream, endpoint: Endpoint, log: (String) -> Unit = {}): ImapClient {
             try {
-                val conn = ImapConnection(socket, log)
-                conn.greeting()
+                val conn = ImapConnection(stream, log)
+                val greeting = conn.greeting()
+                if (endpoint.tls == TlsMode.STARTTLS) {
+                    // PREAUTH before TLS would skip the upgrade: a STARTTLS stripping attack.
+                    if (greeting.keyword == "PREAUTH") throw StartTlsException("PREAUTH before STARTTLS")
+                    try {
+                        conn.startTls()
+                    } catch (_: ImapNoException) {
+                        throw StartTlsException("STARTTLS refused")
+                    } catch (_: ImapBadException) {
+                        throw StartTlsException("STARTTLS refused")
+                    }
+                    conn.execute(Command.raw("CAPABILITY"))
+                }
+                check(conn.encrypted) { "No TLS" }
                 return ImapClient(conn, endpoint.host)
             } catch (e: Throwable) {
-                socket.close()
+                stream.close()
                 throw e
             }
+        }
+
+        /** Pure: the password mechanism for [caps]. */
+        internal fun passwordAuth(caps: Set<String>): PasswordAuth = when {
+            "AUTH=PLAIN" in caps && "SASL-IR" in caps -> PasswordAuth.PLAIN_IR
+            "AUTH=PLAIN" in caps -> PasswordAuth.PLAIN
+            "LOGINDISABLED" !in caps -> PasswordAuth.LOGIN
+            else -> throw ImapMissingCapabilityException(setOf("AUTH=PLAIN"))
+        }
+
+        /** `* NAMESPACE personal other shared`: each a list of `(prefix delimiter ...)` or NIL. */
+        private fun namespacesOf(values: List<ImapValue>): Namespaces {
+            fun group(value: ImapValue?): List<Namespace> = value?.listOrEmpty().orEmpty().mapNotNull { entry ->
+                val items = entry.listOrEmpty()
+                val prefix = items.getOrNull(0)?.textOrNull() ?: return@mapNotNull null
+                Namespace(MailboxName.decode(prefix), items.getOrNull(1)?.textOrNull())
+            }
+            return Namespaces(group(values.getOrNull(0)), group(values.getOrNull(1)), group(values.getOrNull(2)))
         }
 
         private val INTERNAL_DATE =
