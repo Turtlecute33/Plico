@@ -74,6 +74,28 @@ class UidSetTest {
     }
 
     @Test
+    fun containsAllRanges() {
+        val set = UidSet.parse("3:5,9,20:*")
+        assertTrue(set.containsAll(3L..5L))
+        assertTrue(set.containsAll(4L..4L))
+        assertTrue(set.containsAll(9L..9L))
+        assertTrue(set.containsAll(25L..1_000L))
+        assertFalse(set.containsAll(5L..6L))
+        assertFalse(set.containsAll(2L..3L))
+        assertFalse(set.containsAll(8L..9L))
+        assertFalse(UidSet.EMPTY.containsAll(1L..1L))
+        assertTrue(set.containsAll(LongRange.EMPTY))
+    }
+
+    @Test
+    fun union() {
+        assertEquals(UidSet.parse("1:7,9"), UidSet.parse("1:3,9").union(UidSet.parse("4:7")))
+        assertEquals(UidSet.parse("2,5"), UidSet.EMPTY.union(UidSet.of(5, 2)))
+        assertEquals(UidSet.of(5, 2), UidSet.of(5, 2).union(UidSet.EMPTY))
+        assertEquals(UidSet.parse("1:*"), UidSet.parse("1:3").union(UidSet.range(2)))
+    }
+
+    @Test
     fun equality() {
         assertEquals(UidSet.parse("1:3"), UidSet.of(1, 2, 3))
         assertEquals(UidSet.parse("1:3").hashCode(), UidSet.of(1, 2, 3).hashCode())

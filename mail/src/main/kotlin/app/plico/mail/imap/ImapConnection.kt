@@ -14,7 +14,8 @@ import java.io.IOException
  * that response would otherwise be read as the next command's. Later calls then throw [IOException] at
  * once. A tagged NO or BAD ends the command cleanly and keeps the connection.
  *
- * The log callback gets only tags, command verbs, statuses and response-code names.
+ * The log callback gets only tags, command verbs, statuses and response-code names; a continuation and its
+ * answer appear as `<<< +` and `>>> <sasl response>`, never with their data.
  */
 class ImapConnection(private val stream: MailStream, private val log: (String) -> Unit = {}) : Closeable {
 
