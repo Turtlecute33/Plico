@@ -6,7 +6,10 @@ import app.plico.mail.smtp.SmtpClient
 
 /** How one account signs in. Implementations: password, browser OAuth, device account. See DESIGN.md §6. */
 interface Credentials {
-    /** Authenticates [client] (PLAIN or XOAUTH2). Throws [MailError.AuthRequired] when the user must act. */
+    /**
+     * Authenticates [client] (a password with PLAIN or LOGIN, or XOAUTH2). Throws [MailError.AuthRequired] when the
+     * user must act, and [MailError.Setup] when this sign-in must not go to the client's server.
+     */
     suspend fun authImap(client: ImapClient)
 
     suspend fun authSmtp(client: SmtpClient)
@@ -40,6 +43,9 @@ sealed class MailError(message: String, cause: Throwable? = null) : Exception(me
     /** Permanent server refusal with the server text. */
     class Server(message: String, cause: Throwable? = null) : MailError(message, cause)
 
-    /** Account setup problem the user must fix (e.g. Gmail All Mail hidden from IMAP, client not registered). */
+    /**
+     * Account setup problem the user must fix (e.g. Gmail All Mail hidden from IMAP, client not registered, IMAP or
+     * SMTP AUTH off at Microsoft). A sign-in again does not help.
+     */
     class Setup(message: String, cause: Throwable? = null) : MailError(message, cause)
 }
