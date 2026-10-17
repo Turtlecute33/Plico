@@ -1,8 +1,10 @@
 package app.plico.push.policy
 
+import app.plico.data.Provider
 import app.plico.push.policy.Coalescing.Kind.REFRESH
 import app.plico.push.policy.Coalescing.Timing.EARLY
 import app.plico.push.policy.Coalescing.Timing.LATER
+import java.util.Locale
 
 /**
  * Keepalive decisions for one account session (DESIGN.md §8.3; push PB11, PB12, PB13, PB17).
@@ -26,10 +28,10 @@ import app.plico.push.policy.Coalescing.Timing.LATER
  * asked for, and [onNetworkChanged] for every network event and for a connection on another network.
  */
 class KeepalivePolicy(
-    /** First client interval in minutes: `Providers.Traits.idleStartMinutes` (9 for Gmail, 15 for others). */
+    /** First client interval in minutes: `Providers.Traits.idleStartMinutes` (Gmail 9, other servers 15). */
     private val startMinutes: Int,
-    /** Keeps the learned intervals of different servers apart, e.g. the provider id. */
-    private val scope: String,
+    /** Keeps the learned intervals of different servers apart: [scopeOf]. */
+    val scope: String,
     private val learned: LearnedIntervals,
 ) {
     enum class Mode { SERVER, CLIENT }
@@ -188,7 +190,8 @@ class KeepalivePolicy(
     // Upper median: with an even count the larger middle gap, so a false dead-peer alarm is less likely.
     private fun cadence(): Long? = if (gaps.size < MIN_GAPS) null else gaps.sorted()[gaps.size / 2]
 
-    // Dovecot aligns keepalives to the wall clock, so the next one is due c after the later of these two.
+    // Some servers (Dovecot, for example) align keepalives to the wall clock: the next one is due c after the later
+    // of these two.
     private fun deadPeerDueAt(start: Long, c: Long): Long =
         maxOf(lastKeepalive ?: start, start) + c + maxOf(DEAD_PEER_MIN_MARGIN_MS, c / 4)
 
@@ -226,17 +229,30 @@ class KeepalivePolicy(
     /** A failure on network [key] at [at], counted at the next IDLE on that network. */
     private class PendingFailure(val key: String, val at: Long, val capMs: Long?)
 
-    private companion object {
-        const val MIN_MINUTES = 5
-        const val MAX_MINUTES = 28
-        const val STEP_MINUTES = 2
-        const val GROW_AFTER = 3
-        const val GAPS = 5
-        const val MIN_GAPS = 2
-        const val LEAVE_SERVER_AFTER = 2
-        const val RE_IDLE_AFTER_MS = 25 * MINUTE_MS
-        const val DEAD_PEER_MIN_MARGIN_MS = 30 * SECOND_MS
-        const val SERVER_CLOSE_MIN_AGE_MS = 5 * MINUTE_MS
-        const val EXPIRY_MARGIN_MS = 5 * MINUTE_MS
+    companion object {
+        private const val MIN_MINUTES = 5
+        private const val MAX_MINUTES = 28
+        private const val STEP_MINUTES = 2
+        private const val GROW_AFTER = 3
+        private const val GAPS = 5
+        private const val MIN_GAPS = 2
+        private const val LEAVE_SERVER_AFTER = 2
+        private const val RE_IDLE_AFTER_MS = 25 * MINUTE_MS
+        private const val DEAD_PEER_MIN_MARGIN_MS = 30 * SECOND_MS
+        private const val SERVER_CLOSE_MIN_AGE_MS = 5 * MINUTE_MS
+        private const val EXPIRY_MARGIN_MS = 5 * MINUTE_MS
+
+        /** Characters that the scope must not contain (the separators of [LearnedIntervals] and of the key). */
+        private const val NOT_IN_SCOPE = "=@;|"
+
+        /**
+         * The scope of an account's learned intervals: the provider id for Riseup and Gmail (their learned intervals
+         * stay), else the IMAP host in lower case, so that two other servers never share one. Never the address.
+         */
+        fun scopeOf(provider: Provider, imapHost: String): String {
+            if (provider == Provider.RISEUP || provider == Provider.GMAIL) return provider.id
+            val host = imapHost.trim().lowercase(Locale.ROOT).filterNot { it in NOT_IN_SCOPE || it.isWhitespace() }
+            return host.ifEmpty { provider.id }
+        }
     }
 }

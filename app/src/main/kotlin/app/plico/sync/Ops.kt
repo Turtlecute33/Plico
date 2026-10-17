@@ -3,7 +3,6 @@ package app.plico.sync
 import android.text.format.Formatter
 import app.plico.R
 import app.plico.account.traits
-import app.plico.data.Account
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
@@ -14,6 +13,8 @@ import app.plico.data.OpKind
 import app.plico.data.ServerFlags
 import app.plico.mail.imap.Command
 import app.plico.mail.imap.ImapNoException
+import app.plico.mail.imap.Namespace
+import app.plico.mail.imap.SelectResult
 import app.plico.mail.imap.UidSet
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -59,31 +60,67 @@ object Ops {
         store.ops.byAccount(accountId).filterNot { waits(store, it) }.minOfOrNull { it.runAt }
 
     /** SELECTs [folder]; throws [UidValidityChanged] when the stored UIDs belong to another numbering. */
-    internal fun selectChecked(ctx: OpContext, folder: Folder) {
+    internal fun selectChecked(ctx: OpContext, folder: Folder): SelectResult {
         val result = ctx.select(folder)
         if (folder.uidValidity != 0L && result.uidValidity != folder.uidValidity) throw UidValidityChanged()
+        return result
     }
 
-    /** Runs [block]; on `[TRYCREATE]` creates [path] (and its folder row) once and runs it again. */
+    /**
+     * Runs [block]; on `[TRYCREATE]` creates [path] (and its folder row) once and runs it again. TRYCREATE is only
+     * a SHOULD, so a NO without a response code does the same when no folder row of the account has that path.
+     */
     internal fun <T> creating(ctx: OpContext, path: String, role: FolderRole?, block: () -> T): T = try {
         block()
     } catch (e: ImapNoException) {
-        if (e.code?.name != "TRYCREATE") throw e
+        val code = e.code
+        val create = if (code == null) {
+            ctx.store.folders.byAccount(ctx.account.id).none { it.path == path }
+        } else {
+            code.name == "TRYCREATE"
+        }
+        if (!create) throw e
         ctx.client.create(path)
-        ctx.store.folders.upsert(createdFolder(ctx.store, ctx.account, path, role))
+        ctx.store.folders.upsert(createdFolder(ctx, path, role))
         block()
     }
 
     /**
-     * The row of a mailbox that Plico has just created: a Riseup mailbox with [role], or a Gmail label view (Gmail
-     * makes a label of every CREATE; its mailboxes are found by SPECIAL-USE only, DESIGN §7.3).
+     * The row of a mailbox that Plico has just created: a mailbox with [role] (the delimiter of the personal
+     * namespace when the server reports one, else that of the stored mailboxes), or a Gmail label view (Gmail makes
+     * a label of every CREATE; its mailboxes are found by SPECIAL-USE only, DESIGN §7.3).
      */
-    internal fun createdFolder(store: OpStore, account: Account, path: String, role: FolderRole?): NewFolder {
+    internal fun createdFolder(ctx: OpContext, path: String, role: FolderRole?): NewFolder {
+        val account = ctx.account
         if (account.isGmail) return NewFolder(account.id, FolderKind.LABEL, path, FolderRules.leaf(path, "/"), null, "/")
-        val delimiter = store.folders.byAccount(account.id)
-            .firstOrNull { it.kind == FolderKind.MAILBOX && it.delimiter != null }?.delimiter
+        val delimiter = personalNamespace(ctx)?.delimiter?.takeIf { it.isNotEmpty() } ?: storedDelimiter(mailboxRows(ctx))
         return NewFolder(account.id, FolderKind.MAILBOX, path, FolderRules.leaf(path, delimiter), role, delimiter)
     }
+
+    /**
+     * The path of a mailbox that Plico creates under a default name ("Trash", "Spam", "Archive", "Sent", "Drafts", or
+     * a new folder of the user): below the personal root ([FolderRules.prefixOf], e.g. `INBOX.Trash` on Courier) on
+     * servers other than Riseup and Gmail. Riseup and Gmail keep [leaf] (their root is "").
+     */
+    internal fun defaultPath(ctx: OpContext, leaf: String): String {
+        if (!ctx.account.generic) return leaf
+        val personal = personalNamespace(ctx)
+        val rows = mailboxRows(ctx)
+        val delimiter = personal?.delimiter?.takeIf { it.isNotEmpty() } ?: storedDelimiter(rows)
+        return FolderRules.withPrefix(FolderRules.prefixOf(personal?.prefix, rows.map { it.path }, delimiter), leaf)
+    }
+
+    /** The personal namespace of a server other than Riseup and Gmail (their rules use none); null without NAMESPACE. */
+    private fun personalNamespace(ctx: OpContext): Namespace? =
+        if (ctx.account.generic) ctx.client.namespace()?.personal?.firstOrNull() else null
+
+    private fun mailboxRows(ctx: OpContext): List<Folder> =
+        ctx.store.folders.byAccount(ctx.account.id).filter { it.kind == FolderKind.MAILBOX }
+
+    /** The delimiter of the INBOX row, else of the first mailbox row that has one. */
+    private fun storedDelimiter(mailboxes: List<Folder>): String? =
+        mailboxes.firstOrNull { it.role == FolderRole.INBOX && it.delimiter != null }?.delimiter
+            ?: mailboxes.firstOrNull { it.delimiter != null }?.delimiter
 
     /** Throws [OpRefused] when [size] bytes exceed the server's APPENDLIMIT or the provider limit. */
     internal fun checkAppendSize(ctx: OpContext, size: Int) {
@@ -160,20 +197,26 @@ object Ops {
 
     private fun move(ctx: OpContext, op: Op, arg: OpArg.Move) {
         val store = ctx.store
-        forEachMailbox(ctx, op, skip = { it.path == arg.path }) { source, rows ->
+        val path = targetPath(ctx, arg)
+        forEachMailbox(ctx, op, skip = { it.path == path }) { source, rows ->
             // Gmail turns a MOVE or expunge out of All Mail into a deletion (protocol PS8).
             if (ctx.account.isGmail && source.role == FolderRole.ALL &&
                 arg.role != FolderRole.TRASH && arg.role != FolderRole.JUNK
             ) {
                 throw OpRefused(store.text(R.string.ops_error_gmail_move))
             }
-            val moved = creating(ctx, arg.path, arg.role) { ctx.client.uidMove(uids(rows), arg.path) }
-            val target = store.folders.byPath(ctx.account.id, FolderKind.MAILBOX, arg.path)
+            val moved = creating(ctx, path, arg.role) { ctx.client.uidMove(uids(rows), path) }
+            val target = store.folders.byPath(ctx.account.id, FolderKind.MAILBOX, path)
             // Gmail: out of Trash or Spam into INBOX or a label, the message is back in All Mail with a new UID.
             val (folder, newUids) = when {
                 target != null -> target to moved
                 ctx.account.isGmail -> allMailUids(ctx, rows)
                 else -> null to emptyMap()
+            }
+            if (!ctx.account.isGmail) {
+                // Without COPYUID the target's sync brings the message back as a new row, which must not notify.
+                val gone = rows.filter { folder == null || newUids[it.uid] == null }
+                ctx.movedIn.add(path, gone.mapNotNull { store.messages.get(it.id)?.messageId })
             }
             for (row in rows) {
                 val uid = newUids[row.uid]
@@ -183,10 +226,19 @@ object Ops {
             }
             if (folder != null && folder.id != target?.id) {
                 // The next All Mail fetch writes every label; the label view of the target shows the rows at once.
-                val view = labelIds(store, ctx.account.id, listOf(if (arg.path == FolderRules.INBOX) INBOX_LABEL else arg.path))
+                val view = labelIds(store, ctx.account.id, listOf(if (path == FolderRules.INBOX) INBOX_LABEL else path))
                 view.forEach { store.messages.addToFolder(rows.filter { it.uid in newUids }.map { it.id }, it) }
             }
         }
+    }
+
+    /**
+     * The op's target path. A default name (an op with a role, and no mailbox row with that path) goes below the
+     * personal root ([defaultPath]): the action queued only the bare name, maybe offline.
+     */
+    private fun targetPath(ctx: OpContext, arg: OpArg.Move): String {
+        if (arg.role == null || ctx.store.folders.byPath(ctx.account.id, FolderKind.MAILBOX, arg.path) != null) return arg.path
+        return defaultPath(ctx, arg.path)
     }
 
     /** The All Mail UIDs (by old UID) of Gmail [rows] that a MOVE has taken out of Trash or Spam, by X-GM-MSGID. */
@@ -210,7 +262,7 @@ object Ops {
         if (arg.folderId == null) {
             forEachMailbox(ctx, op) { folder, rows ->
                 refuseAllMail(ctx, folder)
-                deleteForever(ctx, uids(rows))
+                deleteForever(ctx, uids(rows), folder)
                 store.messages.delete(rows.map { it.id })
             }
             return
@@ -219,14 +271,22 @@ object Ops {
         if (arg.upTo < 1) return
         refuseAllMail(ctx, folder)
         selectChecked(ctx, folder)
-        deleteForever(ctx, UidSet.range(1, arg.upTo))
+        // Empty Trash/Spam: every message of the folder goes, so a plain EXPUNGE is right without UIDPLUS (D5).
+        deleteForever(ctx, UidSet.range(1, arg.upTo), guard = false)
         store.messages.deleteUids(folder.id, store.messages.uids(folder.id, 1, arg.upTo))
     }
 
-    /** `\Deleted` + `UID EXPUNGE` in the selected mailbox. */
-    internal fun deleteForever(ctx: OpContext, uids: UidSet) {
+    /**
+     * `\Deleted` + expunge of [uids] in the selected [folder]. Outside Trash and Spam the expunge is guarded on a
+     * server without UIDPLUS: it never removes a `\Deleted` message of another client (D5). When the guard skips it,
+     * the messages stay `\Deleted` on the server, and their rows are not shown (D19).
+     */
+    internal fun deleteForever(ctx: OpContext, uids: UidSet, folder: Folder) =
+        deleteForever(ctx, uids, guard = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK)
+
+    private fun deleteForever(ctx: OpContext, uids: UidSet, guard: Boolean) {
         ctx.client.uidStoreFlags(uids, true, listOf(DELETED))
-        ctx.client.uidExpunge(uids)
+        ctx.client.uidExpunge(uids, guard)
     }
 
     private fun refuseAllMail(ctx: OpContext, folder: Folder) {
@@ -303,7 +363,7 @@ object Ops {
                     withLabels -> labelIds(store, ctx.account.id, item.gmLabels.orEmpty())
                     else -> emptySet()
                 }
-                HeaderParser.serverFlags(item, labels)?.let(found::add)
+                HeaderParser.serverFlags(item, labels, gmail)?.let(found::add)
             }
             store.messages.syncFlags(folder.id, found)
             store.messages.deleteUids(folder.id, wanted - found.mapTo(HashSet()) { it.uid })

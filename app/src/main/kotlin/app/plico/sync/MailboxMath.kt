@@ -21,6 +21,12 @@ internal object MailboxMath {
     /** The mass-delete guard trips above this many rows (and above half of the mailbox). */
     const val GUARD_MIN_ROWS = 50
 
+    /**
+     * UIDs per `UID SEARCH` on a server without ESEARCH: each `* SEARCH` line then lists at most this many UIDs,
+     * far below the 1 MiB line limit of the reader.
+     */
+    const val SEARCH_WINDOW = 50_000L
+
     /** First sequence number of a first sync, `max(1, EXISTS − 199)`; null for an empty mailbox. */
     fun firstSyncStart(exists: Long): Long? = if (exists <= 0) null else maxOf(1, exists - FIRST_SYNC + 1)
 
@@ -38,13 +44,26 @@ internal object MailboxMath {
     /** The range that ends at the highest older UID [max] (found by `UID SEARCH RETURN (MAX)`). */
     fun backfillRangeBelow(max: Long): LongRange = maxOf(1, max - BACKFILL_STEP + 1)..max
 
-    /** Step 2: skip the mailbox only when UIDNEXT, MESSAGES and a known HIGHESTMODSEQ are unchanged (PS10). */
-    fun unchanged(status: MailboxStatus, folder: Folder, knownMessages: Long?): Boolean =
+    /**
+     * Step 2: skip the mailbox when UIDNEXT, MESSAGES and UIDVALIDITY are unchanged, and the flags are unchanged too:
+     * a known HIGHESTMODSEQ that is the same (PS10), or, without one (no CONDSTORE), only while no flag check is due
+     * ([flagsDue]: user refresh, folder open, the 6-h sweep). Else every poll would fetch the flags of every folder.
+     */
+    fun unchanged(status: MailboxStatus, folder: Folder, knownMessages: Long?, flagsDue: Boolean): Boolean =
         folder.backfillUid != 0L &&
             status.uidValidity == folder.uidValidity &&
             status.uidNext == folder.uidNext &&
-            status.highestModSeq != null && status.highestModSeq == folder.modSeq &&
-            knownMessages == status.messages
+            knownMessages == status.messages &&
+            if (status.highestModSeq != null) status.highestModSeq == folder.modSeq else !flagsDue
+
+    /**
+     * The UID windows below [below] for a server without ESEARCH, highest first: `below-50000 .. below-1`, and so
+     * on down to UID 1. Empty when [below] is 1 or less.
+     */
+    fun searchWindows(below: Long): Sequence<LongRange> =
+        generateSequence(below - 1) { top -> (top - SEARCH_WINDOW).takeIf { it >= 1 } }
+            .takeWhile { it >= 1 }
+            .map { top -> maxOf(1, top - SEARCH_WINDOW + 1)..top }
 
     /** Step 6: no expunge can have happened when every server message is local. */
     fun canSkipExpunge(backfillUid: Long, exists: Long, localRows: Int): Boolean =

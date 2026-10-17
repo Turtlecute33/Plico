@@ -41,8 +41,11 @@ internal class SyncContext(
             knownMessages = session.knownMessages,
             progress = session::progress,
             onNewMail = session::onServerNewMail,
+            movedIn = session.movedIn,
         ),
     )
+
+    override val movedIn: MovedIn get() = session.movedIn
 
     /**
      * SELECTs [folder] unless it is already selected; returns the last SELECT result for it, with EXISTS kept up

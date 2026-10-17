@@ -48,14 +48,39 @@ class MailboxMathTest {
 
     @Test
     fun cheapCheckSkipsOnlyWhenEverythingIsKnownAndUnchanged() {
-        assertTrue(MailboxMath.unchanged(status, folder, knownMessages = 100))
-        assertFalse(MailboxMath.unchanged(status.copy(uidNext = 121), folder, 100), "new mail")
-        assertFalse(MailboxMath.unchanged(status.copy(messages = 99), folder, 100), "an expunge")
-        assertFalse(MailboxMath.unchanged(status.copy(highestModSeq = 901), folder, 100), "a flag change")
-        assertFalse(MailboxMath.unchanged(status.copy(highestModSeq = null), folder, 100), "NOMODSEQ: never skip (PS10)")
-        assertFalse(MailboxMath.unchanged(status, folder, knownMessages = null), "count not known")
-        assertFalse(MailboxMath.unchanged(status.copy(uidValidity = 8), folder, 100))
-        assertFalse(MailboxMath.unchanged(status, folder.copy(backfillUid = 0), 100), "never synced")
+        for (flagsDue in listOf(true, false)) {
+            assertTrue(MailboxMath.unchanged(status, folder, knownMessages = 100, flagsDue), "CONDSTORE: $flagsDue")
+            assertFalse(MailboxMath.unchanged(status.copy(uidNext = 121), folder, 100, flagsDue), "new mail")
+            assertFalse(MailboxMath.unchanged(status.copy(messages = 99), folder, 100, flagsDue), "an expunge")
+            assertFalse(MailboxMath.unchanged(status.copy(highestModSeq = 901), folder, 100, flagsDue), "a flag change")
+            assertFalse(MailboxMath.unchanged(status, folder, knownMessages = null, flagsDue), "count not known")
+            assertFalse(MailboxMath.unchanged(status.copy(uidValidity = 8), folder, 100, flagsDue))
+            assertFalse(MailboxMath.unchanged(status, folder.copy(backfillUid = 0), 100, flagsDue), "never synced")
+        }
+    }
+
+    @Test
+    fun withoutModSeqTheSkipWaitsOnlyForDueFlags() {
+        val noModSeq = status.copy(highestModSeq = null)
+        assertFalse(MailboxMath.unchanged(noModSeq, folder, 100, flagsDue = true), "refresh or 6-h sweep: flags (PS10)")
+        assertTrue(MailboxMath.unchanged(noModSeq, folder, 100, flagsDue = false), "a poll skips the unchanged mailbox (D8)")
+        assertFalse(MailboxMath.unchanged(noModSeq.copy(uidNext = 121), folder, 100, flagsDue = false), "new mail")
+        assertFalse(MailboxMath.unchanged(noModSeq.copy(messages = 99), folder, 100, flagsDue = false), "an expunge")
+        assertFalse(MailboxMath.unchanged(noModSeq, folder.copy(backfillUid = 0), 100, flagsDue = false), "never synced")
+    }
+
+    @Test
+    fun searchWindowsGoDownFromBelow() {
+        assertEquals(listOf(70_001L..120_000L, 20_001L..70_000L, 1L..20_000L), MailboxMath.searchWindows(120_001).toList())
+        assertEquals(listOf(1L..50_000L), MailboxMath.searchWindows(50_001).toList())
+        assertEquals(listOf(2L..50_001L, 1L..1L), MailboxMath.searchWindows(50_002).toList())
+        assertEquals(listOf(1L..9L), MailboxMath.searchWindows(10).toList())
+        assertEquals(listOf(1L..1L), MailboxMath.searchWindows(2).toList())
+        assertTrue(MailboxMath.searchWindows(1).none())
+        assertTrue(MailboxMath.searchWindows(0).none())
+        val huge = MailboxMath.searchWindows(4_000_000_000L)
+        assertEquals(3_999_950_000L..3_999_999_999L, huge.first(), "lazy: no list of 80,000 windows")
+        assertTrue(MailboxMath.searchWindows(1_000_001).all { it.last - it.first < MailboxMath.SEARCH_WINDOW })
     }
 
     @Test

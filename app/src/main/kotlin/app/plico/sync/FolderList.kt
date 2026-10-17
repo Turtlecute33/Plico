@@ -8,6 +8,7 @@ import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.NewFolder
+import app.plico.data.Provider
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.MailboxInfo
 import app.plico.mail.imap.MailboxStatus
@@ -24,13 +25,15 @@ internal class FolderList(private val env: SyncEnv) {
     fun refresh(): List<Folder> {
         val list = env.client.list()
         val before = env.folders.byAccount(env.accountId)
-        return if (env.gmail) gmail(FolderRules.gmail(env.accountId, list), before) else riseup(list, before)
+        return if (env.gmail) gmail(FolderRules.gmail(env.accountId, list), before) else mailboxes(list, before)
     }
 
-    private fun riseup(list: List<MailboxInfo>, before: List<Folder>): List<Folder> {
+    /** Every server except Gmail: Riseup keeps its exact rules; other servers also use the namespaces (§7.2). */
+    private fun mailboxes(list: List<MailboxInfo>, before: List<Folder>): List<Folder> {
         val chosen = env.accounts.get(env.accountId)?.archiveFolder
         val archive = chosen?.let { id -> before.firstOrNull { it.id == id }?.path }
-        val rows = FolderRules.riseup(env.accountId, list, archive)
+        val riseup = env.account.provider == Provider.RISEUP
+        val rows = FolderRules.mailboxes(env.accountId, list, archive, if (riseup) null else env.client.namespace(), riseup)
         write(rows, before)
         clearSetupProblem()
         return emptyList()

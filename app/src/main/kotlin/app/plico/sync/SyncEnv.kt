@@ -39,10 +39,13 @@ internal class SyncEnv(
     val onNewMail: () -> Unit = {},
     /** Wall-clock time. */
     val clock: () -> Long = System::currentTimeMillis,
+    /** Messages that a MOVE without COPYUID took into a mailbox on this connection (shared with the ops). */
+    val movedIn: MovedIn = MovedIn(),
 ) {
     val accountId: Long get() = account.id
     val gmail: Boolean get() = account.isGmail
     val condstore: Boolean get() = "CONDSTORE" in client.caps
+    val esearch: Boolean get() = "ESEARCH" in client.caps
     val selection = SyncSelection(client, onNewMail)
 
     fun text(id: Int): String = resources.getString(id)
@@ -104,6 +107,32 @@ internal class SyncSelection(private val client: ImapClient, private val onNewMa
             "EXPUNGE" -> result = current.copy(exists = maxOf(0, current.exists - 1))
         }
     }
+}
+
+/**
+ * Message-IDs of rows that a MOVE without COPYUID took into a mailbox, by the decoded target path. The new-UID fetch
+ * of that mailbox stores such a row as notified, so that "Not spam" or a restore into INBOX never notifies
+ * (DESIGN §7.4). Kept for one connection; thread-safe.
+ */
+internal class MovedIn {
+    private val byPath = HashMap<String, MutableSet<String>>()
+
+    @Synchronized
+    fun add(path: String, messageIds: Collection<String>) {
+        if (messageIds.isNotEmpty()) byPath.getOrPut(path) { HashSet() } += messageIds
+    }
+
+    /** True once for each [messageId] that [add] recorded for [path]. */
+    @Synchronized
+    fun take(path: String, messageId: String): Boolean {
+        val ids = byPath[path] ?: return false
+        val found = ids.remove(messageId)
+        if (ids.isEmpty()) byPath.remove(path)
+        return found
+    }
+
+    @Synchronized
+    fun clear() = byPath.clear()
 }
 
 /** What a cycle changed; the session turns it into notifications and the next steps. */

@@ -16,6 +16,7 @@ import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.MessageDao
 import app.plico.data.OpDao
+import app.plico.data.Provider
 import app.plico.data.Tables
 import app.plico.mail.imap.ImapClient
 import app.plico.mail.imap.SelectResult
@@ -44,7 +45,16 @@ internal interface OpContext {
 
     /** True when other work waits; long loops stop at a batch end. */
     val workPending: Boolean
+
+    /** Messages that a MOVE without COPYUID took into a mailbox on this connection; the sync reads them. */
+    val movedIn: MovedIn
 }
+
+/**
+ * A server that is neither Gmail nor Riseup: Microsoft and every other server. Only these use the generic fallbacks
+ * that change the commands (namespaces, default names below the personal root); Gmail and Riseup stay unchanged.
+ */
+internal val Account.generic: Boolean get() = provider == Provider.MICROSOFT || provider == Provider.OTHER
 
 /** The database, files and clock of the ops code. Every DAO call blocks: run it on Dispatchers.IO. */
 internal class OpStore(
