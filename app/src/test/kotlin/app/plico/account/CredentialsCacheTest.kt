@@ -5,6 +5,7 @@ import app.plico.data.AccountState
 import app.plico.data.AuthKind
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.data.Servers
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
@@ -37,12 +38,21 @@ class CredentialsCacheTest {
             account.copy(auth = AuthKind.DEVICE, deviceAccount = "other@gmail.com"),
             account.copy(email = "new@gmail.com"),
             account.copy(provider = Provider.RISEUP),
+            account.copy(provider = Provider.RISEUP, servers = Servers.NONE.copy(login = "me")),
         )) {
             val next = get(changed)
             assertNotSame(last, next)
             last = next
         }
-        assertEquals(6, created)
+        assertEquals(7, created)
+    }
+
+    @Test
+    fun `the same user name on other servers keeps the instance`() {
+        val account = account()
+        val first = get(account)
+        assertSame(first, get(account.copy(servers = Providers.GMAIL_SERVERS)))
+        assertSame(first, get(account.copy(servers = Servers.NONE.copy(login = account.email))), "login = the address")
     }
 
     @Test

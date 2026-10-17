@@ -28,15 +28,19 @@ internal class CannedStream(vararg serverLines: String) : MailStream {
     fun saslResponse(): String = String(Base64.getDecoder().decode(written().first().substringAfterLast(' ')), Charsets.UTF_8)
 }
 
-internal fun imap(vararg serverLines: String): Pair<ImapClient, CannedStream> {
+/** [host] is the endpoint host that credentials check before they send a token. */
+internal fun imap(vararg serverLines: String, host: String = GMAIL_IMAP): Pair<ImapClient, CannedStream> {
     val stream = CannedStream(*serverLines)
-    return ImapClient(ImapConnection(stream)) to stream
+    return ImapClient(ImapConnection(stream), host) to stream
 }
 
-internal fun smtp(vararg serverLines: String): Pair<SmtpClient, CannedStream> {
+internal fun smtp(vararg serverLines: String, host: String = GMAIL_SMTP): Pair<SmtpClient, CannedStream> {
     val stream = CannedStream(*serverLines)
-    return SmtpClient(stream) to stream
+    return SmtpClient(stream, host = host) to stream
 }
+
+internal const val GMAIL_IMAP = "imap.gmail.com"
+internal const val GMAIL_SMTP = "smtp.gmail.com"
 
 internal const val IMAP_OK = "A1 OK [CAPABILITY IMAP4rev1 IDLE MOVE UIDPLUS ESEARCH] Logged in"
 internal const val SMTP_OK = "235 2.7.0 Accepted"

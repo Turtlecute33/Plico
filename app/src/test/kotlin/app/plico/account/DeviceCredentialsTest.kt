@@ -106,6 +106,18 @@ class DeviceCredentialsTest {
     }
 
     @Test
+    fun `only Google servers get the token`() = runTest {
+        for (host in listOf("imap.example.org", "outlook.office365.com", "")) {
+            val (client, stream) = imap(IMAP_OK, host = host)
+            assertFailsWith<MailError.Setup> { credentials.authImap(client) }
+            val (smtpClient, smtpStream) = smtp(SMTP_OK, host = host)
+            assertFailsWith<MailError.Setup> { credentials.authSmtp(smtpClient) }
+            assertEquals(emptyList(), stream.written() + smtpStream.written())
+        }
+        assertEquals(emptyList(), fetches, "no token fetched")
+    }
+
+    @Test
     fun `fetch errors propagate`() = runTest {
         val failing = DeviceCredentials("me@gmail.com", { throw MailError.AuthRequired("consent") }, {}, { now })
         val error = assertFailsWith<MailError.AuthRequired> { failing.authImap(imap(IMAP_OK).first) }

@@ -11,7 +11,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Gmail XOAUTH2 with a token of the Google account on the phone (DESIGN.md §6, apis AF5, push PB17).
+ * Gmail XOAUTH2 with a token of the Google account on the phone (DESIGN.md §6, apis AF5, push PB17). The token
+ * goes only to Google's mail servers.
  *
  * AccountManager gives no expiry and may return a cached token that is almost 1 h old. So the acquired
  * time is kept in memory: when it is unknown or older than 45 min, the cached token is invalidated and a
@@ -47,12 +48,14 @@ class DeviceCredentials internal constructor(
     override val expiresAt: Long? get() = session?.let { it + SESSION_MS }
 
     override suspend fun authImap(client: ImapClient) = withContext(Dispatchers.IO) {
+        checkHost(client.host)
         val (value, acquiredAt) = token()
         login { client.authenticateXoauth2(user, value) }
         session = acquiredAt
     }
 
     override suspend fun authSmtp(client: SmtpClient) = withContext(Dispatchers.IO) {
+        checkHost(client.host)
         val (value, _) = token()
         login { client.authXoauth2(user, value) }
     }
@@ -95,6 +98,11 @@ class DeviceCredentials internal constructor(
         token = fresh
         acquired = now
         fresh to now
+    }
+
+    /** A Google token goes only to Google's servers; checked before a token is fetched. */
+    private fun checkHost(host: String) {
+        if (host !in OAuthIssuer.GOOGLE.hosts) throw wrongHost()
     }
 
     private suspend inline fun login(block: () -> Unit) {
