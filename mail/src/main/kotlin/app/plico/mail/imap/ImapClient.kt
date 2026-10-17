@@ -3,9 +3,11 @@ package app.plico.mail.imap
 import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
 import app.plico.mail.net.MailStream
+import app.plico.mail.net.PlaintextTimeoutException
 import app.plico.mail.net.SocketHooks
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsMode
+import app.plico.mail.net.beforeTls
 import app.plico.mail.sasl.Sasl
 import java.io.Closeable
 import java.time.DateTimeException
@@ -16,7 +18,8 @@ import javax.net.ssl.SSLSocketFactory
 /**
  * Typed IMAP operations used by the app. See DESIGN.md §4.4.
  * Mailbox names and Gmail labels are given and returned decoded; this class encodes them to modified
- * UTF-7 for the wire. Commands that take a [UidSet] are split into chunks of at most 500 ranges.
+ * UTF-7 for the wire, except on an IMAP4rev2-only server, where mailbox names are UTF-8 (RFC 9051 §5.1).
+ * Commands that take a [UidSet] are split into chunks of at most 500 ranges.
  * [host] is the host of the endpoint ("" only in tests); credentials check it before they send a token.
  */
 class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
@@ -26,10 +29,14 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
      * IMAP4rev2 without IMAP4rev1 (such a server need not list the base extensions).
      */
     val caps: Set<String>
-        get() {
-            val advertised = conn.capabilities
-            return if ("IMAP4REV2" in advertised && "IMAP4REV1" !in advertised) advertised + REV2_BASE else advertised
-        }
+        get() = if (rev2Only) conn.capabilities + REV2_BASE else conn.capabilities
+
+    /**
+     * IMAP4rev2 without IMAP4rev1. Such a server uses UTF-8 mailbox names (RFC 9051 §5.1) and need not know
+     * modified UTF-7; a server with both stays in IMAP4rev1 mode, because Plico never enables IMAP4rev2.
+     */
+    private val rev2Only: Boolean
+        get() = conn.capabilities.let { "IMAP4REV2" in it && "IMAP4REV1" !in it }
 
     val isGmail: Boolean get() = "X-GM-EXT-1" in caps
 
@@ -92,7 +99,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
 
     /**
      * RFC 2342 namespaces, asked once per connection; null when the server has no NAMESPACE, refuses the command
-     * or sends no NAMESPACE response. Prefixes are decoded from modified UTF-7.
+     * or sends no NAMESPACE response. Prefixes are decoded like mailbox names.
      */
     fun namespace(): Namespaces? {
         if ("NAMESPACE" !in caps) return null
@@ -142,7 +149,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
     /** `STATUS` with MESSAGES UIDNEXT UIDVALIDITY, plus HIGHESTMODSEQ when CONDSTORE is advertised. */
     fun status(mailbox: String): MailboxStatus {
         var values = emptyMap<String, Long>()
-        conn.execute(Command.build { raw("STATUS"); string(MailboxName.encode(mailbox)); raw("($statusQuery)") }) { r ->
+        conn.execute(Command.build { raw("STATUS"); string(wire(mailbox)); raw("($statusQuery)") }) { r ->
             if (r.keyword == "STATUS") values = statusItems(r.values.getOrNull(1))
         }
         return mailboxStatus(values) ?: throw ImapProtocolException("Incomplete STATUS")
@@ -269,41 +276,45 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
 
     /**
      * `UID MOVE`. Returns the COPYUID mapping old UID -> new UID (empty when the server sent none).
-     * Without MOVE: per chunk `UID COPY` and `UID STORE +FLAGS.SILENT (\Deleted)`, then [uidExpunge] with the
-     * guard. Not atomic: a retry after a lost connection can copy twice, and a skipped guarded expunge leaves
-     * the originals with `\Deleted` on the server.
+     * Without MOVE: per chunk `UID COPY` and `UID STORE +FLAGS.SILENT (\Deleted)`, then [expunge] with all of
+     * [uids] (by default [uidExpunge] with the guard). Not atomic: a retry after a lost connection can copy twice,
+     * and a skipped guarded expunge leaves the originals with `\Deleted` on the server.
      */
-    fun uidMove(uids: UidSet, dest: String): Map<Long, Long> {
+    fun uidMove(uids: UidSet, dest: String, expunge: (UidSet) -> Unit = { uidExpunge(it) }): Map<Long, Long> {
         val moved = LinkedHashMap<Long, Long>()
         val move = "MOVE" in caps
         forChunks(uids) { chunk ->
             val command = Command.build {
                 raw(if (move) "UID MOVE" else "UID COPY")
                 raw(chunk.toString())
-                string(MailboxName.encode(dest))
+                string(wire(dest))
             }
             val ok = conn.execute(command) { r -> if (r.keyword == "OK") copyUid(r.code, chunk, moved) }
             copyUid(ok.code, chunk, moved)
             if (!move) store(chunk, "+FLAGS.SILENT") { raw(DELETED) }
         }
-        if (!move) uidExpunge(uids, guard = true)
+        if (!move) expunge(uids)
         return moved
     }
 
     /**
      * Removes [uids] (already flagged `\Deleted`) from the selected mailbox. With UIDPLUS: `UID EXPUNGE` per
      * chunk. Without UIDPLUS only a plain `EXPUNGE` exists, which also removes every other `\Deleted` message;
-     * so with [guard] it first runs `UID SEARCH DELETED` and skips the EXPUNGE when a hit is not in [uids]
-     * (another client's struck-through mail). Returns false when the guard skipped the expunge.
-     * [guard] = false only for Empty Trash/Spam and permanent deletes inside Trash/Spam.
+     * so with [guard] it first runs `UID SEARCH DELETED` and skips the EXPUNGE when a hit is in neither [uids] nor
+     * [allowed] (another client's struck-through mail). [allowed] holds the caller's own `\Deleted` messages that an
+     * earlier skipped expunge left; the plain EXPUNGE removes them too. Returns false when the guard skipped the
+     * expunge. [guard] = false only for Empty Trash/Spam and permanent deletes inside Trash/Spam.
      */
-    fun uidExpunge(uids: UidSet, guard: Boolean = true): Boolean {
+    fun uidExpunge(uids: UidSet, guard: Boolean = true, allowed: UidSet = UidSet.EMPTY): Boolean {
         if (uids.isEmpty) return true
         if ("UIDPLUS" in caps) {
             forChunks(uids) { conn.execute(Command.raw("UID EXPUNGE", it.toString())) }
             return true
         }
-        if (guard && uidSearch(Command.raw("DELETED")).ranges.any { r -> !uids.containsAll(r) }) return false
+        if (guard) {
+            val own = uids.union(allowed)
+            if (uidSearch(Command.raw("DELETED")).ranges.any { r -> !own.containsAll(r) }) return false
+        }
         conn.execute(Command.raw("EXPUNGE"))
         return true
     }
@@ -313,7 +324,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         flags.forEach(::requireFlag)
         val command = Command.build {
             raw("APPEND")
-            string(MailboxName.encode(mailbox))
+            string(wire(mailbox))
             if (flags.isNotEmpty()) list { flags.forEach { raw(it) } }
             bytes(message)
         }
@@ -324,7 +335,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
     /** ALREADYEXISTS counts as success. */
     fun create(mailbox: String) {
         try {
-            conn.execute(Command.build { raw("CREATE"); string(MailboxName.encode(mailbox)) })
+            conn.execute(Command.build { raw("CREATE"); string(wire(mailbox)) })
         } catch (e: ImapNoException) {
             if (e.code?.name != "ALREADYEXISTS") throw e
         }
@@ -334,7 +345,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
     fun quota(mailbox: String = "INBOX"): Quota? {
         if (caps.none { it == "QUOTA" || it.startsWith("QUOTA=") }) return null
         var quota: Quota? = null
-        conn.execute(Command.build { raw("GETQUOTAROOT"); string(MailboxName.encode(mailbox)) }) { r ->
+        conn.execute(Command.build { raw("GETQUOTAROOT"); string(wire(mailbox)) }) { r ->
             if (r.keyword == "QUOTA" && quota == null) quota = storage(r.values.getOrNull(1))
         }
         return quota
@@ -411,7 +422,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         var uidNext: Long? = null
         var highestModSeq: Long? = null
         var noModSeq = false
-        conn.execute(Command.build { raw(verb); string(MailboxName.encode(mailbox)) }) { r ->
+        conn.execute(Command.build { raw(verb); string(wire(mailbox)) }) { r ->
             if (r.keyword == "EXISTS") exists = r.number
             if (r.keyword == "OK") {
                 val value = r.code?.args?.firstOrNull()?.longOrNull()
@@ -467,6 +478,39 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         if (!uids.isEmpty) uids.chunks().forEach(block)
     }
 
+    /** [name] as the server reads it: modified UTF-7, or UTF-8 on an IMAP4rev2-only server. */
+    private fun wire(name: String): String = if (rev2Only) name else MailboxName.encode(name)
+
+    /** INBOX in any case is INBOX; other names are decoded from modified UTF-7 (UTF-8 on IMAP4rev2-only servers). */
+    private fun nameOf(wire: String): String = when {
+        wire.equals("INBOX", ignoreCase = true) -> "INBOX"
+        rev2Only -> wire
+        else -> MailboxName.decode(wire)
+    }
+
+    /**
+     * One LIST entry. `\NonExistent` implies `\Noselect` (RFC 5258 §3), but Dovecot sends only the former
+     * to an extended LIST; any spelling of either adds `\Noselect`, so that callers check one name.
+     */
+    private fun mailboxInfo(values: List<ImapValue>): MailboxInfo? {
+        val name = nameOf(values.getOrNull(2)?.textOrNull() ?: return null)
+        var attributes = values[0].listOrEmpty().mapNotNull { it.textOrNull() }.toSet()
+        if (attributes.any { it.equals(NONEXISTENT, true) || it.equals(NOSELECT, true) }) {
+            attributes = attributes + NOSELECT
+        }
+        return MailboxInfo(name, values[1].textOrNull(), attributes)
+    }
+
+    /** `* NAMESPACE personal other shared`: each a list of `(prefix delimiter ...)` or NIL. */
+    private fun namespacesOf(values: List<ImapValue>): Namespaces {
+        fun group(value: ImapValue?): List<Namespace> = value?.listOrEmpty().orEmpty().mapNotNull { entry ->
+            val items = entry.listOrEmpty()
+            val prefix = items.getOrNull(0)?.textOrNull() ?: return@mapNotNull null
+            Namespace(if (rev2Only) prefix else MailboxName.decode(prefix), items.getOrNull(1)?.textOrNull())
+        }
+        return Namespaces(group(values.getOrNull(0)), group(values.getOrNull(1)), group(values.getOrNull(2)))
+    }
+
     /** How [authenticatePassword] signs in. */
     internal enum class PasswordAuth { PLAIN_IR, PLAIN, LOGIN }
 
@@ -501,13 +545,15 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         /**
          * The greeting, then for [TlsMode.STARTTLS]: STARTTLS is always sent (capabilities before TLS are not
          * trusted, so neither a missing STARTTLS nor LOGINDISABLED changes anything); PREAUTH, NO or BAD ->
-         * [StartTlsException]; after the switch CAPABILITY is asked again. Any failure closes [stream].
+         * [StartTlsException]; no greeting or STARTTLS reply in time -> [PlaintextTimeoutException]; after the switch
+         * CAPABILITY is asked again. Any failure closes [stream].
          */
         internal fun start(stream: MailStream, endpoint: Endpoint, log: (String) -> Unit = {}): ImapClient {
             try {
                 val conn = ImapConnection(stream, log)
-                val greeting = conn.greeting()
-                if (endpoint.tls == TlsMode.STARTTLS) {
+                val starttls = endpoint.tls == TlsMode.STARTTLS
+                val greeting = if (starttls) beforeTls { conn.greeting() } else conn.greeting()
+                if (starttls) {
                     // PREAUTH before TLS would skip the upgrade: a STARTTLS stripping attack.
                     if (greeting.keyword == "PREAUTH") throw StartTlsException("PREAUTH before STARTTLS")
                     try {
@@ -535,35 +581,12 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             else -> throw ImapMissingCapabilityException(setOf("AUTH=PLAIN"))
         }
 
-        /** `* NAMESPACE personal other shared`: each a list of `(prefix delimiter ...)` or NIL. */
-        private fun namespacesOf(values: List<ImapValue>): Namespaces {
-            fun group(value: ImapValue?): List<Namespace> = value?.listOrEmpty().orEmpty().mapNotNull { entry ->
-                val items = entry.listOrEmpty()
-                val prefix = items.getOrNull(0)?.textOrNull() ?: return@mapNotNull null
-                Namespace(MailboxName.decode(prefix), items.getOrNull(1)?.textOrNull())
-            }
-            return Namespaces(group(values.getOrNull(0)), group(values.getOrNull(1)), group(values.getOrNull(2)))
-        }
-
         private val INTERNAL_DATE =
             Regex("""(\d{1,2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})""")
         private val MONTHS = listOf("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
         private const val ATOM_SPECIALS = "(){%*\"]\\"
         private const val NOSELECT = "\\Noselect"
         private const val NONEXISTENT = "\\NonExistent"
-
-        /**
-         * One LIST entry. `\NonExistent` implies `\Noselect` (RFC 5258 §3), but Dovecot sends only the former
-         * to an extended LIST; any spelling of either adds `\Noselect`, so that callers check one name.
-         */
-        private fun mailboxInfo(values: List<ImapValue>): MailboxInfo? {
-            val name = nameOf(values.getOrNull(2)?.textOrNull() ?: return null)
-            var attributes = values[0].listOrEmpty().mapNotNull { it.textOrNull() }.toSet()
-            if (attributes.any { it.equals(NONEXISTENT, true) || it.equals(NOSELECT, true) }) {
-                attributes = attributes + NOSELECT
-            }
-            return MailboxInfo(name, values[1].textOrNull(), attributes)
-        }
 
         /** `(NAME n NAME n ...)` as upper-case names to numbers. */
         private fun statusItems(value: ImapValue?): Map<String, Long> {
@@ -575,10 +598,6 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             }
             return out
         }
-
-        /** INBOX in any case is INBOX; other names are decoded from modified UTF-7. */
-        private fun nameOf(wire: String): String =
-            if (wire.equals("INBOX", ignoreCase = true)) "INBOX" else MailboxName.decode(wire)
 
         /** Null when MESSAGES, UIDNEXT or UIDVALIDITY is missing. A HIGHESTMODSEQ of 0 means none. */
         private fun mailboxStatus(values: Map<String, Long>): MailboxStatus? = MailboxStatus(

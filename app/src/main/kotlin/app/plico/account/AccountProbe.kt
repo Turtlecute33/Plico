@@ -10,6 +10,7 @@ import app.plico.data.Provider
 import app.plico.data.Servers
 import app.plico.mail.imap.ImapClient
 import app.plico.mail.imap.ImapMissingCapabilityException
+import app.plico.mail.imap.ImapNoException
 import app.plico.mail.net.Endpoint
 import app.plico.mail.smtp.SmtpAuthUnavailableException
 import app.plico.mail.smtp.SmtpClient
@@ -50,7 +51,7 @@ object AccountProbe {
      * Gmail: a hidden All Mail fails with [MailError.Setup]; a hidden Trash or Spam only adds a note. Other
      * servers: LIST and EXAMINE INBOX must work (Exchange and NetEase refuse only mailbox commands). A Gmail
      * server for another provider fails (no promotion to Gmail). Microsoft: an SMTP refusal adds a note instead
-     * of a failure, because the account can still receive.
+     * of a failure, because the account can still receive; an IMAP refusal of the new token is [MailError.Setup].
      */
     suspend fun probe(app: PlicoApp, provider: Provider, servers: Servers, credentials: Credentials): ProbeResult =
         withContext(Dispatchers.IO) {
@@ -84,7 +85,7 @@ object AccountProbe {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw ProbeException(endpoint, failure(texts, e, validated))
+            throw ProbeException(endpoint, failure(texts, provider, e, validated))
         }
     }
 
@@ -146,12 +147,25 @@ object AccountProbe {
         return idle
     }
 
-    /** No usable password mechanism gets its own text; every other failure is classified. */
-    private fun failure(texts: Texts, e: Exception, validated: () -> Boolean): MailError = when {
+    /**
+     * No usable password mechanism gets its own text. Microsoft: the IMAP server refused the token that the browser
+     * sign-in has just given (Exchange: `NO AUTHENTICATE failed.`). Then IMAP is off for the mailbox, or the address
+     * is not its main address; a sign-in again cannot help, so the text tells what to change. Every other failure is
+     * classified.
+     */
+    private fun failure(texts: Texts, provider: Provider, e: Exception, validated: () -> Boolean): MailError = when {
         e is ImapMissingCapabilityException && "AUTH=PLAIN" in e.missing || e is SmtpAuthUnavailableException ->
             MailError.Setup(texts.string(R.string.account_error_auth_method), e)
+        provider == Provider.MICROSOFT && e is MailError.AuthRequired && imapRefusal(e) ->
+            MailError.Setup(texts.string(R.string.account_error_ms_imap_off), e)
         else -> MailErrors.localized(MailErrors.classify(e, validated()), texts.string)
     }
+
+    /** True when the IMAP server refused the sign-in ([ImapNoException] in the cause chain). */
+    private fun imapRefusal(e: Throwable): Boolean =
+        generateSequence(e.cause) { it.cause }.take(MAX_CAUSES).any { it is ImapNoException }
+
+    private const val MAX_CAUSES = 16
 
     private fun networkValidated(context: Context): Boolean {
         val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return false

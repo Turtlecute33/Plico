@@ -1,6 +1,8 @@
 package app.plico.mail.imap
 
 import app.plico.mail.net.MailStream
+import app.plico.mail.net.PlaintextTimeoutException
+import app.plico.mail.net.beforeTls
 import java.io.Closeable
 import java.io.IOException
 
@@ -140,10 +142,11 @@ class ImapConnection(private val stream: MailStream, private val log: (String) -
     /**
      * Sends STARTTLS and switches the stream to TLS (RFC 3501 §6.2.1). A tagged NO or BAD throws as for any
      * command. The capabilities are cleared after the reply: the tagged OK can carry a `[CAPABILITY]` code, and
-     * capabilities from before TLS are not trusted. Bytes after the OK fail the switch ([MailStream.startTls]).
+     * capabilities from before TLS are not trusted. Bytes after the OK fail the switch ([MailStream.startTls]). No
+     * reply in time -> [PlaintextTimeoutException].
      */
     fun startTls() {
-        execute(Command.raw("STARTTLS"))
+        beforeTls { execute(Command.raw("STARTTLS")) }
         failClosed { stream.startTls() }
         reader = ImapReader(stream.input)
         capabilities = emptySet()

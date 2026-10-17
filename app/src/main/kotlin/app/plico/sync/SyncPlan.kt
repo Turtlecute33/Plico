@@ -25,8 +25,9 @@ internal data class SyncPlan(
     /** New mail of the IDLE mailbox (Gmail: All Mail), then its flags and expunges. */
     val fastPath: Boolean,
     /**
-     * A flag check is due (user refresh, the 6-h sweep). Without CONDSTORE: the full local range instead of the
-     * newest 200 rows, and the STATUS sweep does not skip unchanged mailboxes (DESIGN §7.2 step 2).
+     * A flag check is due (user refresh, 6 h after the last one). Only with [fullSweep]. Without CONDSTORE: the full
+     * local range instead of the newest 200 rows, and the STATUS sweep does not skip unchanged mailboxes (DESIGN
+     * §7.2 step 2). The 6 h count from the last flag check, not from the last sweep: every poll is a sweep.
      */
     val fullFlags: Boolean,
     /** Not Gmail: STATUS of the folders with notify = 1 (push PB16). */
@@ -44,25 +45,30 @@ internal data class SyncPlan(
 
         private val SWEEP_CHECKS = setOf(Action.REFRESH, Action.EARLY_REFRESH, Action.RE_IDLE)
 
-        /** [lastListAt] and [lastSweepAt] are elapsedRealtime values, null when not yet done in this process. */
+        /**
+         * [lastListAt], [lastSweepAt] and [lastFlagsAt] (the last sweep with [SyncPlan.fullFlags]) are elapsedRealtime
+         * values, null when not yet done in this process.
+         */
         fun of(
             trigger: SyncTrigger,
             gmail: Boolean,
             now: Long,
             lastListAt: Long?,
             lastSweepAt: Long?,
+            lastFlagsAt: Long?,
             unknownLabel: Boolean,
             unmetered: Boolean,
             appVisible: Boolean,
         ): SyncPlan {
             val sweepDue = lastSweepAt == null || now - lastSweepAt >= SWEEP_EVERY_MS
+            val flagsDue = lastFlagsAt == null || now - lastFlagsAt >= SWEEP_EVERY_MS
             val fullSweep = trigger.userRefresh || trigger.poll || sweepDue
             val fastPath = trigger.connected || trigger.changed || fullSweep
             val refreshWake = trigger.check in SWEEP_CHECKS
             return SyncPlan(
                 listFolders = lastListAt == null || now - lastListAt >= LIST_EVERY_MS || unknownLabel,
                 fastPath = fastPath,
-                fullFlags = trigger.userRefresh || sweepDue,
+                fullFlags = fullSweep && (trigger.userRefresh || flagsDue),
                 notifySweep = !gmail && !fullSweep && (fastPath || refreshWake),
                 allMailStatus = gmail && !fastPath && refreshWake,
                 fullSweep = fullSweep,

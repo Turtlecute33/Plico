@@ -2,6 +2,8 @@ package app.plico.mail.imap
 
 import app.plico.mail.imap.FakeStream.Companion.literal
 import app.plico.mail.net.Endpoint
+import app.plico.mail.net.MailStream
+import app.plico.mail.net.PlaintextTimeoutException
 import app.plico.mail.net.SocketHooks
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.StartTlsServer
@@ -9,6 +11,8 @@ import app.plico.mail.net.TestTls
 import app.plico.mail.net.TlsMode
 import javax.net.ssl.SSLSession
 import app.plico.mail.sasl.Sasl
+import java.io.InputStream
+import java.net.SocketTimeoutException
 import java.time.OffsetDateTime
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -296,6 +300,36 @@ class ImapClientTest {
         val fake = plaintext("* BYE Too many connections")
         assertFailsWith<ImapByeException> { ImapClient.start(fake, STARTTLS_ENDPOINT) }
         assertTrue(fake.closed)
+    }
+
+    /** [fake], but at the end of its script the server sends nothing more: the next read times out. */
+    private class Silent(private val fake: FakeStream) : MailStream by fake {
+        override val input: InputStream = object : InputStream() {
+            override fun read(): Int = fake.input.read().also { if (it < 0) throw SocketTimeoutException("Read timed out") }
+        }
+    }
+
+    @Test
+    fun onlyATimeoutBeforeTlsIsAPlaintextTimeout() {
+        // STARTTLS chosen on the SSL/TLS port: no greeting comes, because the server waits for a TLS handshake.
+        val noGreeting = FakeStream().apply { encrypted = false }
+        assertFailsWith<PlaintextTimeoutException> { ImapClient.start(Silent(noGreeting), STARTTLS_ENDPOINT) }
+        assertTrue(noGreeting.closed)
+        // No answer to STARTTLS.
+        val noAnswer = plaintext("* OK [CAPABILITY IMAP4rev1 STARTTLS] ready").client("A1 STARTTLS")
+        assertFailsWith<PlaintextTimeoutException> { ImapClient.start(Silent(noAnswer), STARTTLS_ENDPOINT) }
+        noAnswer.finish()
+        // After the switch to TLS, a timeout is a slow server or network, not a wrong security setting.
+        val late = plaintext("* OK [CAPABILITY IMAP4rev1 STARTTLS] ready")
+            .client("A1 STARTTLS").server("A1 OK Begin TLS").client("A2 CAPABILITY")
+        val afterTls = assertFailsWith<SocketTimeoutException> { ImapClient.start(Silent(late), STARTTLS_ENDPOINT) }
+        assertFalse(afterTls is PlaintextTimeoutException)
+        late.finish()
+        // Implicit TLS: no greeting is a read timeout too.
+        val implicit = assertFailsWith<SocketTimeoutException> {
+            ImapClient.start(Silent(FakeStream()), Endpoint("imap.example.org", 993, TlsMode.IMPLICIT))
+        }
+        assertFalse(implicit is PlaintextTimeoutException)
     }
 
     @Test
@@ -602,6 +636,46 @@ class ImapClientTest {
             "names decoded from modified UTF-7; incomplete entries left out",
         )
         fake.finish()
+    }
+
+    @Test
+    fun imap4rev2OnlyServerGetsUtf8MailboxNames() {
+        // RFC 9051 §5.1: mailbox names are UTF-8; such a server need not know modified UTF-7.
+        greet("IMAP4rev2")
+        fake.client("A1 LIST \"\" \"*\" RETURN (SPECIAL-USE)").server(
+            "* LIST () \"/\" \"Entwürfe\"",
+            "* LIST () \"/\" \"R&D\"",
+            "* LIST () \"/\" \"Caf&AOk-\"",
+            "A1 OK done",
+        )
+        assertEquals(listOf("Entwürfe", "R&D", "Caf&AOk-"), client.list().map { it.name }, "names are not decoded")
+        // Non-ASCII goes out as a UTF-8 literal, '&' as it is.
+        fake.client("A2 SELECT {9}").server("+ go").client("Entwürfe")
+            .server("* 0 EXISTS", "* OK [UIDVALIDITY 3] x", "* OK [UIDNEXT 1] x", "A2 OK [READ-WRITE] done")
+        assertEquals(SelectResult(0, 3, 1, null, false), client.select("Entwürfe"))
+        fake.client("A3 STATUS \"R&D\" (MESSAGES UIDNEXT UIDVALIDITY)")
+            .server("* STATUS \"R&D\" (MESSAGES 1 UIDNEXT 2 UIDVALIDITY 4)", "A3 OK done")
+        assertEquals(MailboxStatus(1, 2, 4, null), client.status("R&D"))
+        fake.client("A4 UID MOVE 7 {9}").server("+ go").client("Entwürfe").server("A4 OK done")
+        client.uidMove(UidSet.of(7), "Entwürfe")
+        fake.client("A5 CREATE {9}").server("+ go").client("R&D/Café").server("A5 OK done")
+        client.create("R&D/Café")
+        fake.client("A6 LIST \"\" \"*\" RETURN (STATUS (MESSAGES UIDNEXT UIDVALIDITY))").server(
+            "* STATUS \"Grün\" (MESSAGES 1 UIDNEXT 2 UIDVALIDITY 6)",
+            "A6 OK done",
+        )
+        assertEquals(mapOf("Grün" to MailboxStatus(1, 2, 6, null)), client.listStatus())
+        fake.client("A7 NAMESPACE").server("* NAMESPACE ((\"Büro/\" \"/\")) NIL NIL", "A7 OK done")
+        assertEquals("Büro/", client.namespace()?.personal?.single()?.prefix)
+        fake.finish()
+
+        // A server with both versions stays in IMAP4rev1 mode: modified UTF-7.
+        val both = FakeStream().server("* OK [CAPABILITY IMAP4rev1 IMAP4rev2] ready")
+        val bothClient = ImapClient(ImapConnection(both)).apply { conn.greeting() }
+        both.client("A1 STATUS \"Entw&APw-rfe\" (MESSAGES UIDNEXT UIDVALIDITY)")
+            .server("* STATUS \"Entw&APw-rfe\" (MESSAGES 1 UIDNEXT 2 UIDVALIDITY 4)", "A1 OK done")
+        assertEquals(MailboxStatus(1, 2, 4, null), bothClient.status("Entwürfe"))
+        both.finish()
     }
 
     @Test
@@ -1005,6 +1079,25 @@ class ImapClientTest {
         fake.client("A4 EXPUNGE").server("* 1 EXPUNGE", "A4 OK done")
         assertTrue(client.uidExpunge(UidSet.of(4), guard = false))
         assertTrue(client.uidExpunge(UidSet.EMPTY, guard = false))
+        // UID 2 is the caller's own, left by an earlier skipped expunge: it does not stop this one.
+        fake.client("A5 UID SEARCH RETURN (ALL) DELETED").server("* ESEARCH (TAG \"A5\") UID ALL 2,4:6", "A5 OK done")
+        fake.client("A6 EXPUNGE").server("A6 OK done")
+        assertTrue(client.uidExpunge(UidSet.range(4, 6), allowed = UidSet.of(2)))
+        fake.client("A7 UID SEARCH RETURN (ALL) DELETED").server("* ESEARCH (TAG \"A7\") UID ALL 2,4:6,20", "A7 OK done")
+        assertFalse(client.uidExpunge(UidSet.range(4, 6), allowed = UidSet.of(2)), "UID 20 is still not ours")
+        fake.finish()
+    }
+
+    @Test
+    fun moveFallbackUsesTheExpungeOfTheCaller() {
+        greet("IMAP4rev1")
+        fake.client("A1 UID COPY 3 \"Archive\"").server("A1 OK Copy completed.")
+        fake.client("A2 UID STORE 3 +FLAGS.SILENT (\\Deleted)").server("A2 OK Store completed.")
+        fake.client("A3 UID SEARCH DELETED").server("* SEARCH 3 7", "A3 OK Search completed.")
+        fake.client("A4 EXPUNGE").server("* 1 EXPUNGE", "* 1 EXPUNGE", "A4 OK Expunge completed.")
+        var expunged: Boolean? = null
+        client.uidMove(UidSet.of(3), "Archive") { expunged = client.uidExpunge(it, allowed = UidSet.of(7)) }
+        assertEquals(true, expunged)
         fake.finish()
     }
 

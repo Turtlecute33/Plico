@@ -27,7 +27,7 @@ object Tables {
  * A fresh database runs the same statements as an upgraded one.
  */
 internal object Schema {
-    const val VERSION = 2
+    const val VERSION = 3
 
     val V1 = listOf(
         """
@@ -138,6 +138,10 @@ internal object Schema {
             "ALTER TABLE message ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
             "UPDATE account SET imap_host = 'mail.riseup.net', smtp_host = 'mail.riseup.net' WHERE provider = 'riseup'",
             "UPDATE account SET imap_host = 'imap.gmail.com', smtp_host = 'smtp.gmail.com' WHERE provider = 'gmail'",
+        ),
+        listOf(
+            // UIDs that Plico flagged \Deleted and a guarded EXPUNGE left on the server; NULL = none
+            "ALTER TABLE folder ADD COLUMN own_deleted TEXT",
         ),
     )
 }

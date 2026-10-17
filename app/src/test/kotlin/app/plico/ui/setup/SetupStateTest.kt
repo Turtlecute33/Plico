@@ -1,9 +1,11 @@
 package app.plico.ui.setup
 
 import app.plico.R
+import app.plico.account.AccessToken
 import app.plico.account.OAuthIssuer
 import app.plico.account.ProviderTable
 import app.plico.account.Providers
+import app.plico.account.SignIn
 import app.plico.account.discovery.Discovery
 import app.plico.account.discovery.Outcome
 import app.plico.account.discovery.Source
@@ -514,6 +516,31 @@ class SetupStateTest {
     @Test
     fun `signed in hides its secret`() {
         assertEquals("SignedIn(RISEUP, PASSWORD)", riseupAccount.toString())
+    }
+
+    @Test
+    fun `sign in again with Microsoft without an email claim checks the sign-in name`() {
+        val token = AccessToken("a", 1)
+        // Account A: no email claim at setup, so its address is the typed one and its login is the sign-in name.
+        val stored = account(AuthKind.OAUTH, Provider.MICROSOFT, Providers.M365_SERVERS.copy(login = "a@contoso.onmicrosoft.com"))
+        fun signIn(login: String?, fromHint: Boolean = true) = SignIn("jane@example.org", login, "r", token, fromHint)
+        // In the account chooser the user picked account B: the address is only the hint, the sign-in name is B's.
+        assertEquals(
+            Problem(Problem.Kind.WRONG_ACCOUNT, "b@contoso.onmicrosoft.com"),
+            SetupState.wrongBrowserAccount(signIn("b@contoso.onmicrosoft.com"), stored),
+        )
+        assertNull(SetupState.wrongBrowserAccount(signIn("A@contoso.onmicrosoft.com"), stored), "account A again")
+        // Without a sign-in name the XOAUTH2 user stays the address of A: the server decides.
+        assertNull(SetupState.wrongBrowserAccount(signIn(null), stored))
+        // With an email claim the address check is enough; a changed sign-in name of that account is no problem.
+        assertNull(SetupState.wrongBrowserAccount(signIn("new@contoso.onmicrosoft.com", fromHint = false), stored))
+        // An account whose login is its address.
+        val plain = account(AuthKind.OAUTH, Provider.MICROSOFT, Providers.M365_SERVERS)
+        assertNull(SetupState.wrongBrowserAccount(signIn(null), plain))
+        assertEquals(
+            Problem(Problem.Kind.WRONG_ACCOUNT, "b@example.org"),
+            SetupState.wrongBrowserAccount(signIn("b@example.org"), plain),
+        )
     }
 
     private fun account(

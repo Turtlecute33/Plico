@@ -205,7 +205,10 @@ object Ops {
             ) {
                 throw OpRefused(store.text(R.string.ops_error_gmail_move))
             }
-            val moved = creating(ctx, path, arg.role) { ctx.client.uidMove(uids(rows), path) }
+            val moved = creating(ctx, path, arg.role) {
+                // Without MOVE: COPY, \Deleted, then the guarded expunge of the source mailbox.
+                ctx.client.uidMove(uids(rows), path) { expungeFrom(ctx, source, it, guard = true) }
+            }
             val target = store.folders.byPath(ctx.account.id, FolderKind.MAILBOX, path)
             // Gmail: out of Trash or Spam into INBOX or a label, the message is back in All Mail with a new UID.
             val (folder, newUids) = when {
@@ -272,7 +275,7 @@ object Ops {
         refuseAllMail(ctx, folder)
         selectChecked(ctx, folder)
         // Empty Trash/Spam: every message of the folder goes, so a plain EXPUNGE is right without UIDPLUS (DESIGN §7.4).
-        deleteForever(ctx, UidSet.range(1, arg.upTo), guard = false)
+        deleteForever(ctx, UidSet.range(1, arg.upTo), folder, guard = false)
         store.messages.deleteUids(folder.id, store.messages.uids(folder.id, 1, arg.upTo))
     }
 
@@ -282,11 +285,31 @@ object Ops {
      * the messages stay `\Deleted` on the server, and their rows are not shown (DESIGN §7.2).
      */
     internal fun deleteForever(ctx: OpContext, uids: UidSet, folder: Folder) =
-        deleteForever(ctx, uids, guard = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK)
+        deleteForever(ctx, uids, folder, guard = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK)
 
-    private fun deleteForever(ctx: OpContext, uids: UidSet, guard: Boolean) {
+    private fun deleteForever(ctx: OpContext, uids: UidSet, folder: Folder, guard: Boolean) {
         ctx.client.uidStoreFlags(uids, true, listOf(DELETED))
-        ctx.client.uidExpunge(uids, guard)
+        expungeFrom(ctx, folder, uids, guard)
+    }
+
+    /**
+     * Expunges [uids] (already `\Deleted`) from the selected [folder] (DESIGN §7.4). When the guard skips the
+     * expunge, the UIDs are kept as the folder's own `\Deleted` messages, so that they never stop a later guarded
+     * expunge as if they were another client's. A plain EXPUNGE removes them all, so the record is cleared then.
+     */
+    private fun expungeFrom(ctx: OpContext, folder: Folder, uids: UidSet, guard: Boolean) {
+        // With UIDPLUS (Gmail, Riseup) UID EXPUNGE removes only [uids]: no guard, no record.
+        if (uids.isEmpty || "UIDPLUS" in ctx.client.caps) {
+            ctx.client.uidExpunge(uids, guard)
+            return
+        }
+        val folders = ctx.store.folders
+        val own = folders.ownDeleted(folder.id)
+        if (!ctx.client.uidExpunge(uids, guard, allowed = own)) {
+            folders.setOwnDeleted(folder.id, own.union(uids))
+        } else if (!own.isEmpty) {
+            folders.setOwnDeleted(folder.id, UidSet.EMPTY)
+        }
     }
 
     private fun refuseAllMail(ctx: OpContext, folder: Folder) {

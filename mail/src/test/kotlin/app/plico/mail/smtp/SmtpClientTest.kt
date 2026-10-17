@@ -1,6 +1,7 @@
 package app.plico.mail.smtp
 
 import app.plico.mail.net.Endpoint
+import app.plico.mail.net.PlaintextTimeoutException
 import app.plico.mail.net.SocketHooks
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.StartTlsServer
@@ -20,6 +21,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertIsNot
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.Test
@@ -399,6 +401,27 @@ class SmtpClientTest {
             stream.assertDone()
             assertFalse("AUTH" in stream.transcript.toString())
         }
+    }
+
+    @Test
+    fun `only a read timeout before TLS is a plaintext timeout`() {
+        fun timeout() = Step.Fail(SocketTimeoutException("Read timed out"))
+        // STARTTLS chosen on the SSL/TLS port 465: no greeting comes, because the server waits for a TLS handshake.
+        val noGreeting = ScriptedStream(timeout()).apply { encrypted = false }
+        assertFailsWith<PlaintextTimeoutException> { client(noGreeting).start(TlsMode.STARTTLS) }
+        // No answer to STARTTLS.
+        val noAnswer = ScriptedStream(riseupGreeting, ehlo, riseupEhlo, c("STARTTLS"), timeout()).apply { encrypted = false }
+        assertFailsWith<PlaintextTimeoutException> { client(noAnswer).start(TlsMode.STARTTLS) }
+        noAnswer.assertDone()
+        // After the switch to TLS, a timeout is a slow server or network, not a wrong security setting.
+        val late = ScriptedStream(
+            riseupGreeting, ehlo, riseupEhlo, c("STARTTLS"), s("220 go ahead"), Step.Tls, ehlo, timeout(),
+        ).apply { encrypted = false }
+        assertIsNot<PlaintextTimeoutException>(assertFailsWith<SocketTimeoutException> { client(late).start(TlsMode.STARTTLS) })
+        late.assertDone()
+        // Implicit TLS: no greeting is a read timeout too.
+        val implicit = assertFailsWith<SocketTimeoutException> { client(ScriptedStream(timeout())).start() }
+        assertIsNot<PlaintextTimeoutException>(implicit)
     }
 
     @Test

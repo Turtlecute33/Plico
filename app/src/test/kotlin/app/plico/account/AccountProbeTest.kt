@@ -175,6 +175,28 @@ class AccountProbeTest {
     }
 
     @Test
+    fun `Microsoft refusing the new token at IMAP stops setup with the IMAP text`() = runTest {
+        // Exchange Online answers so when IMAP is off for the mailbox: a sign-in again cannot help.
+        val credentials = OAuthCredentials(
+            "me@contoso.com", { "refresh" }, Endpoint0(), AccessToken("setup", Long.MAX_VALUE / 2),
+            clock = { 0L }, hosts = OAuthIssuer.MICROSOFT.hosts, smtpOff = "smtp off",
+        )
+        val m365 = microsoft.copy(smtp = Endpoint("smtp.office365.com", 587, TlsMode.STARTTLS))
+        val error = failsAt<MailError.Setup>(m365.imap) {
+            probe(Provider.MICROSOFT, m365, credentials, arrayOf("A1 NO AUTHENTICATE failed."), arrayOf(SMTP_OK))
+        }
+        assertEquals("text-${R.string.account_error_ms_imap_off}", error.message)
+        // Another provider: a refused sign-in stays a sign-in problem.
+        val refused = failsAt<MailError.AuthRequired>(other.imap) {
+            probe(
+                Provider.OTHER, other, PasswordCredentials(Provider.OTHER, "me@example.org", "pw"),
+                arrayOf("A1 NO AUTHENTICATE failed."), arrayOf(SMTP_OK),
+            )
+        }
+        assertEquals("AUTHENTICATE failed.", refused.message)
+    }
+
+    @Test
     fun `other servers must list and open INBOX`() = runTest {
         val result = probe(
             Provider.OTHER, other, PasswordCredentials(Provider.OTHER, "me@example.org", "pw"), mailbox(), arrayOf(SMTP_OK),

@@ -288,11 +288,11 @@ object ProviderTable {
      * real domains are near them. A swap of a two-letter country label (`hotmail.be` and `hotmail.de`) does not
      * count: the other country domain of the same provider is real. A suffix that is not near the table suffix
      * (`outlook.jp`, `hotmail.com.br`, `yahoo.co.jp`) also gets no suggestion, because those are real regional
-     * domains of the same providers.
+     * domains of the same providers. Real domains near a table domain ([NOT_TYPOS]) get no suggestion either.
      */
     fun suggest(domain: String): String? {
         val d = norm(domain)
-        if (d.isEmpty() || byDomain(d) != null) return null
+        if (d.isEmpty() || byDomain(d) != null || d in NOT_TYPOS) return null
         return entries.asSequence().flatMap { it.domains }.firstOrNull { known ->
             known.length >= SUGGEST_MIN_LENGTH && editDistance(d, known, limit = 1) == 1 && !isCountrySwap(d, known)
         }
@@ -335,6 +335,12 @@ object ProviderTable {
     }
 
     private const val SUGGEST_MIN_LENGTH = 8
+
+    /**
+     * Real domains at an edit distance of 1 from a table domain, so never a typo: mail.com and email.com (domains of
+     * the mail.com service, near gmail.com and ymail.com), olive.com and alive.com (near live.com).
+     */
+    private val NOT_TYPOS = setOf("mail.com", "email.com", "olive.com", "alive.com")
 
     /** Port 993 or 465: implicit TLS; 143 or 587: STARTTLS. */
     private fun endpoint(host: String, port: Int) =

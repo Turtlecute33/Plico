@@ -159,6 +159,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     // Loop-only state.
     private var lastListAt: Long? = null
     private var lastSweepAt: Long? = null
+    private var lastFlagsAt: Long? = null
     private var idleNetwork: Long? = null
     private var soonTimer: Job? = null
     private var problemReported = false
@@ -506,7 +507,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         val now = elapsed()
         val visible = app.sessions.appVisible
         val plan = SyncPlan.of(
-            trigger, account.isGmail, now, lastListAt, lastSweepAt, relist,
+            trigger, account.isGmail, now, lastListAt, lastSweepAt, lastFlagsAt, relist,
             unmetered = host.network()?.unmeteredWifi == true, appVisible = visible,
         )
         val sync = c.ctx.sync
@@ -537,6 +538,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             if (plan.fullSweep) {
                 sync.fullSweep(report, plan.fullFlags)
                 lastSweepAt = now
+                if (plan.fullFlags) lastFlagsAt = now
             }
             publish(sync, report)
             bodies(c.ctx, report)

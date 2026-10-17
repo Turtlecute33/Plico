@@ -24,7 +24,7 @@
     <string name="account_error_oauth_client_microsoft">Microsoft does not accept your client ID. Make sure that the redirect URI %1$s is under Mobile and desktop applications.</string>
     <string name="account_error_ms_account_types">Microsoft did not accept your client ID for this account. Make sure that the client ID is correct. The account types must be \"Any Entra ID tenant and personal Microsoft accounts\".</string>
     <string name="account_error_oauth_admin">An administrator must approve Plico for this account. Ask the administrator of your organization.</string>
-    <string name="account_error_ms_imap_off">Microsoft did not open the mailbox. In Outlook.com, turn on IMAP for devices and apps. Make sure that you signed in with the main address of the account.</string>
+    <string name="account_error_ms_imap_off">Microsoft did not open the mailbox. IMAP must be on for this account. In Outlook.com, turn on IMAP for devices and apps. For a work or school account, the administrator must turn it on. Make sure that you signed in with the main address of the account.</string>
     <string name="account_note_smtp_off">Microsoft does not let apps send mail from this account. Plico can receive mail, but it cannot send it. The administrator of the account can turn on SMTP AUTH.</string>
 
     <!-- Any server -->

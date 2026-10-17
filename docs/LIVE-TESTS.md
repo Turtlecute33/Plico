@@ -75,7 +75,7 @@ All tests in this table: if available. You need your own Microsoft client ID (RE
 | M2 | Send a mail from the Outlook.com account in Plico. | It arrives. Sent Items has **one** copy. If Microsoft does not let apps send mail (SMTP AUTH off), setup showed that note, and Plico still receives mail. |
 | M3 | Leave the Outlook.com account for 2 hours. | It still syncs. No "Sign-in needed" alert comes. |
 | M4 | Settings → the Outlook.com account. Then archive, delete and select Not spam in Plico, and look in Outlook on the web. | New mail shows a push mode (the server has IDLE). Outlook on the web shows the same changes. |
-| M5 | With IMAP turned off in Outlook.com, try to add the account. | Setup stops before it saves the account: "Microsoft did not open the mailbox. In Outlook.com, turn on IMAP for devices and apps …". |
+| M5 | With IMAP turned off in Outlook.com, try to add the account. | Setup stops before it saves the account: "Microsoft did not open the mailbox. IMAP must be on for this account. In Outlook.com, turn on IMAP for devices and apps …". |
 
 ## Message list
 

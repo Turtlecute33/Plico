@@ -181,6 +181,16 @@ class ProviderTableTest {
     }
 
     @Test
+    fun `real domains one edit from a table domain get no suggestion`() {
+        // mail.com is one deleted letter from gmail.com, email.com one changed letter; olive.com and alive.com are
+        // one letter more than live.com.
+        for (d in listOf("mail.com", "email.com", "MAIL.COM", "olive.com", "alive.com")) assertNull(ProviderTable.suggest(d), d)
+        // Typos of them still get the table domain.
+        assertEquals("gmail.com", ProviderTable.suggest("gmal.com"))
+        assertEquals("live.com", ProviderTable.suggest("lvie.com"))
+    }
+
+    @Test
     fun `correct and unrelated domains get no suggestion`() {
         assertNull(ProviderTable.suggest("gmail.com"))
         assertNull(ProviderTable.suggest("hotmail.de"))

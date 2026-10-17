@@ -47,7 +47,8 @@ internal object MailboxMath {
     /**
      * Step 2: skip the mailbox when UIDNEXT, MESSAGES and UIDVALIDITY are unchanged, and the flags are unchanged too:
      * a known HIGHESTMODSEQ that is the same (PS10), or, without one (no CONDSTORE), only while no flag check is due
-     * ([flagsDue]: user refresh, folder open, the 6-h sweep). Else every poll would fetch the flags of every folder.
+     * ([flagsDue]: user refresh, folder open, 6 h after the last flag check). Else every poll would fetch the flags of
+     * every folder.
      */
     fun unchanged(status: MailboxStatus, folder: Folder, knownMessages: Long?, flagsDue: Boolean): Boolean =
         folder.backfillUid != 0L &&

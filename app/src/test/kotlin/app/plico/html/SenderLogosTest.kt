@@ -3,9 +3,16 @@ package app.plico.html
 import app.plico.data.Files
 import app.plico.data.Prefs
 import app.plico.html.RemoteFetcher.Fetched
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -15,6 +22,8 @@ import java.net.URL
 import java.nio.file.Files as NioFiles
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -54,7 +63,9 @@ class SenderLogosTest {
 
     private fun ok(image: String) = Fetched.Ok(RemoteFetcher.Resource("image/png", "IMG:$image".toByteArray()))
 
-    private fun TestScope.cache() = LogoCache(
+    private fun TestScope.cache() = cache(StandardTestDispatcher(testScheduler))
+
+    private fun cache(io: CoroutineDispatcher) = LogoCache(
         files = files,
         codec = FakeCodec,
         enabled = { enabled },
@@ -73,7 +84,7 @@ class SenderLogosTest {
             val size = (answer as? Fetched.Ok)?.resource?.bytes?.size ?: 0
             if (budget != null && !budget.spend(size)) Fetched.Failed else answer
         },
-        dispatcher = StandardTestDispatcher(testScheduler),
+        io = io,
         now = { clock },
     )
 
@@ -295,6 +306,43 @@ class SenderLogosTest {
         assertEquals("logo", first.await())
         assertEquals("logo", second.await())
         assertEquals(1, requests.size)
+    }
+
+    @Test
+    fun slowFetchesHoldBackNeitherCachedLogosNorRowsThatLeave() = runBlocking {
+        val release = CountDownLatch(1)
+        val started = CountDownLatch(3)
+        onFetch = {
+            started.countDown()
+            release.await(20, TimeUnit.SECONDS)
+        }
+        val cache = cache(Dispatchers.IO)
+        // Three sites that do not answer take every fetch.
+        val slow = listOf("a.com", "b.com", "c.com").map { domain ->
+            async(Dispatchers.IO) { cache.load("x@$domain", Prefs.LogoSource.DUCKDUCKGO, 0, 1) }
+        }
+        assertTrue(started.await(10, TimeUnit.SECONDS))
+        try {
+            // A logo on disk (not in memory) comes at once.
+            File(dir.apply { mkdirs() }, "${hash("example.com")}.png").apply {
+                writeText("PNG:disk")
+                setLastModified(clock)
+            }
+            assertEquals("disk", withTimeout(5_000) { cache.load("a@example.com", Prefs.LogoSource.DUCKDUCKGO, 0, 2) })
+            // A row that waits for a fetch and leaves the screen makes no request.
+            knownResult = true
+            val waiting = CountDownLatch(1)
+            onKnown = { waiting.countDown() }
+            val gone = async(Dispatchers.IO) { cache.load("x@d.com", Prefs.LogoSource.WEBSITE, 0, 3) }
+            assertTrue(waiting.await(10, TimeUnit.SECONDS))
+            delay(100)
+            gone.cancelAndJoin()
+        } finally {
+            release.countDown()
+        }
+        slow.awaitAll()
+        assertEquals(3, requests.size)
+        assertTrue(requests.none { "d.com" in it }, requests.toString())
     }
 
     @Test

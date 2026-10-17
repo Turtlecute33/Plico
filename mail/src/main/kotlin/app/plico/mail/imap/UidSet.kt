@@ -44,7 +44,7 @@ class UidSet private constructor(val ranges: List<LongRange>) {
     }
 
     /** The UIDs of both sets. */
-    internal fun union(other: UidSet): UidSet = when {
+    fun union(other: UidSet): UidSet = when {
         other.isEmpty -> this
         isEmpty -> other
         else -> fromRanges(ranges + other.ranges)

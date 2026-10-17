@@ -16,12 +16,11 @@ import app.plico.data.Files
 import app.plico.data.Prefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -45,7 +44,7 @@ class SenderLogos(app: PlicoApp) {
             app.contacts.isKnown(email) || app.messages.hasEarlierFrom(email, before, exceptId)
         },
         fetch = RemoteFetcher::fetch,
-        dispatcher = Dispatchers.IO.limitedParallelism(3),
+        io = Dispatchers.IO,
     )
 
     /** The logo of the domain of [email] from memory, without I/O; null when it is not in memory. */
@@ -101,7 +100,11 @@ fun rememberSenderLogo(
  *   [LogoRules.FAILED_TTL_MS] only.
  * - Fetch: never when [enabled] is false. With [Prefs.LogoSource.WEBSITE], only for a sender that is [known] (a
  *   contact, or an earlier message): else the server of the sender would see when a first message is read. One
- *   fetch per domain at a time, at most [LogoRules.MAX_BYTES] per URL (the website source tries two URLs).
+ *   fetch per domain at a time, at most [maxFetches] domains at a time, at most [LogoRules.MAX_BYTES] per URL (the
+ *   website source tries two URLs).
+ * - Threads: everything runs in the coroutine of the caller (the row) on [io]. Memory and disk answers never wait
+ *   for a fetch. A row that leaves the screen while its fetch waits for its turn makes no request; a fetch that
+ *   has started ends and fills the cache.
  * - [clear] starts a new generation: a fetch that ends under an older generation writes nothing.
  */
 internal class LogoCache<T : Any>(
@@ -111,9 +114,10 @@ internal class LogoCache<T : Any>(
     private val psl: () -> Psl,
     private val known: (email: String, before: Long, exceptId: Long) -> Boolean,
     private val fetch: (RemoteFetcher.Request, RemoteFetcher.Budget?) -> RemoteFetcher.Fetched,
-    private val dispatcher: CoroutineDispatcher,
+    private val io: CoroutineDispatcher,
     private val now: () -> Long = System::currentTimeMillis,
     memoryBytes: Long = 8L * 1024 * 1024,
+    maxFetches: Int = 3,
 ) {
     /** Image work: [decode] checks and scales fetched bytes, [encode] makes the PNG file, [read] reads it back. */
     interface Codec<T> {
@@ -129,8 +133,10 @@ internal class LogoCache<T : Any>(
         data object Failed : Outcome<Nothing>
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val lock = Any()
+
+    /** The domains that fetch now; a fetch blocks a thread for up to 20 s per URL. */
+    private val fetches = Semaphore(maxFetches)
 
     @Volatile
     private var generation = 0
@@ -144,7 +150,9 @@ internal class LogoCache<T : Any>(
 
     /** Lower-case addresses that are not a first contact (known stays known). */
     private val knownAddresses: MutableSet<String> = ConcurrentHashMap.newKeySet()
-    private val inflight = ConcurrentHashMap<String, Deferred<Outcome<T>>>()
+
+    /** Domain → the lock of its fetch: one fetch per domain at a time. */
+    private val domainLocks = HashMap<String, Mutex>()
 
     fun cached(email: String): T? = hostOf(email)?.let(memory::get)
 
@@ -158,7 +166,7 @@ internal class LogoCache<T : Any>(
         }
         val gen = generation
         return try {
-            withContext(dispatcher) { find(email, host, source, before, exceptId, gen) }
+            withContext(io) { find(email, host, source, before, exceptId, gen) }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -173,7 +181,7 @@ internal class LogoCache<T : Any>(
             misses.clear()
             failures.clear()
             knownAddresses.clear()
-            inflight.clear()
+            domainLocks.clear()
         }
         files.logoDir().deleteRecursively()
     }
@@ -205,10 +213,16 @@ internal class LogoCache<T : Any>(
         }
         val hash = sha256(domain)
         readDisk(host, hash, gen)?.let { return it.image }
-        if (failures[domain]?.let { LogoRules.failureActive(it, now()) } == true) return null
+        if (failed(domain)) return null
         if (!enabled()) return null
         if (source == Prefs.LogoSource.WEBSITE && !isKnown(email, before, exceptId)) return null
-        val outcome = inflightFor(domain, hash, source, gen)?.await() ?: return null
+        val outcome = (domainLock(domain, gen) ?: return null).withLock {
+            // A fetch of the same domain can have ended while this one waited.
+            readDisk(host, hash, gen)?.let { return it.image }
+            if (failed(domain)) return null
+            // Waits for a free fetch; a row that leaves the screen now (cancel) makes no request.
+            fetches.withPermit { fetchAndStore(domain, hash, source, gen) }
+        }
         // After clear() (logos off, another source) an older answer is not shown.
         if (gen != generation) return null
         return when (outcome) {
@@ -257,23 +271,19 @@ internal class LogoCache<T : Any>(
         return known(email, before, exceptId).also { if (it) knownAddresses += key }
     }
 
+    /** A failed fetch of [domain] blocks it for a short time (offline, captive portal). */
+    private fun failed(domain: String): Boolean = failures[domain]?.let { LogoRules.failureActive(it, now()) } == true
+
     /**
-     * The running fetch of [domain], or a new one: one fetch per domain at a time. Null when [gen] is not the
-     * current generation. The check and the insert run under the lock of [clear], so that no fetch of an older
-     * generation goes into the map after [clear] emptied it (a newer caller would wait for it and get no logo).
+     * The lock of the fetches of [domain] in this generation; null when [gen] is not the current one. [clear] drops
+     * the locks under the same lock, so that a newer caller never waits for a fetch of an older generation (that
+     * fetch writes nothing, so the newer caller would get no logo).
      */
-    private fun inflightFor(domain: String, hash: String, source: Prefs.LogoSource, gen: Int): Deferred<Outcome<T>>? {
-        val job = synchronized(lock) {
-            if (gen != generation) return null
-            inflight[domain]?.let { return it }
-            scope.async(start = CoroutineStart.LAZY) { fetchAndStore(domain, hash, source, gen) }
-                .also { inflight[domain] = it }
-        }
-        job.invokeOnCompletion { inflight.remove(domain, job) }
-        job.start()
-        return job
+    private fun domainLock(domain: String, gen: Int): Mutex? = synchronized(lock) {
+        if (gen != generation) null else domainLocks.getOrPut(domain) { Mutex() }
     }
 
+    /** The blocking fetch of [domain] from [source]; it runs on [io] in the caller's coroutine. */
     private fun fetchAndStore(domain: String, hash: String, source: Prefs.LogoSource, gen: Int): Outcome<T> {
         for (url in LogoRules.urls(source, domain)) {
             if (gen != generation || !enabled()) return Outcome.Failed

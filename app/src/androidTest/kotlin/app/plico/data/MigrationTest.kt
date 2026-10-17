@@ -3,23 +3,26 @@ package app.plico.data
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.platform.app.InstrumentationRegistry
 import app.plico.account.Providers
+import app.plico.mail.imap.UidSet
 import org.junit.After
 import org.junit.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** An installed v1 database (release 0.1.0) opened by this build. */
+/** An installed v1 database (release 0.1.0) or v2 database opened by this build. */
 class MigrationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val v1Name = "test-v1-${UUID.randomUUID()}.db"
-    private val freshName = "test-v2-${UUID.randomUUID()}.db"
+    private val v2Name = "test-v2-${UUID.randomUUID()}.db"
+    private val freshName = "test-fresh-${UUID.randomUUID()}.db"
     private val opened = ArrayList<Db>()
 
     @After
     fun deleteDbs() {
         opened.forEach(Db::close)
         context.deleteDatabase(v1Name)
+        context.deleteDatabase(v2Name)
         context.deleteDatabase(freshName)
     }
 
@@ -44,7 +47,7 @@ class MigrationTest {
         }
 
         val db = Db(context, v1Name).also(opened::add)
-        assertEquals(2, db.sql.version)
+        assertEquals(Schema.VERSION, db.sql.version)
         val accounts = AccountDao(db).all()
         assertEquals(listOf("a@riseup.net", "b@gmail.com"), accounts.map { it.email })
         assertEquals(listOf(Provider.RISEUP, Provider.GMAIL), accounts.map { it.provider })
@@ -61,7 +64,30 @@ class MigrationTest {
 
         // An upgraded database has the same columns as a fresh one.
         val fresh = Db(context, freshName).also(opened::add)
-        for (table in listOf("account", "message")) assertEquals(columns(fresh, table), columns(db, table), table)
+        for (table in listOf("account", "folder", "message")) assertEquals(columns(fresh, table), columns(db, table), table)
+    }
+
+    @Test
+    fun upgradeFromV2AddsTheOwnDeletedRecord() {
+        val path = context.getDatabasePath(v2Name).apply { parentFile?.mkdirs() }
+        SQLiteDatabase.openOrCreateDatabase(path, null).use { v2 ->
+            (Schema.V1 + Schema.MIGRATIONS[0]).forEach(v2::execSQL)
+            v2.execSQL(
+                "INSERT INTO account(id, provider, email, label, auth, secret) " +
+                    "VALUES(1, 'other', 'a@example.org', 'Mail', 'password', x'01')",
+            )
+            v2.execSQL("INSERT INTO folder(id, account_id, path, name, role, uidvalidity) VALUES(1, 1, 'INBOX', 'INBOX', 'inbox', 7)")
+            v2.version = 2
+        }
+        val db = Db(context, v2Name).also(opened::add)
+        assertEquals(3, db.sql.version)
+        val folders = FolderDao(db)
+        assertEquals(7L, folders.get(1)?.uidValidity)
+        assertEquals(UidSet.EMPTY, folders.ownDeleted(1))
+        folders.setOwnDeleted(1, UidSet.of(3, 4, 9))
+        assertEquals(UidSet.of(3, 4, 9), folders.ownDeleted(1))
+        val fresh = Db(context, freshName).also(opened::add)
+        assertEquals(columns(fresh, "folder"), columns(db, "folder"))
     }
 
     /** cid, name, type, notnull, dflt_value, pk of each column. */

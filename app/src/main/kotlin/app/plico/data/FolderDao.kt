@@ -2,6 +2,7 @@ package app.plico.data
 
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
+import app.plico.mail.imap.UidSet
 import kotlinx.coroutines.flow.Flow
 
 /** Mailboxes (kind 0) and Gmail label views (kind 1), their sync state and computed unread counts. */
@@ -93,16 +94,39 @@ class FolderDao(private val db: Db) {
     }
 
     /**
-     * Drops the folder's messages and memberships and resets uidvalidity, uidnext, modseq, backfill and
-     * the guard, so the next sync starts fresh (guard "Resync", UIDVALIDITY change).
+     * Drops the folder's messages and memberships and resets uidvalidity, uidnext, modseq, backfill, the guard
+     * and [ownDeleted], so the next sync starts fresh (guard "Resync", UIDVALIDITY change).
      */
     fun resync(id: Long): Unit = db.tx(Tables.FOLDER, *Tables.MESSAGE_OWNED) {
         write("DELETE FROM message WHERE folder_id = ?", id)
         write("DELETE FROM message_folder WHERE folder_id = ?", id)
         write(
-            "UPDATE folder SET uidvalidity = 0, uidnext = 0, modseq = 0, backfill_uid = 0, guard = 0 WHERE id = ?",
+            """
+            UPDATE folder SET uidvalidity = 0, uidnext = 0, modseq = 0, backfill_uid = 0, guard = 0, own_deleted = NULL
+            WHERE id = ?
+            """,
             id,
         )
+    }
+
+    /**
+     * The UIDs that Plico flagged `\Deleted` in mailbox [id] and that a guarded EXPUNGE left on the server (DESIGN.md
+     * §7.4). They are Plico's own, so they never stop a later guarded EXPUNGE of this mailbox. Valid for the stored
+     * uidvalidity only: [resync] clears them.
+     */
+    fun ownDeleted(id: Long): UidSet {
+        val text = db.sql.one("SELECT own_deleted FROM folder WHERE id = ?", id) { c -> c.strOrNull(0) } ?: return UidSet.EMPTY
+        return try {
+            UidSet.parse(text)
+        } catch (_: IllegalArgumentException) {
+            UidSet.EMPTY
+        }
+    }
+
+    /** Writes [ownDeleted]; an empty set clears it. */
+    fun setOwnDeleted(id: Long, uids: UidSet): Unit = db.tx(Tables.FOLDER) {
+        write("UPDATE folder SET own_deleted = ? WHERE id = ?", if (uids.isEmpty) null else uids.toString(), id)
+        Unit
     }
 
     /** Deletes the folder with its messages (a mailbox that LIST no longer shows). */

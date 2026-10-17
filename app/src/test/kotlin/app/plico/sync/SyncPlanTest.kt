@@ -15,10 +15,12 @@ class SyncPlanTest {
         gmail: Boolean = false,
         lastListAt: Long? = now - hour,
         lastSweepAt: Long? = now - hour,
+        lastFlagsAt: Long? = lastSweepAt,
         relist: Boolean = false,
         unmetered: Boolean = false,
         visible: Boolean = false,
-    ) = SyncPlan.of(trigger, gmail, now, lastListAt, lastSweepAt, relist, unmetered, visible)
+        at: Long = now,
+    ) = SyncPlan.of(trigger, gmail, at, lastListAt, lastSweepAt, lastFlagsAt, relist, unmetered, visible)
 
     @Test
     fun pushEventsTouchOnlyTheIdleMailboxAndNotifyFolders() {
@@ -55,6 +57,28 @@ class SyncPlanTest {
         assertFalse(plan(SyncTrigger(poll = true)).fullFlags, "a 15-min poll")
         assertFalse(plan(SyncTrigger(changed = true)).fullFlags)
         assertFalse(plan(SyncTrigger(connected = true)).fullFlags)
+    }
+
+    @Test
+    fun pollModeChecksFlagsEverySixHours() {
+        // Every poll is a sweep, so the 6 h count from the last flag check (DESIGN §7.2 step 2), as AccountSession does.
+        var lastSweepAt: Long? = null
+        var lastFlagsAt: Long? = null
+        val checks = ArrayList<Long>()
+        val poll = 15 * 60_000L
+        for (time in (0 until 13 * 4).map { now + it * poll }) {
+            val p = plan(SyncTrigger(poll = true), lastSweepAt = lastSweepAt, lastFlagsAt = lastFlagsAt, at = time)
+            assertTrue(p.fullSweep)
+            lastSweepAt = time
+            if (p.fullFlags) {
+                lastFlagsAt = time
+                checks += time - now
+            }
+        }
+        assertEquals(listOf(0L, 6 * hour, 12 * hour), checks, "the first poll, then every 6 h")
+        // A flag check that is due waits for a sweep: an IDLE event does not get the full flag range.
+        assertFalse(plan(SyncTrigger(changed = true), lastSweepAt = now - hour, lastFlagsAt = now - 7 * hour).fullFlags)
+        assertTrue(plan(SyncTrigger(poll = true), lastSweepAt = now - hour, lastFlagsAt = now - 7 * hour).fullFlags)
     }
 
     @Test

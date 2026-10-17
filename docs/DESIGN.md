@@ -139,7 +139,10 @@ connectTimeoutMs)` (keeps the hostname for SNI and CT); `hooks.onConnected(s)`; 
 STARTTLS:
 - `open`: a plain `Socket`, connect, `hooks.onConnected`. The read timeout is at most 20 s until TLS is up (also
   when `readTimeoutMs` is 0): with STARTTLS on port 993 or 465 the server waits for a ClientHello and sends no
-  greeting, so the client must not wait without end.
+  greeting, so the client must not wait without end. `ImapClient` and `SmtpClient` turn a read timeout before the
+  switch (the greeting, SMTP EHLO, the answer to STARTTLS) into `PlaintextTimeoutException`, a
+  `SocketTimeoutException`; only setup reads it as a wrong security setting (§13). A timeout after the switch stays
+  a plain `SocketTimeoutException`.
 - `startTls()`: refused after TLS or compression. When any byte follows the server's reply (pipelining, which
   STARTTLS forbids, or an injection), it throws `StartTlsException` and closes the socket. Else
   `factory.createSocket(raw, host, port, true)` and the same `secure()` checks as implicit TLS; new buffers on
@@ -279,8 +282,11 @@ data class Quota(val usedKiB: Long, val limitKiB: Long)
 data class Namespace(val prefix: String, val delimiter: String?)
 data class Namespaces(val personal: List<Namespace>, val otherUsers: List<Namespace>, val shared: List<Namespace>)
 ```
-- Mailbox names are always modified UTF-7 on the wire. Never `ENABLE UTF8=ACCEPT`. Gmail
-  `X-GM-LABELS` values are astrings in modified UTF-7; system labels start with `\`.
+- Mailbox names are modified UTF-7 on the wire. Exception: a server that advertises `IMAP4rev2` without
+  `IMAP4rev1` (the same test as the base set below) uses UTF-8 names (RFC 9051 §5.1) and need not know modified
+  UTF-7, so there names go out and come in as UTF-8 (non-ASCII as a literal; `&` as it is). A server with both stays
+  in IMAP4rev1 mode (Plico never sends `ENABLE IMAP4rev2`). Never `ENABLE UTF8=ACCEPT`. Gmail `X-GM-LABELS` values
+  are astrings in modified UTF-7; system labels start with `\`.
 - `UidSet`: sorted ranges; `toString()` = `1:5,8,10:12`; `*` parses to Long.MAX_VALUE; split into
   commands of at most 500 ranges.
 - Search with non-ASCII text: `UID SEARCH CHARSET UTF-8 <criteria with literal>` (`protocol PS16`).
@@ -314,11 +320,12 @@ so their commands do not change):
 - `list()`: `RETURN (SPECIAL-USE)` only with both SPECIAL-USE and LIST-EXTENDED (RETURN options need
   LIST-EXTENDED); a plain LIST still carries the special-use attributes.
 - No MOVE: per chunk `UID COPY` (COPYUID from the tagged OK) and `UID STORE +FLAGS.SILENT (\Deleted)`, then
-  `UID EXPUNGE` per chunk with UIDPLUS, else one guarded expunge over the whole set. Not atomic: a retry after a
-  lost connection can copy twice. Gmail has MOVE, so this never runs on All Mail.
-- `uidExpunge(uids, guard)`: with UIDPLUS `UID EXPUNGE` per chunk (also for `guard = false`). Without UIDPLUS
-  only a plain `EXPUNGE` exists, which removes every `\Deleted` message of the mailbox. With `guard`, the client
-  first sends `UID SEARCH DELETED`; when a hit is not in `uids`, it sends no EXPUNGE and returns false. Other
+  the caller's expunge over the whole set (by default the guarded `uidExpunge`; `Ops` passes its own, §7.4). Not
+  atomic: a retry after a lost connection can copy twice. Gmail has MOVE, so this never runs on All Mail.
+- `uidExpunge(uids, guard, allowed)`: with UIDPLUS `UID EXPUNGE` per chunk (also for `guard = false`). Without
+  UIDPLUS only a plain `EXPUNGE` exists, which removes every `\Deleted` message of the mailbox. With `guard`, the
+  client first sends `UID SEARCH DELETED`; when a hit is in neither `uids` nor `allowed` (the caller's own
+  `\Deleted` messages that an earlier skipped expunge left), it sends no EXPUNGE and returns false. Other
   clients (Outlook in IMAP mode, Roundcube) keep struck-through `\Deleted` mail that the user can still
   undelete; Plico never removes it. The rows are already gone locally, and `message.deleted` hides the messages
   that stay on the server (§7.2). `guard = false` (plain EXPUNGE) only for Empty Trash/Spam and permanent deletes
@@ -330,7 +337,7 @@ so their commands do not change):
   deleted last message can have had a higher UID); the sync corrects it with STATUS (§7.2 step 4).
 - No ENABLE: `enable()` sends nothing. No NAMESPACE: `namespace()` is null.
 - `namespace()` reads `* NAMESPACE (("INBOX." ".")) NIL NIL` and the full form with other users' and shared
-  groups; `NIL` = an empty group; prefixes are decoded from modified UTF-7. The answer (also null) is kept for the
+  groups; `NIL` = an empty group; prefixes are decoded like mailbox names. The answer (also null) is kept for the
   connection.
 - `id()`: `ID ("name" "Mail")` only, never a version, an OS or device data. Only for NetEase servers (§7.1).
 
@@ -427,8 +434,8 @@ class SmtpAuthUnavailableException : java.io.IOException("No usable AUTH mechani
 ## 5. Data (`data`)
 
 Framework SQLite (`SQLiteOpenHelper`, WAL, `PRAGMA foreign_keys=ON`). One `Db` class: `query`,
-`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v2 = schema v1
-(below) + "Migration 1 → 2" (end of this section). Schema v1:
+`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v3 = schema v1
+(below) + "Migration 1 → 2" + "Migration 2 → 3" (end of this section). Schema v1:
 
 ```sql
 CREATE TABLE account(
@@ -561,7 +568,7 @@ Contacts are learned from sent recipients and from senders the user replied to. 
 
 ### Migration 1 → 2
 
-`Schema.VERSION` is 2. `Schema.MIGRATIONS[i]` upgrades version i + 1 to i + 2 (`onUpgrade`, in one
+`Schema.MIGRATIONS[i]` upgrades version i + 1 to i + 2 (`onUpgrade`, in one
 transaction); a fresh database runs v1 and then every migration, so it gets the same statements. Hosts are
 literals, never `Providers` values. The default ports and TLS mode (993/465, implicit TLS) are those of Riseup
 and Gmail. The SQL comments below are Kotlin comments in `Schema.kt`: ALTER TABLE ADD COLUMN copies a trailing
@@ -579,6 +586,16 @@ ALTER TABLE account ADD COLUMN idle INTEGER NOT NULL DEFAULT 1;          -- 0 = 
 ALTER TABLE message ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;       -- server flag \Deleted (not Gmail): the row is not shown
 UPDATE account SET imap_host = 'mail.riseup.net', smtp_host = 'mail.riseup.net' WHERE provider = 'riseup';
 UPDATE account SET imap_host = 'imap.gmail.com', smtp_host = 'smtp.gmail.com' WHERE provider = 'gmail';
+```
+
+### Migration 2 → 3
+
+`Schema.VERSION` is 3. The column keeps the UIDs that Plico flagged `\Deleted` in a mailbox and that a guarded
+EXPUNGE left on the server (§7.4), as a UID set (`3:5,9`). They are Plico's own messages, so they never stop a
+later guarded EXPUNGE. A plain EXPUNGE of the mailbox and a resync (UIDVALIDITY change) clear it.
+
+```sql
+ALTER TABLE folder ADD COLUMN own_deleted TEXT;                          -- UIDs that Plico flagged \Deleted and a guarded EXPUNGE left on the server; NULL = none
 ```
 
 ## 6. Providers, discovery and sign-in (`account`)
@@ -647,9 +664,10 @@ autoconfig file or a hostile server never gets a Google or Microsoft token or ap
 **Typo check** (`suggest(domain)`, before discovery): a table domain of 8 or more characters at an edit distance
 of 1 (optimal string alignment: a swap of two neighbours counts 1), for example `gmial.com`, `gmail.co`,
 `gmail.con` → `gmail.com`. Not for a swap of a two-letter country label (`hotmail.be` and `outlook.at` are real),
-not for a suffix far from the table suffix (`outlook.jp`, `hotmail.com.br`, `yahoo.co.jp`), and never for
-shorter table domains (`me.com`, `bk.ru`). Setup shows "Did you mean …?"; Next again with the same address
-continues.
+not for a suffix far from the table suffix (`outlook.jp`, `hotmail.com.br`, `yahoo.co.jp`), not for real domains
+one edit from a table domain (`ProviderTable.NOT_TYPOS`: `mail.com` and `email.com` of the mail.com service near
+`gmail.com`, `olive.com` and `alive.com` near `live.com`), and never for shorter table domains (`me.com`,
+`bk.ru`). Setup shows "Did you mean …?"; Next again with the same address continues.
 
 ### 6.3 Discovery (`account.discovery`)
 `Discovery.discover(email)` runs once at setup. No third party is asked: the built-in table, then the domain's
@@ -809,6 +827,12 @@ One engine for both issuers, with the user's own client ID.
 - Wrong account (when adding): a result whose `email` claim, or the selected device account, is not the same
   mailbox as the typed address (case; with gmail.com and googlemail.com also dots in the local part) → "You signed
   in as … Sign in as …". Microsoft without an `email` claim uses the typed address, so the check passes.
+- Wrong account (sign in again): the address must be the account's own. Microsoft without an `email` claim
+  (`SignIn.fromHint`): the address is the login hint, which is always the account's own, so the login decides: a
+  login that is not the stored XOAUTH2 user (`Account.login`) → "You signed in as <login> …"
+  (`SetupState.wrongBrowserAccount`). Else another account picked in Microsoft's account chooser would sync its
+  mailbox into the rows of this account. Without a login the XOAUTH2 user stays the account's address, so the
+  server decides. With an `email` claim the address check is enough (a changed login of that account is kept).
 - Errors: the AADSTS code first. `AADSTS50194`, `50020`, `700016` → the account-types text (client registered for
   one tenant, an account of another tenant, or a wrong client ID); `AADSTS90094`, `65001` or `consent_required` →
   "An administrator must approve Plico"; `AADSTS7000218`, `50011` or `invalid_client`/`unauthorized_client` →
@@ -850,6 +874,10 @@ shows during setup (`simplicity EM21`, `apis AF5`).
   a note says that Plico checks for new mail every 15 minutes.
 - SMTP: `SmtpClient.connect(servers.smtp)`, `authSmtp`, `QUIT`. Microsoft: a `Setup` from SMTP (SMTP AUTH off)
   adds the note "Plico can receive mail, but it cannot send it" instead of a failure.
+- Microsoft: IMAP refuses the token that the browser sign-in has just given (Exchange `NO AUTHENTICATE failed.`,
+  an `AuthRequired` with an `ImapNoException` cause) → `Setup` with the IMAP text ("Microsoft did not open the
+  mailbox. IMAP must be on for this account … the administrator must turn it on … the main address"), the same
+  text as "not connected". The token is new, so a sign-in again cannot help.
 - A failure is a `ProbeException(endpoint, error)`: the endpoint that failed and the classified `MailError`
   with its cause chain. `ImapMissingCapabilityException(AUTH=PLAIN)` and `SmtpAuthUnavailableException` →
   "The server does not accept a password sign-in that Plico can use"; everything else → `MailErrors.classify`
@@ -944,8 +972,10 @@ class AccountSession(...) {
 2. Cheap check: STATUS (or LIST-STATUS when advertised). Skip the mailbox only when UIDNEXT, MESSAGES and
    UIDVALIDITY are unchanged and the flags are unchanged too: a known HIGHESTMODSEQ that is the same
    (`protocol PS10`), or, on a server without CONDSTORE (Exchange), only while no flag check is due (user
-   refresh, folder open, the 6-h sweep). Else every 15-min poll would fetch the flags of every message of every
-   folder. The servers of Riseup and of Gmail have CONDSTORE: no change on them.
+   refresh, folder open, or a sweep 6 h or more after the last flag check). The 6 h count from the last sweep
+   that checked the flags, not from the last sweep: in poll mode every poll is a sweep. Else every 15-min poll
+   would fetch the flags of every message of every folder, or, with the 6 h counted from the last sweep, a polling
+   account would never check them. The servers of Riseup and of Gmail have CONDSTORE: no change on them.
 3. SELECT. UIDVALIDITY changed → drop pending ops that use this folder (refetch-undo, §7.4), then
    delete the local rows — through the guard (step 6) when more than 50 rows.
 4. **New mail**: skip when server UIDNEXT ≤ `folder.uidnext`. First sync (`backfill_uid = 0`):
@@ -1030,8 +1060,12 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 - A server without MOVE gets the COPY fallback (§4.4). Expunge: deletes outside Trash and Spam use the guarded
   expunge (`uidExpunge(guard = true)`): on a server without UIDPLUS it never removes a `\Deleted` message of
   another client; when it skips the EXPUNGE, the messages stay `\Deleted` on the server and their rows are not
-  shown (§7.2). Empty Trash/Spam (every message up to a UID) and permanent deletes inside Trash or Spam use a
-  plain `EXPUNGE` without UIDPLUS. Gmail paths do not change.
+  shown (§7.2). Their UIDs go into `folder.own_deleted` (§5, Migration 2 → 3) and are passed as `allowed` to every
+  later guarded expunge of that mailbox: else Plico's own leftovers would look like another client's mail and stop
+  every later expunge there, also after the other client's message is gone. A plain EXPUNGE of the mailbox clears
+  the record, and so does a resync (UIDVALIDITY change). Empty Trash/Spam (every message up to a UID) and
+  permanent deletes inside Trash or Spam use a plain `EXPUNGE` without UIDPLUS. Servers with UIDPLUS (Gmail,
+  Riseup) never use the guard or the record, so their paths do not change.
 - **Default names**: an action queues only the bare name (`Trash`, `Spam`, `Archive`, offline too); Sent and
   Drafts uploads use `Sent` and `Drafts`. At run time a target with a role and no folder row with that path gets
   the personal root (§7.2): `INBOX.Trash` on a Courier server. "New folder" (also in the move picker) gets the
@@ -1428,7 +1462,10 @@ Optional, **off by default** (Settings → Message list, §13). Without them the
   view uses only the cache (`cached()`): opening a message never fetches, because that would be a read
   receipt. Never in notifications, account avatars or compose recipients.
 - Fetch: `RemoteFetcher.fetch` (§11.2) with `Accept: image/*`, image types only, 256 KiB and its own byte budget
-  per URL, the tracker list on, at most 3 redirects; one fetch per domain at a time, 3 domains in parallel.
+  per URL, the tracker list on, at most 3 redirects; one fetch per domain at a time (a `Mutex` per domain; the
+  waiting caller reads the disk again first), 3 domains in parallel (a `Semaphore`). All work runs in the row's
+  coroutine on `Dispatchers.IO`: memory and disk answers never wait behind a slow fetch, and a row that leaves the
+  screen while its fetch waits for a turn makes no request. A fetch that has started ends and fills the cache.
 - Decode: the first bytes must be PNG, JPEG, GIF, WebP or ICO (`00 00 01 00`); SVG, HTML and everything else is
   never decoded. `ImageDecoder` must report the same format (ICO: `image/x-ico`, which Android reports, or
   `image/x-icon`, `image/vnd.microsoft.icon`); both sides from 32 to 512 px; scaled to at most 128 px, aspect
@@ -1500,10 +1537,15 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   - Error texts: a refused password (every provider except Gmail; Gmail keeps the app-password texts);
     `NO_TLS` "The server did not start an encrypted connection … Make sure that the port and the security
     setting are correct." for a `StartTlsException` in the cause chain. For other servers only, also for a
-    `TlsHandshakeException`, and for a read timeout when the endpoint that failed (`ProbeException.endpoint`)
-    uses STARTTLS (its greeting did not come). On the built-in servers of Riseup, Gmail and Microsoft these are
-    network problems (their TLS modes are known; resets and captive portals cause them). A connect timeout is
-    always a network problem.
+    `TlsHandshakeException`, and for a `PlaintextTimeoutException` (STARTTLS mode: the greeting or the answer to
+    STARTTLS did not come, §4.1). On the built-in servers of Riseup, Gmail and Microsoft these are network
+    problems (their TLS modes are known; resets and captive portals cause them). A connect timeout and a read
+    timeout after the switch to TLS (LOGIN, LIST, EXAMINE, SMTP AUTH) are always network problems.
+    A certificate failure (`MailError.Tls`): on the built-in servers `TLS` ("… A network that examines
+    connections … can cause this. Try again on a different network."); on other servers `TLS_NAME` ("… Often the
+    certificate is for a different server name. Make sure that the server name is correct. Use the server name
+    that your mail provider gives. If the name is correct, try again on a different network."), because there a
+    certificate for another name (shared hosting, the guessed `imap.<domain>`) is the usual cause.
   - **Sign in again** (`Route.Reauth`): starts on the provider's page, or with `editServers` ("Change server
     settings" of an account on other servers with a password) on Server settings with the stored servers. The
     test writes the servers when they or `idle` changed (`ServerUpdate`; also a user name that the retry
@@ -1604,8 +1646,8 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   connections" (Dovecot), "too many connections", "connection limit".
 
 `MailErrors.localized(context, error)` gives a user text where the server text alone does not help: a `Setup`
-with the Exchange NO in its cause chain → "Microsoft did not open the mailbox. In Outlook.com, turn on IMAP for
-devices and apps …"; a token refused for a server that is not a host of its issuer → "Plico cannot use this
+with the Exchange NO in its cause chain → "Microsoft did not open the mailbox. IMAP must be on for this account.
+In Outlook.com, turn on IMAP for devices and apps …"; a token refused for a server that is not a host of its issuer → "Plico cannot use this
 sign-in method with this server …". The connection test and `AccountSession.fail` call it.
 
 ## 15. Build and tests
@@ -1625,17 +1667,18 @@ sign-in method with this server …". The connection test and `AccountSession.fa
     `TlsHandshakeException`, the 20 s read-timeout cap before TLS, non-ASCII hosts.
   - `ImapClientTest`: STARTTLS (CAPABILITY again, pre-TLS `LOGINDISABLED` ignored, injection, NO/BAD, PREAUTH,
     real TLS), PLAIN with and without SASL-IR, LOGIN as strings and literals, LOGINDISABLED, XOAUTH2 inline and
-    bare, no secret before TLS, the IMAP4rev2 base set, LIST RETURN only with LIST-EXTENDED, MOVE fallback,
-    guarded expunge, plain search (union, summed COUNT, MAX, an ESEARCH answer), SELECT without UIDNEXT,
-    NAMESPACE, ID, log redaction.
+    bare, no secret before TLS, the IMAP4rev2 base set and UTF-8 names, LIST RETURN only with LIST-EXTENDED, MOVE
+    fallback (also with the caller's expunge), guarded expunge (with the caller's own leftovers allowed), plain
+    search (union, summed COUNT, MAX, an ESEARCH answer), SELECT without UIDNEXT, NAMESPACE, ID, log redaction,
+    `PlaintextTimeoutException` only before TLS.
   - `SmtpClientTest`: STARTTLS with the second EHLO (extensions only after TLS), 454/502 → no AUTH, injection
     after 220, both AUTH line forms, AUTH LOGIN, no usable mechanism, XOAUTH2 at the 510-octet limit, no secret
-    before TLS.
+    before TLS, `PlaintextTimeoutException` only before TLS.
 - `:app` JVM tests: KeepalivePolicy (also the scope per server), Scheduler due-time math, LinkCleaner, Idn, Psl
   (also the PRIVATE section and `matchedRule`), HtmlSanitizer, SenderCheck, Files (`safeName`, logo paths),
   notification rule, IncomingUri/mailto parsing, Schema (v1 and the migration block as written here). Also:
   - account: `ProviderTableTest` (domains, MX suffixes, pinned host sets, mixed pairs, refusals, typo check incl.
-    real regional domains), `AutoconfigTest` (Thunderbird samples, the esiliati.org file, TLS by port, plain and
+    real regional domains and real domains near table domains), `AutoconfigTest` (Thunderbird samples, the esiliati.org file, TLS by port, plain and
     POP3 skipped, OAuth2 only for Google/Microsoft, DOCTYPE and UTF-16 refusal, size cap, local hosts, no local
     part in URLs or host names), `DnsWireTest` (SRV/MX order, compression, pointer loops, bounds, TC, RCODE),
     `DiscoveryTest` (every step of §6.3, mixed pairs, pinning, stale autoconfig + Google MX, the 10 s timeout,
@@ -1643,20 +1686,23 @@ sign-in method with this server …". The connection test and `AccountSession.fa
     entries, identity, AADSTS mapping, `otherHandlers`), `OAuthCredentialsTest` (host check before any token,
     rotation stored before use, Microsoft SMTP refusal), `AccountCredentialsTest`, `MailErrorsTest`,
     `AccountProbeTest` (Microsoft SMTP off with real `OAuthCredentials`, Gmail server for another provider,
-    Exchange "not connected", the failed endpoint), `PasswordCredentialsTest`, `CredentialsCacheTest`.
+    Exchange "not connected" and a refused new token, the failed endpoint), `PasswordCredentialsTest`,
+    `CredentialsCacheTest`.
   - sync, push, notify: `FolderRulesTest` (generic rules, localized names, namespaces, personal root, Riseup
     exact), `MailboxMathTest` (skip without CONDSTORE, search windows), `SyncPlanTest`, `PushModesTest`,
     `TextsTest` (default labels), `HeaderParserTest` (`\Deleted`, never on Gmail).
-  - ui: `SetupStateTest` (every transition and back path), `SetupInputTest`, `ProblemTest` (NO_TLS by endpoint,
-    only for other servers), `OAuthResumeTest`, `SettingsModelTest` (connections, sign-in clients),
+  - ui: `SetupStateTest` (every transition and back path, the Microsoft sign-in-again account check),
+    `SetupInputTest`, `ProblemTest` (NO_TLS only for other servers and only before TLS, TLS_NAME for other
+    servers), `OAuthResumeTest`, `SettingsModelTest` (connections, sign-in clients),
     `NavigatorTest`/`EntryTest` (`Reauth(editServers)`), `RowLookTest`, `SenderColorsTest`, `ListContextTest`
     (logo gate).
   - html: `LogoRulesTest` (domains, URLs, hop rule, sniffing, cache times), `SenderLogosTest` (the cache with
-    a fake network: first-contact rule, Missing/Failed, generations, one budget per URL).
+    a fake network: first-contact rule, Missing/Failed, generations, one budget per URL, cache reads and rows
+    that leave never wait behind slow fetches).
 - Device tests (`app/src/androidTest`) run only on the `megaglass-api35` emulator, always with
   `ANDROID_SERIAL=emulator-5554` (a connected phone with the user's install would be wiped):
   `ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest`. They include the DB tests (`DbTest`,
-  `AccountDaoTest` with the server-change wipe, `MigrationTest` v1 → v2, `MessageDaoTest` with `\Deleted` rows),
+  `AccountDaoTest` with the server-change wipe, `MigrationTest` v1 → v3 and v2 → v3, `MessageDaoTest` with `\Deleted` rows),
   the sync tests against `SyncFakeServer` (it answers only the extensions that it advertises): Gmail, Riseup,
   `GenericSyncDeviceTest`, `GenericOpsTest`, `SenderTest` (Sent copy rules), `DraftsTest` (no APPENDUID), and
   `app.plico.sync.fallback` (servers with only IMAP4rev1: no MOVE, UIDPLUS, ESEARCH, CONDSTORE or UIDNEXT),

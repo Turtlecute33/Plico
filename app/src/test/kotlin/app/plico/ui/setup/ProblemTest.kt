@@ -7,6 +7,7 @@ import app.plico.data.Provider
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.RespCode
 import app.plico.mail.net.Endpoint
+import app.plico.mail.net.PlaintextTimeoutException
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsHandshakeException
 import app.plico.mail.net.TlsMode
@@ -17,6 +18,7 @@ import java.net.UnknownHostException
 import java.security.cert.CertificateException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -86,6 +88,11 @@ class ProblemTest {
     fun `setup problems show the account module's text`() {
         val hint = "Gmail does not show All Mail to IMAP."
         assertEquals(Problem(Problem.Kind.SETUP, hint), gmail(MailError.Setup(hint), Method.BROWSER))
+        // Microsoft refused the new token at IMAP (AccountProbe): the IMAP text, not "did not accept the sign-in".
+        val imapOff = "Microsoft did not open the mailbox."
+        val refused = ImapNoException(null, "AUTHENTICATE failed.")
+        val probe = failedAt(TlsMode.IMPLICIT, 993, MailError.Setup(imapOff, MailError.AuthRequired("AUTHENTICATE failed.", cause = refused)))
+        assertEquals(Problem(Problem.Kind.SETUP, imapOff), Problem.of(probe, Provider.MICROSOFT, Method.BROWSER))
     }
 
     @Test
@@ -105,15 +112,18 @@ class ProblemTest {
 
     @Test
     fun `a missing greeting from a STARTTLS server means the port expects SSL TLS`() {
-        val timeout = MailError.Network(SocketTimeoutException("Read timed out"))
+        val beforeTls = MailError.Network(PlaintextTimeoutException(SocketTimeoutException("Read timed out")))
         // IMAP with STARTTLS, also on 993, and SMTP with STARTTLS on 465: the server waits for a TLS handshake.
-        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 143, timeout)))
-        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 993, timeout)))
-        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 465, timeout)))
-        // The failed server uses SSL/TLS (e.g. IMAP 993 next to SMTP STARTTLS on 587): a network problem.
-        assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.IMPLICIT, 993, timeout)))
-        // Without the failed server (no connection test), a read timeout is a network problem.
-        assertEquals(Problem(Problem.Kind.NETWORK), other(timeout))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 143, beforeTls)))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 993, beforeTls)))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 465, beforeTls)))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(beforeTls))
+        // A read timeout after the switch to TLS (LOGIN, LIST, EXAMINE INBOX, SMTP AUTH): a slow server or network.
+        val afterTls = MailError.Network(SocketTimeoutException("Read timed out"))
+        assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.STARTTLS, 143, afterTls)))
+        assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.STARTTLS, 587, afterTls)))
+        assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.IMPLICIT, 993, afterTls)))
+        assertEquals(Problem(Problem.Kind.NETWORK), other(afterTls))
         // The connection itself timed out: a network problem, also with STARTTLS.
         val connect = SocketTimeoutException("failed to connect to imap.example.org/192.0.2.1 (port 143) after 20000ms")
         assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.STARTTLS, 143, MailError.Network(connect))))
@@ -126,7 +136,7 @@ class ProblemTest {
         assertEquals(Problem(Problem.Kind.NETWORK), gmail(failedAt(TlsMode.IMPLICIT, 465, reset)))
         assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.IMPLICIT, 993, reset)))
         // Microsoft SMTP uses STARTTLS on 587: a slow server is a network problem, not a wrong setting.
-        val timeout = MailError.Network(SocketTimeoutException("Read timed out"))
+        val timeout = MailError.Network(PlaintextTimeoutException(SocketTimeoutException("Read timed out")))
         assertEquals(
             Problem(Problem.Kind.NETWORK),
             Problem.of(failedAt(TlsMode.STARTTLS, 587, timeout), Provider.MICROSOFT, Method.BROWSER),
@@ -154,9 +164,21 @@ class ProblemTest {
         val certificate = SSLHandshakeException("bad").apply { initCause(CertificateException("untrusted")) }
         assertEquals(Problem(Problem.Kind.TLS), riseup(certificate))
         assertEquals(Problem(Problem.Kind.TLS), riseup(MailError.Tls(certificate)))
-        // A certificate failure with STARTTLS is still a certificate failure.
-        assertEquals(Problem(Problem.Kind.TLS), other(failedAt(TlsMode.STARTTLS, 587, MailError.Tls(certificate))))
         assertEquals(Problem(Problem.Kind.THROTTLED), riseup(MailError.Throttled("Maximum number of connections")))
+    }
+
+    @Test
+    fun `a certificate failure of a server that the user can change asks for the server name`() {
+        // Shared hosting: imap.<domain> has the certificate of the hosting server (MailSocket's hostname check).
+        val name = MailError.Tls(SSLPeerUnverifiedException("Hostname verification failed"))
+        assertEquals(Problem(Problem.Kind.TLS_NAME), other(failedAt(TlsMode.IMPLICIT, 993, name)))
+        // A certificate failure with STARTTLS is still a certificate failure.
+        val untrusted = MailError.Tls(SSLHandshakeException("bad").apply { initCause(CertificateException("untrusted")) })
+        assertEquals(Problem(Problem.Kind.TLS_NAME), other(failedAt(TlsMode.STARTTLS, 587, untrusted)))
+        // The built-in servers have fixed names: there a network that examines connections is the usual cause.
+        assertEquals(Problem(Problem.Kind.TLS), riseup(failedAt(TlsMode.IMPLICIT, 993, name)))
+        assertEquals(Problem(Problem.Kind.TLS), gmail(failedAt(TlsMode.IMPLICIT, 993, name)))
+        assertEquals(Problem(Problem.Kind.TLS), Problem.of(failedAt(TlsMode.IMPLICIT, 993, name), Provider.MICROSOFT, Method.BROWSER))
     }
 
     @Test

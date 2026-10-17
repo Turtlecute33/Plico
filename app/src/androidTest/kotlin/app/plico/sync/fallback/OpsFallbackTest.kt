@@ -2,6 +2,7 @@ package app.plico.sync.fallback
 
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
+import app.plico.mail.imap.UidSet
 import app.plico.sync.FakeImap
 import app.plico.sync.MailActions
 import app.plico.sync.OpContext
@@ -67,6 +68,41 @@ class OpsFallbackTest : OpFixture() {
         assertNull(messages.get(id), "without COPYUID the Archive sync brings the copy")
         assertTrue(ctx.movedIn.take("Archive", "<m3@example.org>"))
         assertTrue(ops.byAccount(other).isEmpty())
+    }
+
+    @Test
+    fun ownLeftoversOfASkippedExpungeDoNotBlockLaterOnes() {
+        mailbox(other, "Archive", FolderRole.ARCHIVE)
+        val first = row(3)
+        val second = row(5)
+        actions.archive(listOf(first))
+        later()
+        val skipped = FakeImap("IMAP4rev1")
+            .select("INBOX")
+            .expect("UID COPY 3 \"Archive\"", "OK Done")
+            .expect("UID STORE 3 +FLAGS.SILENT (\\Deleted)")
+            .expect(searchDeleted, "* SEARCH 3 8")
+        run(session(other, skipped))
+        skipped.finish() // no EXPUNGE: 8 is another client's
+        assertEquals(UidSet.of(3), folders.ownDeleted(inbox), "Plico's own message stays \\Deleted on the server")
+
+        // The other client undeleted 8. Plico's own 3 must not count as another client's mail.
+        actions.archive(listOf(second))
+        later()
+        val expunged = FakeImap("IMAP4rev1")
+            .select("INBOX")
+            .expect("UID COPY 5 \"Archive\"", "OK Done")
+            .expect("UID STORE 5 +FLAGS.SILENT (\\Deleted)")
+            .expect(searchDeleted, "* SEARCH 3 5")
+            .expect("EXPUNGE")
+        run(session(other, expunged))
+        expunged.finish()
+        assertEquals(UidSet.EMPTY, folders.ownDeleted(inbox), "the plain EXPUNGE removed them all")
+
+        // The record belongs to one UIDVALIDITY: a resync clears it.
+        folders.setOwnDeleted(inbox, UidSet.of(9))
+        folders.resync(inbox)
+        assertEquals(UidSet.EMPTY, folders.ownDeleted(inbox))
     }
 
     @Test

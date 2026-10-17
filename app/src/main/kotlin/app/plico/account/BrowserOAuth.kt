@@ -26,9 +26,16 @@ import javax.net.ssl.HttpsURLConnection
 
 /**
  * Result of a browser sign-in. [email] is the id_token `email` claim. [login] is the XOAUTH2 user when it differs
- * from [email] (Microsoft work accounts without an `email` claim), else null.
+ * from [email] (Microsoft work accounts without an `email` claim), else null. [fromHint] is true when there was no
+ * `email` claim and [email] is the login hint: then [email] does not tell which account signed in, only [login] does.
  */
-class SignIn(val email: String, val login: String?, val refreshToken: String, val accessToken: AccessToken) {
+class SignIn(
+    val email: String,
+    val login: String?,
+    val refreshToken: String,
+    val accessToken: AccessToken,
+    val fromHint: Boolean = false,
+) {
     override fun toString() = "SignIn"
 }
 
@@ -559,10 +566,11 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
         ): SignIn? = when (issuer) {
             OAuthIssuer.GOOGLE -> claims?.email?.let { SignIn(it, null, refreshToken, accessToken) }
             OAuthIssuer.MICROSOFT -> {
-                val email = claims?.email ?: hint.trim().takeIf { '@' in it }
+                val claimed = claims?.email
+                val email = claimed ?: hint.trim().takeIf { '@' in it }
                 val login = claims?.preferredUsername?.trim()
                     ?.takeIf { '@' in it && email != null && !it.equals(email, ignoreCase = true) }
-                email?.let { SignIn(it, login, refreshToken, accessToken) }
+                email?.let { SignIn(it, login, refreshToken, accessToken, fromHint = claimed == null) }
             }
         }
 

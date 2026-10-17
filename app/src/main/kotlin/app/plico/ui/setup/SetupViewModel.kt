@@ -400,6 +400,7 @@ class SetupViewModel(
             val address = signIn.email.lowercase(Locale.ROOT)
             checkTyped(address, typed)
             checkIdentity(address)
+            reauth?.let { SetupState.wrongBrowserAccount(signIn, it) }?.let { throw Rejected(it) }
             val token = signIn.refreshToken
             // Always the built-in servers of the issuer, never servers from the state (DESIGN §6.5).
             val builtIn = if (issuer == OAuthIssuer.MICROSOFT) {

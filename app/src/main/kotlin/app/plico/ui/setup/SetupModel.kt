@@ -8,6 +8,7 @@ import app.plico.account.OAuthIssuer
 import app.plico.account.PasswordCredentials
 import app.plico.account.ProbeException
 import app.plico.account.ProviderTable
+import app.plico.account.SignIn
 import app.plico.account.discovery.Discovery
 import app.plico.account.discovery.Outcome
 import app.plico.account.discovery.Source
@@ -18,10 +19,10 @@ import app.plico.data.Servers
 import app.plico.html.Idn
 import app.plico.mail.mime.Addresses
 import app.plico.mail.net.Endpoint
+import app.plico.mail.net.PlaintextTimeoutException
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsHandshakeException
 import app.plico.mail.net.TlsMode
-import java.net.SocketTimeoutException
 import java.util.Locale
 
 /** The pages of the setup flow (DESIGN §13 Setup). Their order gives the direction of the page animation. */
@@ -83,7 +84,15 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
         /** The user must change a setting (Show in IMAP, OAuth client); [detail] tells what. */
         SETUP,
         NETWORK,
+
+        /** The certificate of a built-in server is not valid: often a network that examines connections. */
         TLS,
+
+        /**
+         * The certificate of a server that the user entered or that setup found is not valid: often a certificate
+         * for another server name (shared hosting, a guessed `imap.<domain>`), which the user can correct.
+         */
+        TLS_NAME,
 
         /** No encrypted connection: STARTTLS refused, or the security setting does not fit the port. */
         NO_TLS,
@@ -124,7 +133,7 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
          */
         fun of(error: Throwable, provider: Provider, method: Method): Problem {
             val probe = generateSequence(error) { it.cause }.take(MAX_CAUSES).firstNotNullOfOrNull { it as? ProbeException }
-            if (noTls(error, provider, probe?.endpoint)) return Problem(Kind.NO_TLS)
+            if (noTls(error, provider)) return Problem(Kind.NO_TLS)
             return when (val e = MailErrors.classify(probe?.error ?: error, networkValidated = true)) {
                 is MailError.AuthRequired -> when {
                     method != Method.PASSWORD -> Problem(
@@ -138,7 +147,7 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
                 }
                 is MailError.Setup -> Problem(Kind.SETUP, e.message?.ifBlank { null })
                 is MailError.Network -> Problem(Kind.NETWORK)
-                is MailError.Tls -> Problem(Kind.TLS)
+                is MailError.Tls -> Problem(if (provider == Provider.OTHER) Kind.TLS_NAME else Kind.TLS)
                 is MailError.Throttled -> Problem(Kind.THROTTLED)
                 // MailError.Server, with the server's text.
                 else -> Problem(Kind.SERVER, e.message?.ifBlank { null })
@@ -147,20 +156,18 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
 
         /**
          * STARTTLS failed. For servers that the user entered or that setup found (OTHER) also: the TLS handshake
-         * met a server that does not speak TLS on this port, or the failed [endpoint] uses STARTTLS and its
-         * greeting did not come (the server waits for a TLS handshake). The built-in servers of Riseup, Gmail and
-         * Microsoft have known TLS modes, so there these failures are network problems (resets, captive
-         * portals). A connect timeout is always a network problem.
+         * met a server that does not speak TLS on this port, or in STARTTLS mode the greeting or the answer to
+         * STARTTLS did not come ([PlaintextTimeoutException]: the server waits for a TLS handshake). The built-in
+         * servers of Riseup, Gmail and Microsoft have known TLS modes, so there these failures are network problems
+         * (resets, captive portals). A connect timeout and a timeout after the switch to TLS are network problems.
          */
-        private fun noTls(error: Throwable, provider: Provider, endpoint: Endpoint?): Boolean {
+        private fun noTls(error: Throwable, provider: Provider): Boolean {
             val other = provider == Provider.OTHER
-            val starttls = endpoint?.tls == TlsMode.STARTTLS
             return generateSequence(error) { it.cause }.take(MAX_CAUSES).any {
                 when {
                     it is StartTlsException -> true
                     !other -> false
-                    it is TlsHandshakeException -> true
-                    else -> starttls && it is SocketTimeoutException && !it.message.orEmpty().contains("connect", true)
+                    else -> it is TlsHandshakeException || it is PlaintextTimeoutException
                 }
             }
         }
@@ -436,6 +443,19 @@ data class SetupState(
         fun pageFor(issuer: OAuthIssuer) = when (issuer) {
             OAuthIssuer.GOOGLE -> Page.GOOGLE
             OAuthIssuer.MICROSOFT -> Page.MICROSOFT
+        }
+
+        /**
+         * "Sign in again" in the browser: the problem when [signIn] is another account than [reauth], else null (the
+         * address is checked before). Without an `email` claim (Microsoft work accounts) the address is only the login
+         * hint, which is always the account's own; then the sign-in name decides. Another XOAUTH2 user is another
+         * account, whose mailbox would sync into the rows of this one. Without a sign-in name the XOAUTH2 user stays
+         * the address of the account, so the server decides.
+         */
+        fun wrongBrowserAccount(signIn: SignIn, reauth: Account): Problem? {
+            val login = signIn.login
+            if (!signIn.fromHint || login == null || login.equals(reauth.login, ignoreCase = true)) return null
+            return Problem(Problem.Kind.WRONG_ACCOUNT, login)
         }
 
         /** The provider whose accounts sign in with [issuer]. */

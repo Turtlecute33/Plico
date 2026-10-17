@@ -4,9 +4,11 @@ import app.plico.mail.mime.AddrSpec
 import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
 import app.plico.mail.net.MailStream
+import app.plico.mail.net.PlaintextTimeoutException
 import app.plico.mail.net.SocketHooks
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsMode
+import app.plico.mail.net.beforeTls
 import app.plico.mail.sasl.Sasl
 import app.plico.mail.smtp.SmtpException.Stage
 import java.io.ByteArrayOutputStream
@@ -42,17 +44,23 @@ class SmtpClient(
     /**
      * Reads the greeting and sends `EHLO [127.0.0.1]`. Called by [connect]. With [TlsMode.STARTTLS]: EHLO,
      * STARTTLS (anything but 220 -> [StartTlsException] and the stream is closed; no fallback), the switch to
-     * TLS, then EHLO again. Only the EHLO after TLS sets [extensions] and [authMechanisms] (RFC 3207 §4.2).
+     * TLS, then EHLO again. A read timeout before the switch -> [PlaintextTimeoutException]. Only the EHLO after
+     * TLS sets [extensions] and [authMechanisms] (RFC 3207 §4.2).
      */
     fun start(tls: TlsMode = TlsMode.IMPLICIT) {
-        readReply().expect(Stage.CONNECT, 220)
         if (tls == TlsMode.STARTTLS) {
-            command(EHLO).expect(Stage.EHLO, 250)
-            if (command("STARTTLS").code != 220) {
+            val accepted = beforeTls {
+                readReply().expect(Stage.CONNECT, 220)
+                command(EHLO).expect(Stage.EHLO, 250)
+                command("STARTTLS").code == 220
+            }
+            if (!accepted) {
                 close()
                 throw StartTlsException("STARTTLS refused")
             }
             stream.startTls()
+        } else {
+            readReply().expect(Stage.CONNECT, 220)
         }
         val ehlo = command(EHLO).expect(Stage.EHLO, 250)
         val lines = ehlo.lines.drop(1)

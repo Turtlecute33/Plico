@@ -126,6 +126,7 @@
     <string name="setup_error_setup">The account needs a change in its settings before Plico can use it.</string>
     <string name="setup_error_network">Plico cannot connect to the server. Make sure that the phone is online, then try again.</string>
     <string name="setup_error_tls">The secure connection failed because the server certificate is not valid. A network that examines connections, for example at a hotel or at work, can cause this. Try again on a different network.</string>
+    <string name="setup_error_tls_name">The secure connection failed because the server certificate is not valid. Often the certificate is for a different server name. Make sure that the server name is correct. Use the server name that your mail provider gives. If the name is correct, try again on a different network.</string>
     <string name="setup_error_throttled">The server has too many connections now. Wait some minutes, then try again.</string>
     <string name="setup_error_server">The server refused the sign-in: %1$s</string>
     <string name="setup_error_server_plain">The server refused the sign-in.</string>

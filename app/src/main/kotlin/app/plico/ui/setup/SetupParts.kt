@@ -391,6 +391,7 @@ private fun problemText(problem: Problem, expected: String?): String {
         Problem.Kind.SETUP -> detail ?: stringResource(R.string.setup_error_setup)
         Problem.Kind.NETWORK -> stringResource(R.string.setup_error_network)
         Problem.Kind.TLS -> stringResource(R.string.setup_error_tls)
+        Problem.Kind.TLS_NAME -> stringResource(R.string.setup_error_tls_name)
         Problem.Kind.NO_TLS -> stringResource(R.string.setup_error_no_tls)
         Problem.Kind.THROTTLED -> stringResource(R.string.setup_error_throttled)
         Problem.Kind.SERVER -> if (detail != null) {
