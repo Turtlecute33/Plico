@@ -283,19 +283,26 @@ object ProviderTable {
 
     /**
      * Typo check before discovery: a table domain that [domain] probably meant, else null. A table domain of 8 or
-     * more characters at an edit distance of 1 (a swap of two neighbours counts 1: `gmial.com`), or a table domain
-     * with the same first label of 5 or more characters and another suffix (`gmail.co`). The first match wins.
-     * Shorter domains (me.com, bk.ru) are not compared, because many real domains are near them.
+     * more characters at an edit distance of 1 (a swap of two neighbours counts 1: `gmial.com`; `gmail.co` and
+     * `gmail.con` also match). The first match wins. Shorter domains (me.com, bk.ru) are not compared, because many
+     * real domains are near them. A swap of a two-letter country label (`hotmail.be` and `hotmail.de`) does not
+     * count: the other country domain of the same provider is real. A suffix that is not near the table suffix
+     * (`outlook.jp`, `hotmail.com.br`, `yahoo.co.jp`) also gets no suggestion, because those are real regional
+     * domains of the same providers.
      */
     fun suggest(domain: String): String? {
         val d = norm(domain)
         if (d.isEmpty() || byDomain(d) != null) return null
-        val first = d.substringBefore('.')
         return entries.asSequence().flatMap { it.domains }.firstOrNull { known ->
-            val knownFirst = known.substringBefore('.')
-            (known.length >= SUGGEST_MIN_LENGTH && editDistance(d, known, limit = 1) == 1) ||
-                (knownFirst.length >= SUGGEST_MIN_LABEL && first == knownFirst && d != known)
+            known.length >= SUGGEST_MIN_LENGTH && editDistance(d, known, limit = 1) == 1 && !isCountrySwap(d, known)
         }
+    }
+
+    /** True when [a] and [b] differ only in a last label of two letters on both sides (`yahoo.dk`, `yahoo.de`). */
+    private fun isCountrySwap(a: String, b: String): Boolean {
+        val lastA = a.substringAfterLast('.', "")
+        val lastB = b.substringAfterLast('.', "")
+        return lastA.length == 2 && lastB.length == 2 && a.substringBeforeLast('.') == b.substringBeforeLast('.')
     }
 
     /** RISEUP, GMAIL or MICROSOFT when [host] is in that provider's host set, else null. */
@@ -328,7 +335,6 @@ object ProviderTable {
     }
 
     private const val SUGGEST_MIN_LENGTH = 8
-    private const val SUGGEST_MIN_LABEL = 5
 
     /** Port 993 or 465: implicit TLS; 143 or 587: STARTTLS. */
     private fun endpoint(host: String, port: Int) =

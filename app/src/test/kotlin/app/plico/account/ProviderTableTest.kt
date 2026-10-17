@@ -164,7 +164,20 @@ class ProviderTableTest {
         assertEquals("hotmail.com", ProviderTable.suggest("hotmial.com"))
         assertEquals("outlook.com", ProviderTable.suggest("outlook.cm"))
         assertEquals("yahoo.com", ProviderTable.suggest("yahoo.cmo"))
-        assertEquals("riseup.net", ProviderTable.suggest("riseup.org"))
+        assertEquals("gmail.com", ProviderTable.suggest("gmail.cm"))
+        assertEquals("gmail.com", ProviderTable.suggest("gmail.con"))
+        assertEquals("riseup.net", ProviderTable.suggest("riseup.ne"))
+        assertEquals("riseup.net", ProviderTable.suggest("riseup.nte"))
+    }
+
+    @Test
+    fun `real regional domains of table providers get no suggestion`() {
+        // A swap of a two-letter country label.
+        for (d in listOf("hotmail.be", "outlook.at", "yahoo.dk", "yahoo.co.id")) assertNull(ProviderTable.suggest(d), d)
+        // Another suffix that is not one edit away.
+        for (d in listOf("outlook.jp", "outlook.com.br", "hotmail.com.br", "hotmail.co.jp", "yahoo.co.jp")) {
+            assertNull(ProviderTable.suggest(d), d)
+        }
     }
 
     @Test
