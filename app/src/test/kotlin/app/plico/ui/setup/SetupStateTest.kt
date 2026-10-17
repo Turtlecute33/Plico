@@ -70,19 +70,24 @@ class SetupStateTest {
     @Test
     fun `an address that is already added stops before detection, also for manual entry`() {
         for (manual in listOf(false, true)) {
-            val state = start.welcomed("jo@example.org", "example.org", known = true, suggestion = "x.org", manual)
+            val state = start.copy(emailError = InputError.INVALID)
+                .welcomed("jo@example.org", "example.org", known = true, suggestion = "x.org", manual)
             assertEquals(Problem(Problem.Kind.ALREADY_ADDED), state.problem)
             assertEquals(Page.WELCOME, state.page)
             assertNull(state.busy)
+            // The old field error does not stay next to the note.
+            assertNull(state.emailError)
         }
     }
 
     @Test
     fun `a typo asks once, and Next again with the same address continues`() {
-        val typo = start.welcomed("jo@gmial.com", "gmial.com", known = false, suggestion = "gmail.com", manual = false)
+        val typo = start.copy(emailError = InputError.INVALID)
+            .welcomed("jo@gmial.com", "gmial.com", known = false, suggestion = "gmail.com", manual = false)
         assertEquals(Problem(Problem.Kind.TYPO, "gmail.com"), typo.problem)
         assertEquals(Page.WELCOME, typo.page)
         assertNull(typo.busy)
+        assertNull(typo.emailError)
         assertEquals("jo@gmial.com", typo.typoChecked)
         val again = typo.welcomed("jo@gmial.com", "gmial.com", known = false, suggestion = "gmail.com", manual = false)
         assertEquals(Busy.DETECTING, again.busy)

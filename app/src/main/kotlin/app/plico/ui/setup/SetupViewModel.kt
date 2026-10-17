@@ -224,7 +224,7 @@ class SetupViewModel(
         }
         val typed = password.text.toString()
         val retry = current.retriesLogin
-        test(provider, Method.PASSWORD, starttls = servers.usesStartTls) {
+        test(provider, Method.PASSWORD, starttls = servers.timeoutMeansNoTls) {
             if (retry) _state.update { it.loginRetryUsed() }
             checkIdentity(address)
             var tested = servers

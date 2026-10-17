@@ -119,7 +119,8 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
 
         /**
          * The message for a failed connection test of [provider] with [method] (DESIGN §14). [starttls] is true
-         * when a tested server uses STARTTLS: a read timeout then means the port expects implicit TLS.
+         * when the failed server uses STARTTLS (see [Servers.timeoutMeansNoTls]): a read timeout then means the
+         * port expects implicit TLS.
          */
         fun of(error: Throwable, provider: Provider, method: Method, starttls: Boolean = false): Problem {
             if (noTls(error, starttls)) return Problem(Kind.NO_TLS)
@@ -237,13 +238,16 @@ data class SetupState(
      * the checked [address] at [domain], before any network request. [known]: an account with this address exists.
      * [suggestion]: the typo check of Next. Busy [Busy.DETECTING] means: start discovery now.
      */
-    fun welcomed(address: String, domain: String, known: Boolean, suggestion: String?, manual: Boolean): SetupState =
-        when {
-            known -> failed(Problem(Problem.Kind.ALREADY_ADDED))
-            manual -> manual(Discovery.guess(domain), Source.MANUAL, emptySet())
-            suggestion != null && typoChecked != address -> typo(suggestion, address)
-            else -> detecting()
+    fun welcomed(address: String, domain: String, known: Boolean, suggestion: String?, manual: Boolean): SetupState {
+        // The address passed the field check: an earlier field error goes.
+        val checked = copy(emailError = null)
+        return when {
+            known -> checked.failed(Problem(Problem.Kind.ALREADY_ADDED))
+            manual -> checked.manual(Discovery.guess(domain), Source.MANUAL, emptySet())
+            suggestion != null && typoChecked != address -> checked.typo(suggestion, address)
+            else -> checked.detecting()
         }
+    }
 
     /** Discovery found the servers: the page of the provider. */
     fun found(found: Outcome.Found, methods: List<Method>) = copy(
@@ -570,5 +574,13 @@ object SetupInput {
     }
 }
 
-/** True when one of the servers uses STARTTLS. */
-internal val Servers.usesStartTls: Boolean get() = imap.tls == TlsMode.STARTTLS || smtp.tls == TlsMode.STARTTLS
+/**
+ * The `starttls` value of [Problem.of] for a test of these servers: true when a read timeout probably means a
+ * STARTTLS server that waits for a TLS handshake. The test does not tell which server failed, so: IMAP with
+ * STARTTLS (IMAP is tested first, and a missing greeting shows there), or SMTP with STARTTLS on the SSL/TLS
+ * port 465 (then the setting is wrong, whichever server timed out). SMTP STARTTLS on 587 with IMAP SSL/TLS is
+ * a usual pair: a timeout there is a network problem.
+ */
+internal val Servers.timeoutMeansNoTls: Boolean
+    get() = imap.tls == TlsMode.STARTTLS ||
+        (smtp.tls == TlsMode.STARTTLS && smtp.port == SetupInput.defaultPort(imap = false, TlsMode.IMPLICIT))

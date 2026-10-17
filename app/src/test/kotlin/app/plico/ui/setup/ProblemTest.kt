@@ -3,10 +3,13 @@ package app.plico.ui.setup
 import app.plico.account.MailError
 import app.plico.account.OAuthIssuer
 import app.plico.data.Provider
+import app.plico.data.Servers
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.RespCode
+import app.plico.mail.net.Endpoint
 import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsHandshakeException
+import app.plico.mail.net.TlsMode
 import app.plico.mail.smtp.SmtpException
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -106,6 +109,23 @@ class ProblemTest {
         assertEquals(Problem(Problem.Kind.NETWORK), other(MailError.Network(timeout), starttls = false))
         val connect = SocketTimeoutException("failed to connect to imap.example.org/192.0.2.1 (port 143) after 20000ms")
         assertEquals(Problem(Problem.Kind.NETWORK), other(MailError.Network(connect), starttls = true))
+    }
+
+    private fun servers(imap: TlsMode, imapPort: Int, smtp: TlsMode, smtpPort: Int) =
+        Servers(Endpoint("imap.example.org", imapPort, imap), Endpoint("smtp.example.org", smtpPort, smtp))
+
+    @Test
+    fun `a read timeout is NO_TLS only when the STARTTLS server can be the one that failed`() {
+        val timeout = MailError.Network(SocketTimeoutException("Read timed out"))
+        fun of(servers: Servers) = other(timeout, servers.timeoutMeansNoTls).kind
+        // The usual pair IMAP SSL/TLS and SMTP STARTTLS on 587: a slow IMAP server is a network problem.
+        assertEquals(Problem.Kind.NETWORK, of(servers(TlsMode.IMPLICIT, 993, TlsMode.STARTTLS, 587)))
+        assertEquals(Problem.Kind.NETWORK, of(servers(TlsMode.IMPLICIT, 993, TlsMode.IMPLICIT, 465)))
+        // IMAP is tested first: IMAP with STARTTLS (also on 993) waits for a greeting that does not come.
+        assertEquals(Problem.Kind.NO_TLS, of(servers(TlsMode.STARTTLS, 143, TlsMode.IMPLICIT, 465)))
+        assertEquals(Problem.Kind.NO_TLS, of(servers(TlsMode.STARTTLS, 993, TlsMode.STARTTLS, 587)))
+        // SMTP STARTTLS on the SSL/TLS port is a wrong setting.
+        assertEquals(Problem.Kind.NO_TLS, of(servers(TlsMode.IMPLICIT, 993, TlsMode.STARTTLS, 465)))
     }
 
     @Test
