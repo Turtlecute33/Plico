@@ -66,7 +66,7 @@ private const val REMOVE_GRACE_MS = 700L
  * One message of the list (DESIGN §13) with swipe actions (apis AF4): the state is remembered per
  * message id (not saveable, so that an undone row starts fresh), `onDismiss` captures only the id,
  * and toggles reset the row before they change the message. [account] is set in lists of several
- * accounts: its colour goes on the avatar, or on the account dot when sender colours are on ([look]).
+ * accounts: its colour goes on the account dot when account dots are on ([look]).
  * A [sent] row shows its first recipient instead of the sender. [logoAllowed]: the row may show the
  * sender's logo when logos are on (DESIGN §12).
  */

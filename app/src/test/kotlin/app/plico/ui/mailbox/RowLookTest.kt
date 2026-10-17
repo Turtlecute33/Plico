@@ -7,15 +7,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class RowLookTest {
-    private val colorsOff = RowLook(markUnread = true, avatarColors = false, logos = null)
-    private val colorsOn = RowLook(markUnread = true, avatarColors = true, logos = Prefs.LogoSource.DUCKDUCKGO)
+    private val colorsOff = RowLook(markUnread = true, avatarColors = false, accountDots = true, logos = null)
+    private val colorsOn =
+        RowLook(markUnread = true, avatarColors = true, accountDots = true, logos = Prefs.LogoSource.DUCKDUCKGO)
     private val key = "alice@example.org"
 
     @Test
-    fun colorsOffKeepTheAccountColourOnTheAvatar() {
+    fun colorsOffGiveTheNeutralColour() {
         for (seen in listOf(true, false)) {
             assertEquals(AvatarStyle(colorIndex = null, badge = null), avatarStyle(colorsOff, seen, key, null))
-            assertEquals(AvatarStyle(colorIndex = 3, badge = null), avatarStyle(colorsOff, seen, key, 3))
+            assertEquals(AvatarStyle(colorIndex = null, badge = 3), avatarStyle(colorsOff, seen, key, 3))
         }
     }
 
@@ -27,9 +28,17 @@ class RowLookTest {
     }
 
     @Test
-    fun colorsOnMoveTheAccountColourToTheDot() {
+    fun accountDotsShowTheAccountColour() {
         assertEquals(AvatarStyle(SenderColors.index(key), 5), avatarStyle(colorsOn, seen = false, key, 5))
         assertEquals(AvatarStyle(null, 5), avatarStyle(colorsOn, seen = true, key, 5))
+    }
+
+    @Test
+    fun accountDotsOffRemoveOnlyTheDot() {
+        val dotsOff = colorsOn.copy(accountDots = false)
+        assertEquals(AvatarStyle(SenderColors.index(key), null), avatarStyle(dotsOff, seen = false, key, 5))
+        assertEquals(AvatarStyle(null, null), avatarStyle(dotsOff, seen = true, key, 5))
+        assertEquals(AvatarStyle(null, null), avatarStyle(colorsOff.copy(accountDots = false), seen = false, key, 5))
     }
 
     @Test
@@ -40,9 +49,9 @@ class RowLookTest {
 
     @Test
     fun theUnreadStyleChangesOnlyWhatTheSettingSays() {
-        val off = RowLook(markUnread = false, avatarColors = true, logos = null)
-        // Off: the look from before the setting (bold unread, no dot, no dimmed read rows).
-        assertEquals(RowEmphasis(bold = true, dim = false, dot = false), rowEmphasis(off, seen = false))
+        val off = RowLook(markUnread = false, avatarColors = true, accountDots = true, logos = null)
+        // Off: no bold, no dot, no dimmed read rows.
+        assertEquals(RowEmphasis(bold = false, dim = false, dot = false), rowEmphasis(off, seen = false))
         assertEquals(RowEmphasis(bold = false, dim = false, dot = false), rowEmphasis(off, seen = true))
         // On: a dot for unread rows, lighter text for read rows.
         assertEquals(RowEmphasis(bold = true, dim = false, dot = true), rowEmphasis(colorsOn, seen = false))

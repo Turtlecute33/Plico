@@ -88,6 +88,8 @@
     <string name="settings_mark_unread_text">Unread messages get a dot and bold text. Read messages use lighter text.</string>
     <string name="settings_avatar_unread">Colour for unread mail</string>
     <string name="settings_avatar_unread_text">Unread mail gets a colour for each sender. Read mail keeps the usual colour.</string>
+    <string name="settings_account_dots">Account dots</string>
+    <string name="settings_account_dots_text">When a list shows mail from more than one account, a small dot shows the colour of the account.</string>
     <string name="settings_logos">Sender logos</string>
     <string name="settings_logos_text">Shows the logo of the sender\'s website instead of the letter. Plico sends only the domain of the sender, never the address.</string>
     <string name="settings_logo_source">Logo source</string>

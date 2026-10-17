@@ -16,8 +16,8 @@ import app.plico.ui.components.rememberPref
 import kotlin.concurrent.thread
 
 /**
- * Settings group "Message list" (DESIGN §13): the unread style, sender colours for unread mail, and sender
- * logos with their source (§12). Logos are off by default; turning them off or changing the source deletes the
+ * Settings group "Message list" (DESIGN §13): the unread style, sender colours for unread mail, account dots, and
+ * sender logos with their source (§12). Logos are off by default; turning them off or changing the source deletes the
  * cached logos.
  */
 @Composable
@@ -26,6 +26,7 @@ fun ListLookGroup() {
     val prefs = app.prefs
     val markUnread by rememberPref(prefs.markUnread) { markUnread }
     val avatarColors by rememberPref(prefs.avatarColors) { avatarColors }
+    val accountDots by rememberPref(prefs.accountDots) { accountDots }
     val logos by rememberPref(prefs.senderLogos) { senderLogos }
     val source by rememberPref(prefs.logoSource) { logoSource }
     var choosingSource by rememberSaveable { mutableStateOf(false) }
@@ -34,6 +35,9 @@ fun ListLookGroup() {
         switch(R.string.settings_mark_unread, R.string.settings_mark_unread_text, markUnread) { prefs.markUnread = it }
         switch(R.string.settings_avatar_unread, R.string.settings_avatar_unread_text, avatarColors) {
             prefs.avatarColors = it
+        }
+        switch(R.string.settings_account_dots, R.string.settings_account_dots_text, accountDots) {
+            prefs.accountDots = it
         }
         switch(R.string.settings_logos, R.string.settings_logos_text, logos) { on ->
             prefs.senderLogos = on

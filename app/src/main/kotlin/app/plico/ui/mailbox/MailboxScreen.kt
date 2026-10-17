@@ -512,7 +512,7 @@ private fun rememberRowLook(prefs: Prefs): RowLook {
     return look
 }
 
-private fun Prefs.rowLook() = RowLook(markUnread, avatarColors, logoSource.takeIf { senderLogos })
+private fun Prefs.rowLook() = RowLook(markUnread, avatarColors, accountDots, logoSource.takeIf { senderLogos })
 
 /** The "Empty" entry of the Trash and Spam overflow menu. */
 @Composable

@@ -547,7 +547,7 @@ no user-auth or unlocked-device binding. Ciphertext = 12-byte IV + GCM output.
 
 `Prefs` (no secrets): swipe actions, undo-send seconds, remote-content default, confirm links, dark
 email, app lock + timeout, hide in recents, block screenshots, incognito keyboard, hide notification
-content, the message-list look (`mark_unread` true, `avatar_colors` true, `sender_logos` false, `logo_source`
+content, the message-list look (`mark_unread` true, `avatar_colors` true, `account_dots` true, `sender_logos` false, `logo_source`
 `DUCKDUCKGO | WEBSITE | GOOGLE`, default DuckDuckGo; §12, §13), the Google OAuth client ID and the Microsoft
 (Entra) client ID (empty = that sign-in is hidden; debug builds preset them from `local.properties`
 `plico.googleClientId` / `plico.microsoftClientId`, release builds never contain one), push paused flag,
@@ -1561,16 +1561,18 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   gives it to every row; rows never read settings.
   - Unread style ("Mark unread mail", default on): unread → sender bold, subject semi-bold, date bold in
     `primary`, an 8 dp `primary` dot before the date; read → sender, subject and date in normal weight and
-    `onSurfaceVariant`. The snippet is always `onSurfaceVariant`; a draft's sender stays `error`. Off: the look
-    before (only the sender bold when unread). TalkBack says "Unread" and the account label as before.
+    `onSurfaceVariant`. The snippet is always `onSurfaceVariant`; a draft's sender stays `error`. Off: unread and
+    read rows have the same text (normal weight, no dot, date in `onSurfaceVariant`). TalkBack says "Unread" and
+    the account label as before.
   - Avatar colour ("Colour for unread mail", default on): unread → a colour per sender, read → the neutral
     `secondaryContainer`, so the colour shows the read state. The key (never sent anywhere) is the lower-case
     From address, the first recipient for sent rows, none for drafts. `SenderColors.index` = the MurmurHash3
     finalizer over `String.hashCode()` of the key, modulo the 8 colours of the contrast-tested account palette
     (light tone 40 + white, dark tone 80 + tone 20; independent of the dynamic colours); without the mix, similar
-    addresses shared few colours. In lists of more than one account, the account colour moves to a 12 dp dot
-    with a 2 dp `surface` border at the bottom end of the avatar (decorative). Off: the account colour in the
-    unified view, else neutral, as before.
+    addresses shared few colours. Off: always neutral.
+  - Account dots ("Account dots", default on): in lists of more than one account, the account colour is a 12 dp
+    dot with a 2 dp `surface` border at the bottom end of the avatar (decorative). Off: no dot; TalkBack still
+    says the account label.
   - With sender logos (§12) the avatar keeps its fill as a 3 dp ring (so the read state stays visible) around a
     white disc; the logo fills the disc with a 4 dp inset, `ContentScale.Fit`, clipped to a circle, whatever the
     size of the source image.
@@ -1610,7 +1612,7 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
     note only on Riseup accounts), Riseup web settings links (filters, vacation, aliases, spam; Riseup only),
     Gmail notes (Send-as Jan 2027, IP in headers; Gmail only), sign in again, remove (a Microsoft OAuth account
     adds the note how to end the grant, §6.4).
-  - **Message list**: "Mark unread mail" (on), "Colour for unread mail" (on), "Sender logos" (off), "Logo
+  - **Message list**: "Mark unread mail" (on), "Colour for unread mail" (on), "Account dots" (on), "Sender logos" (off), "Logo
     source" (enabled only with logos: DuckDuckGo, Website of the sender, Google, each with what it gets), and
     with logos on a note: "A logo does not prove who sent a message …". Turning logos off or a new source
     deletes the cached logos.

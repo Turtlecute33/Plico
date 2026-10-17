@@ -51,6 +51,9 @@ class Prefs(context: Context) : KeyValueStore {
     /** Message list: unread rows get a colour per sender. */
     var avatarColors: Boolean by bool("avatar_colors", true)
 
+    /** Message list: in lists of more than one account, a dot in the account colour on each avatar. */
+    var accountDots: Boolean by bool("account_dots", true)
+
     /** Default false: no request for sender logos. */
     var senderLogos: Boolean by bool("sender_logos", false)
     var logoSource: LogoSource by enum("logo_source", LogoSource.DUCKDUCKGO)
