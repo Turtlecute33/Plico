@@ -11,8 +11,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Sync of a server that is neither Riseup nor Gmail and has no CONDSTORE (DESIGN §7.2, plan §5.3–§5.5), with the
- * commands of the wave-0 `:mail` client (ESEARCH, LIST-STATUS). Servers without ESEARCH are in
+ * Sync of a server that is neither Riseup nor Gmail and has no CONDSTORE, but has ESEARCH and LIST-STATUS
+ * (DESIGN §7.2). Servers without ESEARCH are in
  * [app.plico.sync.fallback.MailboxSyncFallbackDeviceTest].
  */
 class GenericSyncDeviceTest : OpFixture() {
@@ -87,7 +87,7 @@ class GenericSyncDeviceTest : OpFixture() {
         server.take()
         sync.fullSweep(SyncReport(), fullFlags = false)
         val poll = server.take()
-        assertEquals(listOf("STATUS \"Work\" (MESSAGES UIDNEXT UIDVALIDITY)"), poll, "D8: STATUS only")
+        assertEquals(listOf("STATUS \"Work\" (MESSAGES UIDNEXT UIDVALIDITY)"), poll, "no CONDSTORE: STATUS only")
 
         work.flag(1, "\\Seen")
         sync.fullSweep(SyncReport(), fullFlags = false)

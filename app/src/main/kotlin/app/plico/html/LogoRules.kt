@@ -66,7 +66,7 @@ object LogoRules {
 
     /**
      * The hop rule of a logo request ([RemoteFetcher.Request.hop]): DuckDuckGo and Google reach only their own
-     * [hosts], also after a redirect, so that no sender sees the address of the phone through them (D20). The
+     * [hosts], also after a redirect, so that no sender sees the address of the phone through them (DESIGN §12). The
      * website source may follow the redirects of the sender's site.
      */
     fun hopFor(source: Prefs.LogoSource): (URL) -> Boolean {

@@ -63,7 +63,7 @@ class MailboxMathTest {
     fun withoutModSeqTheSkipWaitsOnlyForDueFlags() {
         val noModSeq = status.copy(highestModSeq = null)
         assertFalse(MailboxMath.unchanged(noModSeq, folder, 100, flagsDue = true), "refresh or 6-h sweep: flags (PS10)")
-        assertTrue(MailboxMath.unchanged(noModSeq, folder, 100, flagsDue = false), "a poll skips the unchanged mailbox (D8)")
+        assertTrue(MailboxMath.unchanged(noModSeq, folder, 100, flagsDue = false), "a poll skips the unchanged mailbox")
         assertFalse(MailboxMath.unchanged(noModSeq.copy(uidNext = 121), folder, 100, flagsDue = false), "new mail")
         assertFalse(MailboxMath.unchanged(noModSeq.copy(messages = 99), folder, 100, flagsDue = false), "an expunge")
         assertFalse(MailboxMath.unchanged(noModSeq, folder.copy(backfillUid = 0), 100, flagsDue = false), "never synced")

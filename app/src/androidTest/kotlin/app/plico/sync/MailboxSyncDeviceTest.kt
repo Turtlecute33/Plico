@@ -368,7 +368,7 @@ class MailboxSyncDeviceTest : DbFixture() {
         val f = start()
         assertEquals(3, messages.count(f.id), "the row is stored: the expunge check counts it")
         assertEquals(1L, count("SELECT count(*) FROM message WHERE folder_id = ? AND deleted = 1", f.id))
-        assertEquals(setOf("Old 2", "Old 0"), visible(f), "D19: a \\Deleted message of another client is not shown")
+        assertEquals(setOf("Old 2", "Old 0"), visible(f), "a \\Deleted message of another client is not shown")
         assertEquals(2, unread(f), "counts leave it out too")
 
         inbox.add(subject = "Struck through", flags = setOf("\\Deleted"))

@@ -152,7 +152,7 @@ class FolderRulesTest {
         assertNull(FolderRules.archiveOf(other, listOf(role.copy(hidden = true))), "a hidden mailbox is no archive")
     }
 
-    // ---- Servers other than Riseup and Gmail (DESIGN §7.2, plan §5.3)
+    // ---- Servers other than Riseup and Gmail (DESIGN §7.2)
 
     private fun generic(list: List<MailboxInfo>, ns: Namespaces? = null, archivePath: String? = null) =
         FolderRules.mailboxes(5, list, archivePath, ns, riseup = false)

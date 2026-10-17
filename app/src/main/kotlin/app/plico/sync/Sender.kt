@@ -152,7 +152,7 @@ object Sender {
             }
         }
         val now = store.now()
-        // A server that may save its own copy gets time to do it; the upload then looks for it first (D6).
+        // A server that may save its own copy gets time to do it; the upload then looks for it first (DESIGN §7.5).
         val copyAt = if (ctx.account.traits.checkSentCopy) now + SENT_COPY_DELAY_MS else now
         val recorded = store.db.tx(Tables.DRAFT, Tables.OP, Tables.MESSAGE, Tables.CONTACT) {
             // The row is gone (the account was removed during the send): nothing to follow up.
@@ -176,7 +176,7 @@ object Sender {
     }
 
     /**
-     * D6: the client APPENDs its own copy to Sent on Riseup and other servers; never on Gmail and Microsoft, and never
+     * DESIGN §7.5: the client APPENDs its own copy to Sent on Riseup and other servers; never on Gmail and Microsoft, and never
      * on a table server that saves the copy itself (Yahoo, AOL).
      */
     internal fun savesSentCopy(account: Account): Boolean =
@@ -263,7 +263,7 @@ object Sender {
 
     private const val SENT_FILE = "sent.eml"
 
-    /** The wait before the Sent copy of a server that may save its own (D6). */
+    /** The wait before the Sent copy of a server that may save its own (DESIGN §7.5). */
     internal const val SENT_COPY_DELAY_MS = 60_000L
 
     /** Newest Sent messages checked for a copy that the server saved. */

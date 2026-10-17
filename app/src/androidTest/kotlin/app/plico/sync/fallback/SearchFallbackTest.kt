@@ -9,8 +9,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Server TEXT search without ESEARCH (DESIGN §7.7, plan §5.5): windows of 50,000 UIDs from UIDNEXT down. Needs the
- * plain `UID SEARCH` of stream A: written in wave 1, run from wave 2 on.
+ * Server TEXT search without ESEARCH (DESIGN §7.7): windows of 50,000 UIDs from UIDNEXT down, with the
+ * plain `UID SEARCH` of `:mail` (DESIGN §4.4).
  */
 class SearchFallbackTest : OpFixture() {
     private val other = otherAccount()

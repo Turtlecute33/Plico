@@ -15,8 +15,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Ops on servers without MOVE, UIDPLUS or with NAMESPACE (DESIGN §7.4, D5, plan §5.4). Needs the `:mail` fallbacks
- * of stream A (COPY + STORE + guarded EXPUNGE, `namespace()`): written in wave 1, run from wave 2 on.
+ * Ops on servers without MOVE, UIDPLUS or with NAMESPACE (DESIGN §7.4), with the `:mail` fallbacks
+ * (COPY + STORE + guarded EXPUNGE, `namespace()`; DESIGN §4.4).
  */
 class OpsFallbackTest : OpFixture() {
     private val other = otherAccount()

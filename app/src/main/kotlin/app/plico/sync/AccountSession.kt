@@ -472,9 +472,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         try {
             credentials.authImap(client)
             client.requireCapabilities()
-            // The generic MOVE and expunge rules must never run on Gmail's All Mail (X-GM-EXT-1 never promotes, D18).
+            // The generic MOVE and expunge rules must never run on Gmail's All Mail (X-GM-EXT-1 never promotes; DESIGN §7.1).
             if (!account.isGmail && client.isGmail) throw MailError.Setup(app.getString(R.string.account_error_gmail_server))
-            // NetEase refuses SELECT until the client sends ID; only the minimal form, only to these hosts (§11.2).
+            // NetEase refuses SELECT until the client sends ID; only the minimal form, only to these hosts (DESIGN §7.1).
             if (ProviderTable.needsId(account.servers.imap.host)) client.id(AccountProbe.MINIMAL_ID)
             client.compress()
             if ("CONDSTORE" in client.caps && "ENABLE" in client.caps) client.enable("CONDSTORE")
@@ -482,7 +482,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             client.close()
             throw e
         }
-        // A server without IDLE polls (D7); the push engine reads the stored value and sets the mode.
+        // A server without IDLE polls (DESIGN §8.3); the push engine reads the stored value and sets the mode.
         val idle = "IDLE" in client.caps
         if (idle != account.idle) {
             app.accounts.setIdle(accountId, idle)
@@ -625,7 +625,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
      * for the socket timeout, so the socket is only closed.
      */
     private suspend fun after(c: Connection) {
-        // Without IDLE the account polls (D7); the engine switches the mode soon after the first connection.
+        // Without IDLE the account polls (DESIGN §8.3); the engine switches the mode soon after the first connection.
         if (mode == Mode.IDLE && "IDLE" in c.client.caps) {
             idle(c)
             return

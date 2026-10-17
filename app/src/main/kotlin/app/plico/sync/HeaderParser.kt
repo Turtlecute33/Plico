@@ -46,7 +46,7 @@ internal object HeaderParser {
      * The row for [item]. The date is INTERNALDATE (protocol PS22); the Date header is only a fallback for a
      * server that sends none. [gmail] enables the `Authentication-Results` check (privacy PS4), which reads only
      * the first (topmost) header. [labels] are the label-view ids from X-GM-LABELS, null on other servers. The
-     * server flag `\Deleted` marks the row deleted (not shown) on every server except Gmail (D19).
+     * server flag `\Deleted` marks the row deleted (not shown) on every server except Gmail (DESIGN §7.2).
      */
     fun newMessage(
         item: FetchItem,

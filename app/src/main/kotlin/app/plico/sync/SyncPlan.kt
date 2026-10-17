@@ -26,7 +26,7 @@ internal data class SyncPlan(
     val fastPath: Boolean,
     /**
      * A flag check is due (user refresh, the 6-h sweep). Without CONDSTORE: the full local range instead of the
-     * newest 200 rows, and the STATUS sweep does not skip unchanged mailboxes (D8).
+     * newest 200 rows, and the STATUS sweep does not skip unchanged mailboxes (DESIGN §7.2 step 2).
      */
     val fullFlags: Boolean,
     /** Not Gmail: STATUS of the folders with notify = 1 (push PB16). */

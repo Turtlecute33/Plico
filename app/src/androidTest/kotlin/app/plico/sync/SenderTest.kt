@@ -274,7 +274,7 @@ class SenderTest : OpFixture() {
         assertEquals(DraftState.SENT, drafts.get(copying)!!.state, "the Sent copy still needs it")
     }
 
-    // ---- Sent copy on other servers (D6)
+    // ---- Sent copy on other servers (DESIGN §7.5)
 
     /** A sent message from [accountId] (Bob only, no Bcc) through a fake SMTP server; returns the draft id. */
     private fun sendOne(accountId: Long, from: String): Long {

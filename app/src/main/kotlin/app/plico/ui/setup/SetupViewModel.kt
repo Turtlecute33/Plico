@@ -214,7 +214,7 @@ class SetupViewModel(
         val provider = current.provider ?: return
         val reauth = current.reauth
         val address = reauth?.email ?: SetupInput.normalizeEmail(email.text.toString())
-        // Google, Microsoft and Riseup accounts use only their built-in servers (D18).
+        // Google, Microsoft and Riseup accounts use only their built-in servers (DESIGN §6.2).
         val servers = ProviderTable.pinned(provider, address) ?: current.servers ?: return
         if (current.busy != null) return
         val emailError = if (reauth == null) SetupInput.checkEmail(address) else null
@@ -401,7 +401,7 @@ class SetupViewModel(
             checkTyped(address, typed)
             checkIdentity(address)
             val token = signIn.refreshToken
-            // Always the built-in servers of the issuer, never servers from the state (D18).
+            // Always the built-in servers of the issuer, never servers from the state (DESIGN §6.5).
             val builtIn = if (issuer == OAuthIssuer.MICROSOFT) {
                 ProviderTable.microsoftServers(address)
             } else {

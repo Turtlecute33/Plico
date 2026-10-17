@@ -43,7 +43,7 @@ internal class SyncAccount(val env: SyncEnv) {
             if (status == null) {
                 report.relist = true
             } else if (status.uidNext > folder.uidNext || status.uidValidity != folder.uidValidity) {
-                // The STATUS value: a SELECT without UIDNEXT gives only an estimate (plan §5.5).
+                // The STATUS value: a SELECT without UIDNEXT gives only an estimate (DESIGN §7.2 step 4).
                 mailbox.newMail(folder, report, statusUidNext = status.uidNext)
                     ?.let { mailbox.flagsAndExpunge(it, fullFlags = false, report) }
             }
@@ -58,7 +58,7 @@ internal class SyncAccount(val env: SyncEnv) {
     /**
      * The other synced mailboxes: a STATUS sweep, then the sync of the changed ones; servers other than Gmail also
      * report the quota. [fullFlags]: a flag check is due (SyncPlan.fullFlags); without it, a server without CONDSTORE
-     * skips the mailboxes whose STATUS is unchanged (D8).
+     * skips the mailboxes whose STATUS is unchanged (DESIGN §7.2 step 2).
      */
     fun fullSweep(report: SyncReport, fullFlags: Boolean = true) {
         val idle = idleMailbox()

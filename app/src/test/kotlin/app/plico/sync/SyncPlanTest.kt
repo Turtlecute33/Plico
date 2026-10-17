@@ -48,7 +48,7 @@ class SyncPlanTest {
 
     @Test
     fun flagsAreDueOnUserRefreshAndTheSixHourSweepOnly() {
-        // Without CONDSTORE the STATUS sweep skips unchanged mailboxes unless flags are due (D8).
+        // Without CONDSTORE the STATUS sweep skips unchanged mailboxes unless flags are due (DESIGN §7.2 step 2).
         assertTrue(plan(SyncTrigger(userRefresh = true)).fullFlags)
         assertTrue(plan(SyncTrigger(poll = true), lastSweepAt = now - 6 * hour).fullFlags)
         assertTrue(plan(SyncTrigger(poll = true), lastSweepAt = null).fullFlags)

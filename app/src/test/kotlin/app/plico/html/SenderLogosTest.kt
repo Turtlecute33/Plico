@@ -90,7 +90,7 @@ class SenderLogosTest {
         val cache = cache()
         assertEquals("logo", cache.load("jane.doe@news.example.com", Prefs.LogoSource.DUCKDUCKGO, 0, 1))
         assertEquals(listOf(ddg), requests)
-        // A redirect may not leave DuckDuckGo: the sender's site never sees the phone (D20).
+        // A redirect may not leave DuckDuckGo: the sender's site never sees the phone (DESIGN §12).
         assertFalse(hops.single()(URI("https://example.com/favicon.ico").toURL()))
         // The first-contact rule is only for the website source.
         assertTrue(knownCalls.isEmpty())

@@ -271,15 +271,15 @@ object Ops {
         if (arg.upTo < 1) return
         refuseAllMail(ctx, folder)
         selectChecked(ctx, folder)
-        // Empty Trash/Spam: every message of the folder goes, so a plain EXPUNGE is right without UIDPLUS (D5).
+        // Empty Trash/Spam: every message of the folder goes, so a plain EXPUNGE is right without UIDPLUS (DESIGN §7.4).
         deleteForever(ctx, UidSet.range(1, arg.upTo), guard = false)
         store.messages.deleteUids(folder.id, store.messages.uids(folder.id, 1, arg.upTo))
     }
 
     /**
      * `\Deleted` + expunge of [uids] in the selected [folder]. Outside Trash and Spam the expunge is guarded on a
-     * server without UIDPLUS: it never removes a `\Deleted` message of another client (D5). When the guard skips it,
-     * the messages stay `\Deleted` on the server, and their rows are not shown (D19).
+     * server without UIDPLUS: it never removes a `\Deleted` message of another client (DESIGN §4.4). When the guard skips it,
+     * the messages stay `\Deleted` on the server, and their rows are not shown (DESIGN §7.2).
      */
     internal fun deleteForever(ctx: OpContext, uids: UidSet, folder: Folder) =
         deleteForever(ctx, uids, guard = folder.role != FolderRole.TRASH && folder.role != FolderRole.JUNK)

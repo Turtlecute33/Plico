@@ -87,7 +87,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- Custom scheme without host; OAuthRedirectActivity checks the path. -->
+                <!-- Custom scheme; BrowserOAuth.onRedirect accepts only the redirect form of the pending issuer. -->
                 <data android:scheme="${applicationId}" />
             </intent-filter>
         </activity>

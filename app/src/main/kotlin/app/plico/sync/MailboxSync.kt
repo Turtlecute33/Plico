@@ -22,7 +22,7 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
 
     /**
      * Steps 2–6. [status] is the cheap check (step 2); null syncs without it (the folder was opened). [fullFlags]:
-     * a flag check is due, so a mailbox of a server without CONDSTORE is not skipped (D8).
+     * a flag check is due, so a mailbox of a server without CONDSTORE is not skipped (DESIGN §7.2 step 2).
      */
     fun sync(folder: Folder, status: MailboxStatus?, fullFlags: Boolean, report: SyncReport) {
         if (!folder.syncable) return

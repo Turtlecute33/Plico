@@ -76,7 +76,7 @@ class SenderCheck(private val psl: Psl) {
 
     companion object {
         /**
-         * The [SenderTrust] of a message: Gmail only with [Auth.PASS], Riseup by From only, never for a message
+         * The [SenderTrust] of a message: Gmail only with [Auth.PASS], other servers by From only, never for a message
          * in Junk.
          */
         fun trust(gmail: Boolean, auth: Int, inJunk: Boolean): SenderTrust = when {

@@ -309,7 +309,7 @@ data class SetupState(
 
     /**
      * The user entered [servers] for [email]. A pair with one built-in host (Google, Microsoft, Riseup) and one other
-     * host is refused; built-in hosts lead to that provider's page with its built-in servers (D18). [methods] gives
+     * host is refused; built-in hosts lead to that provider's page with its built-in servers (DESIGN §6.2). [methods] gives
      * the sign-in methods of a provider.
      */
     fun serversEntered(servers: Servers, email: String, methods: (Provider) -> List<Method>): SetupState {

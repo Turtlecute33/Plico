@@ -135,7 +135,7 @@ class HeaderParserTest {
     @Test
     fun deletedFlagHidesTheRowExceptOnGmail() {
         val deleted = setOf("\\Seen", "\\deleted")
-        assertTrue(parse("Subject: x\n\n", flags = deleted).deleted, "D19: stored, not shown")
+        assertTrue(parse("Subject: x\n\n", flags = deleted).deleted, "stored, not shown")
         assertFalse(parse("Subject: x\n\n", gmail = true, flags = deleted).deleted, "Gmail: never")
         assertFalse(parse("Subject: x\n\n", flags = setOf("\\Seen")).deleted)
         assertTrue(HeaderParser.serverFlags(item("", flags = deleted), null, gmail = false)!!.deleted)

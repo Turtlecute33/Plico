@@ -14,9 +14,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Sync of a bare IMAP4rev1 server: no ESEARCH, CONDSTORE, LIST-STATUS, UIDPLUS, MOVE or IDLE (DESIGN §7.2, plan
- * §5.5). Needs the `:mail` fallbacks of stream A (plain `UID SEARCH`, SELECT without UIDNEXT): written in wave 1,
- * run from wave 2 on.
+ * Sync of a bare IMAP4rev1 server: no ESEARCH, CONDSTORE, LIST-STATUS, UIDPLUS, MOVE or IDLE (DESIGN §7.2),
+ * with the `:mail` fallbacks (plain `UID SEARCH`, SELECT without UIDNEXT; DESIGN §4.4).
  */
 class MailboxSyncFallbackDeviceTest : DbFixture() {
     private val accountId = otherAccount()

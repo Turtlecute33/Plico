@@ -11,8 +11,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Ops on a server that is neither Riseup nor Gmail (DESIGN §7.4, plan §5.4), with the commands that the wave-0
- * `:mail` client already has (MOVE, UIDPLUS, ESEARCH). The fallbacks without these extensions are in
+ * Ops on a server that is neither Riseup nor Gmail but has MOVE, UIDPLUS and ESEARCH (DESIGN §7.4). The
+ * fallbacks without these extensions are in
  * [app.plico.sync.fallback.OpsFallbackTest].
  */
 class GenericOpsTest : OpFixture() {

@@ -425,7 +425,7 @@ class MessageDaoTest : DbFixture() {
         assertEquals(mapOf(inbox to 1), folders.observeUnread().now())
         assertEquals(1, folders.observeUnifiedUnread().now())
         assertEquals(listOf(shown), messages.needingBodies(inbox, 0, 10).map { it.id })
-        assertEquals(listOf(shown), messages.claimNotifications(riseup, 0).map { it.id }, "D19: never notifies")
+        assertEquals(listOf(shown), messages.claimNotifications(riseup, 0).map { it.id }, "a \\Deleted row never notifies")
         assertEquals(setOf(shown), messages.stillNotifiable(listOf(shown, struck)))
         assertNotNull(messages.get(struck), "the row stays for the expunge check")
 
