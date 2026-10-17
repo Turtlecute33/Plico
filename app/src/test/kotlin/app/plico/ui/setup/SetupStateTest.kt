@@ -199,7 +199,9 @@ class SetupStateTest {
 
     @Test
     fun `a mixed pair of built-in and other servers is refused`() {
+        // The field errors of an earlier Next go: the fields are valid now.
         val servers = start.manual(other, Source.MANUAL, emptySet())
+            .invalidServers(ServerErrors(imapHost = InputError.IP_ADDRESS, smtpPort = InputError.PORT))
         val gmail = Servers(
             Endpoint("imap.gmail.com", 993, TlsMode.IMPLICIT),
             Endpoint("smtp.evil.example", 465, TlsMode.IMPLICIT),
@@ -207,6 +209,7 @@ class SetupStateTest {
         val refused = servers.serversEntered(gmail, "jo@example.org", noMethods)
         assertEquals(Page.SERVERS, refused.page)
         assertEquals(Problem(Problem.Kind.MIXED_SERVERS, "Gmail"), refused.problem)
+        assertNull(refused.serverErrors)
         val outlook = Servers(
             Endpoint("mail.example.org", 993, TlsMode.IMPLICIT),
             Endpoint("smtp.office365.com", 587, TlsMode.STARTTLS),
@@ -408,9 +411,11 @@ class SetupStateTest {
     fun `sign in again with servers of another provider is refused`() {
         val stored = account(AuthKind.PASSWORD, Provider.OTHER, other)
         val edit = SetupState.signInAgain(stored, emptyList(), editServers = true)
+            .invalidServers(ServerErrors(smtpHost = InputError.INVALID))
         val refused = edit.serversEntered(Providers.GMAIL_SERVERS, stored.email, noMethods)
         assertEquals(Page.SERVERS, refused.page)
         assertEquals(Problem(Problem.Kind.WRONG_SERVERS, "Gmail"), refused.problem)
+        assertNull(refused.serverErrors)
     }
 
     @Test

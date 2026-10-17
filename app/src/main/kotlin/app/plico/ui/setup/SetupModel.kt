@@ -313,10 +313,12 @@ data class SetupState(
      * the sign-in methods of a provider.
      */
     fun serversEntered(servers: Servers, email: String, methods: (Provider) -> List<Method>): SetupState {
+        // The fields passed their checks: the field errors of an earlier Next go.
+        val checked = copy(serverErrors = null)
         val provider = ProviderTable.providerOf(servers)
-            ?: return failed(Problem(Problem.Kind.MIXED_SERVERS, serverBrand(knownProvider(servers))))
+            ?: return checked.failed(Problem(Problem.Kind.MIXED_SERVERS, serverBrand(knownProvider(servers))))
         if (reauth != null && provider != reauth.provider) {
-            return failed(Problem(Problem.Kind.WRONG_SERVERS, serverBrand(provider)))
+            return checked.failed(Problem(Problem.Kind.WRONG_SERVERS, serverBrand(provider)))
         }
         val pinned = ProviderTable.pinned(provider, email)
         val tableNotes = ProviderTable.byDomain(email.substringAfterLast('@'))

@@ -94,7 +94,7 @@ object Autoconfig {
         isNamespaceAware = false
         isValidating = false
         isExpandEntityReferences = false
-        isXIncludeAware = false
+        // No isXIncludeAware: XInclude is off by default, and Android's factory throws for every call of the setter.
         // Android's parser refuses some features; the string checks above already stop DTDs and entities.
         secure(XMLConstants.FEATURE_SECURE_PROCESSING)
         secure("http://apache.org/xml/features/disallow-doctype-decl")
