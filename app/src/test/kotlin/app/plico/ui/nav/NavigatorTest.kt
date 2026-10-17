@@ -116,4 +116,19 @@ class NavigatorTest {
         nav.replaceTop(Route.Setup)
         assertEquals(listOf<Route>(Route.Setup), nav.backStack)
     }
+
+    @Test
+    fun serverSettingsAndSignInAgainAreTwoScreens() {
+        assertEquals(Route.Reauth(5), Route.Reauth(5, editServers = false))
+        val nav = nav(inbox, Route.Settings, Route.AccountSettings(5), Route.Reauth(5, editServers = true))
+        assertEquals(Route.Reauth(5, editServers = true), nav.current)
+        nav.go(Route.Reauth(5))
+        assertEquals(
+            listOf(inbox, Route.Settings, Route.AccountSettings(5), Route.Reauth(5, editServers = true), Route.Reauth(5)),
+            nav.backStack,
+        )
+        nav.back()
+        nav.back()
+        assertEquals(Route.AccountSettings(5), nav.current)
+    }
 }

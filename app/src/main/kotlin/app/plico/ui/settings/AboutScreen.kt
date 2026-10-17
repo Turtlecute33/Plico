@@ -7,17 +7,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.plico.BuildConfig
 import app.plico.R
+import app.plico.app
 import app.plico.ui.components.Icons
+import app.plico.ui.components.rememberPref
 import app.plico.ui.nav.Navigator
 
 /** Version, licences, and every host the app connects to (DESIGN §12, §13). */
 @Composable
 fun AboutScreen(nav: Navigator) {
+    val app = LocalContext.current.app
+    val accounts by remember(app) { app.accounts.observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val googleId by rememberPref(app.prefs.googleClientId) { googleClientId }
+    val microsoftId by rememberPref(app.prefs.microsoftClientId) { microsoftClientId }
+    val logos by rememberPref(app.prefs.senderLogos) { senderLogos }
+    val logoSource by rememberPref(app.prefs.logoSource) { logoSource }
     SettingsScaffold(title = stringResource(R.string.ui_about), onBack = nav::back) {
         Column(
             Modifier
@@ -53,8 +65,11 @@ fun AboutScreen(nav: Navigator) {
         }
 
         SettingsGroup(stringResource(R.string.settings_about_connections)) {
-            connections().forEach { connection ->
-                item { InfoRow(it, stringResource(connection.title), summary = connection.hosts.joinToString("\n")) }
+            connections(accounts, googleId, microsoftId, logoSource.takeIf { logos }).forEach { connection ->
+                item {
+                    val summary = connection.text?.let { text -> stringResource(text) } ?: connection.hosts.joinToString("\n")
+                    InfoRow(it, stringResource(connection.title), summary = summary)
+                }
             }
             item {
                 InfoRow(

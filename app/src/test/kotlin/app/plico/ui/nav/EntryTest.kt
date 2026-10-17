@@ -3,7 +3,9 @@ package app.plico.ui.nav
 import android.content.Intent
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class EntryTest {
     private val main = "app.plico.MainActivity"
@@ -37,6 +39,9 @@ class EntryTest {
     @Test
     fun aliasOpensSignInAgain() {
         assertEquals(Entry.Reauth(3), entry(Intent.ACTION_VIEW, "plico:reauth/3", MessageLink.ALIAS))
+        // MainActivity opens Route.Reauth(accountId): the sign-in itself, never the server settings.
+        assertFalse(Route.Reauth(3).editServers)
+        assertTrue(Route.Reauth(3, editServers = true).editServers)
         assertNull(entry(Intent.ACTION_VIEW, "plico:reauth/3", main))
         assertNull(entry(Intent.ACTION_VIEW, "plico:reauth/0", MessageLink.ALIAS))
     }

@@ -2,6 +2,7 @@ package app.plico.ui.setup
 
 import app.plico.PlicoApp
 import app.plico.account.BrowserOAuth
+import app.plico.account.OAuthIssuer
 import app.plico.data.Account
 import app.plico.data.AuthKind
 import app.plico.ui.nav.Route
@@ -35,18 +36,24 @@ object OAuthResume {
             results.emit(Unit)
             return null
         }
-        val email = pendingEmail(app) ?: return null
-        return routeFor(withContext(Dispatchers.IO) { app.accounts.byEmail(email) })
+        val pending = pendingResult(app) ?: return null
+        return routeFor(withContext(Dispatchers.IO) { app.accounts.byEmail(pending.email) }, pending.issuer)
     }
 
     /** True when the browser came back and the sign-in waits to be completed. */
-    internal fun hasResult(app: PlicoApp): Boolean = pendingEmail(app) != null
+    internal fun hasResult(app: PlicoApp): Boolean = pendingResult(app) != null
 
-    /** "Sign in again" when the login hint was an OAuth account of Plico, else setup. */
-    internal fun routeFor(account: Account?): Route =
-        if (account?.auth == AuthKind.OAUTH) Route.Reauth(account.id) else Route.Setup
+    /**
+     * "Sign in again" when the login hint was an OAuth account of Plico that signs in with [issuer] (the issuer of
+     * the pending sign-in), else setup.
+     */
+    internal fun routeFor(account: Account?, issuer: OAuthIssuer = OAuthIssuer.GOOGLE): Route =
+        if (account?.auth == AuthKind.OAUTH && OAuthIssuer.of(account.provider) == issuer) {
+            Route.Reauth(account.id)
+        } else {
+            Route.Setup
+        }
 
-    /** The login hint of a sign-in whose redirect arrived ("" without a hint), or null. */
-    private fun pendingEmail(app: PlicoApp): String? =
-        BrowserOAuth.pending(app.prefs)?.takeIf { it.done }?.email
+    /** A sign-in whose redirect arrived (its login hint is "" without a hint), or null. */
+    private fun pendingResult(app: PlicoApp): BrowserOAuth.Pending? = BrowserOAuth.pending(app.prefs)?.takeIf { it.done }
 }

@@ -53,9 +53,11 @@ import app.plico.account.Providers
 import app.plico.app
 import app.plico.data.Account
 import app.plico.data.AccountState
+import app.plico.data.AuthKind
 import app.plico.data.MailView
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.html.Idn
 import app.plico.sync.GmailSync
 import app.plico.ui.components.AccountColors
 import app.plico.ui.components.Avatar
@@ -71,8 +73,8 @@ import app.plico.ui.nav.Route
 
 /**
  * Settings of one account (DESIGN §13): name, sender, colour, signature, From addresses, offline
- * window, push mode and its cost, notifications, Riseup folders, quota and web settings, Gmail notes,
- * sign in again and remove. Every change is stored at once and reconfigures the account's session.
+ * window, push mode and its cost, notifications, servers, folders and quota (not Gmail), Riseup web settings,
+ * Gmail notes, sign in again and remove. Every change is stored at once and reconfigures the account's session.
  */
 @Composable
 fun AccountSettingsScreen(accountId: Long, nav: Navigator) {
@@ -91,11 +93,13 @@ fun AccountSettingsScreen(accountId: Long, nav: Navigator) {
         OfflineGroup(current, vm)
         NewMailGroup(current, vm)
         NotificationsGroup(current, vm)
-        when (current.provider) {
-            Provider.RISEUP -> RiseupGroups(current, vm)
-            Provider.GMAIL -> GmailNotesGroup()
-            else -> Unit
+        ServersGroup(current, onChange = { nav.go(Route.Reauth(accountId, editServers = true)) })
+        if (!current.isGmail) {
+            FoldersGroup(current, vm)
+            StorageGroup(current)
         }
+        if (current.provider == Provider.RISEUP) RiseupWebGroup()
+        if (current.isGmail) GmailNotesGroup()
         SignInGroup(current, vm, nav)
     }
 }
@@ -271,10 +275,7 @@ private fun IdentitiesGroup(account: Account, vm: AccountSettingsViewModel) {
             }
         }
         item { ClickRow(it, stringResource(R.string.settings_identity_add), { adding = true }, icon = Icons.Add) }
-        item {
-            val note = if (account.isGmail) R.string.settings_identities_gmail else R.string.settings_identities_riseup
-            NoteRow(it, stringResource(note))
-        }
+        item { NoteRow(it, stringResource(identitiesNote(account.provider))) }
     }
 
     if (adding) {
@@ -383,27 +384,40 @@ private fun bodyDaysTitle(days: Int): String = if (days == 0) {
 
 private enum class PushDialog { MODE, INTERVAL }
 
-/** Push mode, poll interval and the measured cost (DESIGN §8.3 "Riseup cost", push PB14). */
+/**
+ * Push mode, poll interval and the measured cost (DESIGN §8.3 "Keepalive cost", push PB14). A server without IDLE
+ * can only poll: no mode choice and no keepalive, only the interval.
+ */
 @Composable
 private fun NewMailGroup(account: Account, vm: AccountSettingsViewModel) {
     var dialog by rememberSaveable { mutableStateOf<PushDialog?>(null) }
 
     SettingsGroup(stringResource(R.string.settings_new_mail)) {
-        item {
-            ClickRow(
-                it, stringResource(R.string.settings_push_mode), { dialog = PushDialog.MODE },
-                summary = stringResource(account.pushMode.title()),
-            )
-        }
-        if (account.pushMode != PushMode.INSTANT) {
+        if (account.idle) {
             item {
                 ClickRow(
-                    it, stringResource(R.string.settings_poll_interval), { dialog = PushDialog.INTERVAL },
-                    summary = pollTitle(account.pollMinutes),
+                    it, stringResource(R.string.settings_push_mode), { dialog = PushDialog.MODE },
+                    summary = stringResource(account.pushMode.title()),
                 )
             }
+        } else {
+            item {
+                InfoRow(it, stringResource(R.string.settings_push_mode), summary = stringResource(R.string.settings_no_idle_text))
+            }
         }
-        item { InfoRow(it, stringResource(R.string.settings_keepalive), summary = keepaliveSummary(account)) }
+        if (!account.idle || account.pushMode != PushMode.INSTANT) {
+            item {
+                val polls = wakeEstimate(PushMode.POLL, null, account.pollMinutes).polls
+                val summary = listOfNotNull(
+                    pollTitle(account.pollMinutes),
+                    polls?.takeIf { !account.idle }?.let { pluralStringResource(R.plurals.settings_polls, it, it) },
+                ).joinToString("\n")
+                ClickRow(it, stringResource(R.string.settings_poll_interval), { dialog = PushDialog.INTERVAL }, summary = summary)
+            }
+        }
+        if (account.idle) {
+            item { InfoRow(it, stringResource(R.string.settings_keepalive), summary = keepaliveSummary(account)) }
+        }
     }
 
     when (dialog) {
@@ -491,10 +505,39 @@ private fun NotificationsGroup(account: Account, vm: AccountSettingsViewModel) {
     }
 }
 
-/** Riseup archive folder, quota and the links to account.riseup.net (DESIGN §7.2, riseup R18, R19). */
+/**
+ * The servers of the account in ASCII form (a lookalike name shows) with port and security, the user name when it
+ * is not the address, and "Change server settings" for accounts on other servers with a password ([onChange]).
+ */
 @Composable
-private fun RiseupGroups(account: Account, vm: AccountSettingsViewModel) {
-    val context = LocalContext.current
+private fun ServersGroup(account: Account, onChange: () -> Unit) {
+    val servers = account.servers
+    SettingsGroup(stringResource(R.string.settings_servers)) {
+        listOf(
+            R.string.settings_server_incoming to servers.imap,
+            R.string.settings_server_outgoing to servers.smtp,
+        ).forEach { (title, endpoint) ->
+            item {
+                val value = stringResource(
+                    R.string.settings_server_value,
+                    Idn.toAscii(endpoint.host) ?: endpoint.host,
+                    endpoint.port,
+                    stringResource(securityTitle(endpoint.tls)),
+                )
+                InfoRow(it, stringResource(title), summary = value)
+            }
+        }
+        val login = servers.login
+        if (login != null) item { InfoRow(it, stringResource(R.string.settings_server_user), summary = login) }
+        if (canChangeServers(account)) {
+            item { ClickRow(it, stringResource(R.string.settings_change_servers), onChange, icon = Icons.Edit) }
+        }
+    }
+}
+
+/** The archive folder of an account that is not Gmail (DESIGN §7.2; Gmail archives by label). */
+@Composable
+private fun FoldersGroup(account: Account, vm: AccountSettingsViewModel) {
     val folders by vm.archiveFolders.collectAsStateWithLifecycle()
     var choosing by rememberSaveable { mutableStateOf(false) }
     val automatic = stringResource(R.string.settings_archive_auto)
@@ -506,29 +549,6 @@ private fun RiseupGroups(account: Account, vm: AccountSettingsViewModel) {
                 it, stringResource(R.string.settings_archive_folder), { choosing = true },
                 summary = chosen?.path ?: automatic,
             )
-        }
-    }
-    SettingsGroup(stringResource(R.string.settings_storage)) {
-        item { QuotaRow(it, account) }
-    }
-    val web = Providers.RISEUP.webSettings
-    if (web != null) {
-        SettingsGroup(stringResource(R.string.settings_riseup_web)) {
-            // Riseup documents no deep links into its account pages, so every row opens the start page.
-            listOf(
-                R.string.settings_riseup_filters to R.string.settings_riseup_filters_text,
-                R.string.settings_riseup_vacation to R.string.settings_riseup_vacation_text,
-                R.string.settings_riseup_aliases to R.string.settings_riseup_aliases_text,
-                R.string.settings_riseup_spam to R.string.settings_riseup_spam_text,
-            ).forEach { (title, summary) ->
-                item {
-                    ClickRow(
-                        it, stringResource(title), { SystemPages.browser(context, web) },
-                        summary = stringResource(summary),
-                        trailing = { Icon(Icons.OpenInNew, contentDescription = null) },
-                    )
-                }
-            }
         }
     }
 
@@ -544,7 +564,38 @@ private fun RiseupGroups(account: Account, vm: AccountSettingsViewModel) {
     }
 }
 
-/** Riseup's quota is an estimate that changes only when new mail arrives (riseup R18). Stored in bytes. */
+@Composable
+private fun StorageGroup(account: Account) {
+    SettingsGroup(stringResource(R.string.settings_storage)) {
+        item { QuotaRow(it, account) }
+    }
+}
+
+/** The links to account.riseup.net (riseup R19). */
+@Composable
+private fun RiseupWebGroup() {
+    val context = LocalContext.current
+    val web = Providers.RISEUP.webSettings ?: return
+    SettingsGroup(stringResource(R.string.settings_riseup_web)) {
+        // Riseup documents no deep links into its account pages, so every row opens the start page.
+        listOf(
+            R.string.settings_riseup_filters to R.string.settings_riseup_filters_text,
+            R.string.settings_riseup_vacation to R.string.settings_riseup_vacation_text,
+            R.string.settings_riseup_aliases to R.string.settings_riseup_aliases_text,
+            R.string.settings_riseup_spam to R.string.settings_riseup_spam_text,
+        ).forEach { (title, summary) ->
+            item {
+                ClickRow(
+                    it, stringResource(title), { SystemPages.browser(context, web) },
+                    summary = stringResource(summary),
+                    trailing = { Icon(Icons.OpenInNew, contentDescription = null) },
+                )
+            }
+        }
+    }
+}
+
+/** The quota from the server, in bytes. Riseup's is an estimate that changes only when new mail arrives (riseup R18). */
 @Composable
 private fun QuotaRow(shapes: ListItemShapes, account: Account) {
     val fraction = quotaFraction(account.quotaUsed, account.quotaLimit)
@@ -568,7 +619,7 @@ private fun QuotaRow(shapes: ListItemShapes, account: Account) {
                             .fillMaxWidth()
                             .padding(vertical = 8.dp),
                     )
-                    Text(stringResource(R.string.settings_quota_note))
+                    if (account.provider == Provider.RISEUP) Text(stringResource(R.string.settings_quota_note))
                 }
             }
         },
@@ -623,9 +674,12 @@ private fun SignInGroup(account: Account, vm: AccountSettingsViewModel, nav: Nav
     }
 
     if (confirming) {
+        val text = stringResource(R.string.settings_remove_text)
+        // Microsoft has no revoke for public clients: the note names the pages that end the access.
+        val microsoftOAuth = account.provider == Provider.MICROSOFT && account.auth == AuthKind.OAUTH
         ConfirmDialog(
             title = stringResource(R.string.settings_remove_title, account.label),
-            text = stringResource(R.string.settings_remove_text),
+            text = if (microsoftOAuth) "$text\n\n${stringResource(R.string.settings_remove_microsoft_note)}" else text,
             confirmLabel = stringResource(R.string.settings_remove),
             onConfirm = {
                 vm.remove { othersLeft ->

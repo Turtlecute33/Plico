@@ -59,8 +59,8 @@ import app.plico.ui.nav.Route
 import app.plico.ui.nav.sharedAxis
 
 /**
- * Adds an account (DESIGN §13 Setup): Welcome → credentials or Gmail methods → connection test →
- * options → notifications and battery → unified inbox.
+ * Adds an account (DESIGN §13 Setup): Welcome (one address field) → discovery → server settings when nothing was
+ * found → password, Google or Microsoft page → connection test → options → notifications and battery → unified inbox.
  */
 @Composable
 fun SetupScreen(nav: Navigator) {
@@ -68,22 +68,25 @@ fun SetupScreen(nav: Navigator) {
     SetupFlow(viewModel { SetupViewModel(app, reauthId = null) }, nav)
 }
 
-/** Signs in again to account [accountId] with the method it uses; the stored secret is overwritten. */
+/**
+ * Signs in again to account [accountId] with the method it uses; the stored secret is overwritten. [editServers]
+ * starts on the server settings (an account on other servers).
+ */
 @Composable
-fun ReauthScreen(accountId: Long, nav: Navigator) {
+fun ReauthScreen(accountId: Long, nav: Navigator, editServers: Boolean = false) {
     val app = LocalContext.current.app
-    SetupFlow(viewModel { SetupViewModel(app, reauthId = accountId) }, nav, reauth = true)
+    SetupFlow(viewModel { SetupViewModel(app, reauthId = accountId, editServers = editServers) }, nav, reauth = true)
 }
 
-/** A page, or the work that covers it. */
-private data class Shown(val page: Page?, val busy: Busy?)
+/** A page, or the work that covers it. [issuer] names the browser sign-in. */
+private data class Shown(val page: Page?, val busy: Busy?, val issuer: OAuthIssuer)
 
 @Composable
 private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
 
-    // Here and not on the Gmail page, which leaves the composition while the chooser is open.
+    // Here and not on the Google page, which leaves the composition while the chooser is open.
     val chooser = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         activity?.let { vm.onAccountChosen(it, DeviceGoogleAuth.accountName(result.data)) }
     }
@@ -165,11 +168,13 @@ private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = fals
                     shown.page == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         LoadingIndicator()
                     }
-                    shown.busy != null -> BusyView(shown.busy, onCancel = { vm.back() })
+                    shown.busy != null -> BusyView(shown.busy, shown.issuer, onCancel = { vm.back() })
                     else -> when (shown.page) {
-                        Page.WELCOME -> WelcomePage(onChoose = vm::choose)
-                        Page.RISEUP -> RiseupPage(vm, shownState)
-                        Page.GMAIL -> GmailPage(vm, shownState, onChooseAccount = chooseAccount)
+                        Page.WELCOME -> WelcomePage(vm, shownState)
+                        Page.SERVERS -> ServersPage(vm, shownState)
+                        Page.PASSWORD -> PasswordPage(vm, shownState)
+                        Page.GOOGLE -> GooglePage(vm, shownState, onChooseAccount = chooseAccount)
+                        Page.MICROSOFT -> MicrosoftPage(vm, shownState)
                         Page.OWN_CLIENT -> OwnClientPage(vm, shownState)
                         Page.OPTIONS -> OptionsPage(vm, shownState)
                         Page.PERMISSIONS -> PermissionsPage(onDone = vm::finish)
@@ -191,11 +196,15 @@ private fun SetupFlow(vm: SetupViewModel, nav: Navigator, reauth: Boolean = fals
 private fun SetupState.shown(reauth: Boolean) = Shown(
     page = page.takeUnless { reauth && this.reauth == null },
     busy = busy.takeIf { it != Busy.SAVING },
+    issuer = issuer,
 )
 
-/** The connection test, the browser or Google's consent screen is in front; Cancel returns to the page. */
+/**
+ * Discovery, the connection test, the browser of [issuer] or Google's consent screen is in front; Cancel returns
+ * to the page.
+ */
 @Composable
-private fun BusyView(busy: Busy, onCancel: () -> Unit) {
+private fun BusyView(busy: Busy, issuer: OAuthIssuer, onCancel: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -207,8 +216,8 @@ private fun BusyView(busy: Busy, onCancel: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         Text(
             text = when (busy) {
-                // Only Google signs in with the browser here.
-                Busy.BROWSER -> stringResource(R.string.setup_busy_browser, OAuthIssuer.GOOGLE.brand)
+                Busy.DETECTING -> stringResource(R.string.setup_busy_detecting)
+                Busy.BROWSER -> stringResource(R.string.setup_busy_browser, issuer.brand)
                 Busy.DEVICE -> stringResource(R.string.setup_busy_device)
                 else -> stringResource(R.string.setup_busy_testing)
             },

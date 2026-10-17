@@ -70,7 +70,7 @@ fun AppNav(nav: Navigator, modifier: Modifier = Modifier) {
         predictivePopTransitionSpec = { backward() },
         entryProvider = entryProvider {
             entry<Route.Setup> { SetupScreen(nav) }
-            entry<Route.Reauth> { ReauthScreen(it.accountId, nav) }
+            entry<Route.Reauth> { ReauthScreen(it.accountId, nav, it.editServers) }
             entry<Route.Mailbox> { MailboxScreen(it.view, nav) }
             entry<Route.Message> { MessageScreen(it.id, nav) }
             entry<Route.Compose> { ComposeScreen(it.draftId, it.fresh, nav) }

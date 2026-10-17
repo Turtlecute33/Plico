@@ -1,10 +1,17 @@
 package app.plico.ui.settings
 
+import app.plico.R
+import app.plico.account.Providers
+import app.plico.data.Account
 import app.plico.data.AccountState
 import app.plico.data.AuthKind
 import app.plico.data.Prefs
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.data.Servers
+import app.plico.html.LogoRules
+import app.plico.mail.net.Endpoint
+import app.plico.mail.net.TlsMode
 import app.plico.push.Grants
 import app.plico.push.PushStatus
 import app.plico.sync.GmailSync
@@ -53,8 +60,30 @@ class SettingsModelTest {
                 signInTitle(Provider.GMAIL, AuthKind.PASSWORD),
                 signInTitle(Provider.GMAIL, AuthKind.OAUTH),
                 signInTitle(Provider.GMAIL, AuthKind.DEVICE),
+                signInTitle(Provider.MICROSOFT, AuthKind.OAUTH),
             ),
         )
+        assertEquals(R.string.settings_auth_browser_microsoft, signInTitle(Provider.MICROSOFT, AuthKind.OAUTH))
+        assertEquals(R.string.settings_auth_browser, signInTitle(Provider.GMAIL, AuthKind.OAUTH))
+        assertEquals(R.string.settings_auth_password, signInTitle(Provider.OTHER, AuthKind.PASSWORD))
+    }
+
+    @Test
+    fun identitiesNoteByProvider() {
+        assertEquals(R.string.settings_identities_gmail, identitiesNote(Provider.GMAIL))
+        assertEquals(R.string.settings_identities_riseup, identitiesNote(Provider.RISEUP))
+        assertEquals(R.string.settings_identities_other, identitiesNote(Provider.OTHER))
+        assertEquals(R.string.settings_identities_other, identitiesNote(Provider.MICROSOFT))
+    }
+
+    @Test
+    fun serverSettingsOnlyForOtherServersWithAPassword() {
+        assertTrue(canChangeServers(account(Provider.OTHER, AuthKind.PASSWORD)))
+        assertFalse(canChangeServers(account(Provider.RISEUP, AuthKind.PASSWORD)))
+        assertFalse(canChangeServers(account(Provider.GMAIL, AuthKind.PASSWORD)))
+        assertFalse(canChangeServers(account(Provider.MICROSOFT, AuthKind.OAUTH)))
+        assertEquals(R.string.setup_security_tls, securityTitle(TlsMode.IMPLICIT))
+        assertEquals(R.string.setup_security_starttls, securityTitle(TlsMode.STARTTLS))
     }
 
     @Test
@@ -144,6 +173,36 @@ class SettingsModelTest {
     }
 
     @Test
+    fun microsoftClientIdIsAGuidInLowerCase() {
+        val id = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+        assertEquals(id, ClientIds.normalizeMicrosoft(id))
+        assertEquals(id, ClientIds.normalizeMicrosoft("  0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0\n"))
+        assertEquals(id, ClientIds.normalizeMicrosoft("0f1e2d3c-4b5a-6978- 8796-a5b4c3d2e1f0"))
+        assertEquals("", ClientIds.normalizeMicrosoft(" "))
+        assertNull(ClientIds.normalizeMicrosoft("0f1e2d3c4b5a69788796a5b4c3d2e1f0"))
+        assertNull(ClientIds.normalizeMicrosoft("{0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0}"))
+        assertNull(ClientIds.normalizeMicrosoft("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1fg"))
+        assertNull(ClientIds.normalizeMicrosoft("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0-1"))
+        assertNull(ClientIds.normalizeMicrosoft("123-abc.apps.googleusercontent.com"))
+        // The Google rule does not take a GUID.
+        assertNull(ClientIds.normalize(id))
+    }
+
+    @Test
+    fun signInClientsShowWhenUsedOrSet() {
+        val riseup = account(Provider.RISEUP, AuthKind.PASSWORD)
+        assertFalse(showsSignInClients(emptyList(), "", ""))
+        assertFalse(showsSignInClients(listOf(riseup, account(Provider.GMAIL, AuthKind.PASSWORD)), "", " "))
+        assertTrue(showsSignInClients(listOf(riseup, account(Provider.GMAIL, AuthKind.OAUTH)), "", ""))
+        assertTrue(showsSignInClients(listOf(account(Provider.GMAIL, AuthKind.DEVICE)), "", ""))
+        assertTrue(showsSignInClients(listOf(account(Provider.MICROSOFT, AuthKind.OAUTH)), "", ""))
+        assertTrue(showsSignInClients(emptyList(), "1-a.apps.googleusercontent.com", ""))
+        assertTrue(showsSignInClients(emptyList(), "", "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"))
+        assertFalse(usesGoogleClient(listOf(account(Provider.GMAIL, AuthKind.PASSWORD))))
+        assertTrue(usesMicrosoftClient(listOf(account(Provider.MICROSOFT, AuthKind.OAUTH))))
+    }
+
+    @Test
     fun identityChecks() {
         val own = "me@riseup.net"
         val existing = listOf("alias@riseup.net")
@@ -208,20 +267,69 @@ class SettingsModelTest {
     }
 
     @Test
-    fun connectionsListEveryHost() {
-        val hosts = connections().flatMap { it.hosts }
+    fun connectionsWithoutAccountsListOnlySetup() {
+        val connections = connections(emptyList(), "", "", null)
+        assertEquals(
+            listOf(Connection(R.string.settings_about_setup, emptyList(), R.string.settings_about_setup_text)),
+            connections,
+        )
+    }
+
+    @Test
+    fun connectionsListTheServersOfEveryAccount() {
+        val riseup = account(Provider.RISEUP, AuthKind.PASSWORD, Providers.RISEUP_SERVERS)
+        val gmail = account(Provider.GMAIL, AuthKind.PASSWORD, Providers.GMAIL_SERVERS)
+        val other = account(
+            Provider.OTHER, AuthKind.PASSWORD,
+            Servers(Endpoint("mail.example.org", 143, TlsMode.STARTTLS), Endpoint("mail.example.org", 587, TlsMode.STARTTLS)),
+        )
+        val second = account(Provider.RISEUP, AuthKind.PASSWORD, Providers.RISEUP_SERVERS)
+        val connections = connections(listOf(riseup, gmail, other, second), "", "", null)
         assertEquals(
             listOf(
-                "mail.riseup.net:993",
-                "mail.riseup.net:465",
-                "imap.gmail.com:993",
-                "smtp.gmail.com:465",
-                "accounts.google.com",
-                "oauth2.googleapis.com",
+                "mail.riseup.net:993", "mail.riseup.net:465", "imap.gmail.com:993", "smtp.gmail.com:465",
+                "mail.example.org:143", "mail.example.org:587",
             ),
-            hosts,
+            connections.first().hosts,
         )
-        assertDistinct(connections().map { it.title })
+        assertEquals(R.string.settings_about_mail_servers, connections.first().title)
+        // An app password needs no sign-in host.
+        assertTrue(connections.none { it.title == R.string.settings_about_google_sign_in })
+        assertDistinct(connections.map { it.title })
+    }
+
+    @Test
+    fun connectionsListTheSignInHostsOfUsedOrSetClients() {
+        val google = connections(listOf(account(Provider.GMAIL, AuthKind.OAUTH, Providers.GMAIL_SERVERS)), "", "", null)
+            .single { it.title == R.string.settings_about_google_sign_in }
+        assertEquals(listOf("accounts.google.com", "oauth2.googleapis.com"), google.hosts)
+        assertTrue(connections(emptyList(), "1-a.apps.googleusercontent.com", "", null).any { it.hosts == google.hosts })
+        val microsoftAccount = account(Provider.MICROSOFT, AuthKind.OAUTH, Providers.OUTLOOK_SERVERS)
+        val microsoft = connections(listOf(microsoftAccount), "", "", null)
+        assertEquals(
+            listOf("outlook.office365.com:993", "smtp-mail.outlook.com:587"),
+            microsoft.single { it.title == R.string.settings_about_mail_servers }.hosts,
+        )
+        assertEquals(
+            listOf("login.microsoftonline.com"),
+            microsoft.single { it.title == R.string.settings_about_microsoft_sign_in }.hosts,
+        )
+        assertTrue(microsoft.none { it.title == R.string.settings_about_google_sign_in })
+        val set = connections(emptyList(), "", "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", null)
+        assertTrue(set.any { it.title == R.string.settings_about_microsoft_sign_in })
+    }
+
+    @Test
+    fun connectionsListTheLogoSourceOnlyWhenLogosAreOn() {
+        assertTrue(connections(emptyList(), "", "", null).none { it.title == R.string.settings_about_logos })
+        val ddg = connections(emptyList(), "", "", Prefs.LogoSource.DUCKDUCKGO).single { it.title == R.string.settings_about_logos }
+        assertEquals(LogoRules.hosts(Prefs.LogoSource.DUCKDUCKGO), ddg.hosts)
+        assertNull(ddg.text)
+        val google = connections(emptyList(), "", "", Prefs.LogoSource.GOOGLE).single { it.title == R.string.settings_about_logos }
+        assertEquals(listOf("www.google.com", "*.gstatic.com"), google.hosts)
+        val website = connections(emptyList(), "", "", Prefs.LogoSource.WEBSITE).single { it.title == R.string.settings_about_logos }
+        assertEquals(emptyList(), website.hosts)
+        assertEquals(R.string.settings_about_logos_websites, website.text)
     }
 
     @Test
@@ -230,6 +338,13 @@ class SettingsModelTest {
         assertTrue(certificateTransparency(36))
         assertTrue(certificateTransparency(37))
     }
+
+    private fun account(provider: Provider, auth: AuthKind, servers: Servers = Servers.NONE) = Account(
+        id = 1, provider = provider, email = "jane@example.org", senderName = "", label = "Mail", color = 0,
+        auth = auth, deviceAccount = null, bodyDays = 30, pushMode = PushMode.INSTANT, pollMinutes = 15,
+        gmailCategories = setOf("primary"), archiveFolder = null, signature = "", state = AccountState.OK,
+        stateText = null, serverKeepaliveS = null, quotaUsed = null, quotaLimit = null, sort = 0, servers = servers,
+    )
 
     private fun assertDistinct(values: List<Any?>) {
         assertTrue(values.none { it == null || it == 0 }, "missing text in $values")
