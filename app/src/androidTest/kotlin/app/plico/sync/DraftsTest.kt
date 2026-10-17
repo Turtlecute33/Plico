@@ -79,6 +79,40 @@ class DraftsTest : OpFixture() {
     }
 
     @Test
+    fun twoUploadsOnOneConnectionReadAFreshUidNext() {
+        val other = otherAccount()
+        mailbox(other, "Drafts", FolderRole.DRAFTS)
+        val id = newDraft(other)
+        edit(id)
+        actions.leaveDraft(id)
+        val messageId = drafts.get(id)!!.messageId
+        fun select(uidNext: Long) = arrayOf(
+            "* 1 EXISTS", "* OK [UIDVALIDITY 7] ok", "* OK [UIDNEXT $uidNext] ok", "OK [READ-WRITE] done",
+        )
+
+        val imap = FakeImap()
+            .expect("SELECT \"Drafts\"", *select(10))
+            .expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved") // revision UID 10
+            .expect(search(messageId), "* ESEARCH UID ALL 4,10")
+            .expect("UID STORE 4 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 4")
+            // Drafts stays selected, but its UIDNEXT is now 11: a new SELECT reads it.
+            .expect("SELECT \"Drafts\"", *select(11))
+            .expect("APPEND \"Drafts\" (\\Draft \\Seen) {literal}", "OK Saved") // revision UID 11
+            .expect(search(messageId), "* ESEARCH UID ALL 10,11")
+            .expect("UID STORE 10 +FLAGS.SILENT (\\Deleted)")
+            .expect("UID EXPUNGE 10")
+        val ctx = session(other, imap)
+        run(ctx)
+        edit(id, to = "Carol <carol@example.org>")
+        actions.leaveDraft(id)
+        run(ctx)
+        imap.finish()
+        assertEquals(2, imap.commands.count { it == "SELECT \"Drafts\"" })
+        assertTrue(ops.byAccount(other).isEmpty())
+    }
+
+    @Test
     fun riseupDoesNotSelectBeforeTheUpload() {
         mailbox(riseup, "Drafts", FolderRole.DRAFTS)
         val id = newDraft()

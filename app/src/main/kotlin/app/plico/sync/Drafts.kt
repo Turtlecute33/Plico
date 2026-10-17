@@ -83,11 +83,13 @@ internal object Drafts {
     }
 
     /**
-     * Without APPENDUID, the UIDNEXT before the APPEND is a UID that the new revision is at or above (§7.6). Null when
-     * the server refuses the SELECT (the mailbox is gone: the APPEND creates it, and no revision is deleted).
+     * Without APPENDUID, the UIDNEXT before the APPEND is a UID that the new revision is at or above (§7.6). A fresh
+     * SELECT: the UIDNEXT of a mailbox that stays selected does not change, so a second upload would keep the first
+     * one's revision. Null when the server refuses the SELECT (the mailbox is gone: the APPEND creates it, and no
+     * revision is deleted).
      */
     private fun uidNextBefore(ctx: OpContext, mailbox: Folder): Long? = try {
-        ctx.select(mailbox).uidNext
+        ctx.reselect(mailbox).uidNext
     } catch (_: ImapNoException) {
         null
     }

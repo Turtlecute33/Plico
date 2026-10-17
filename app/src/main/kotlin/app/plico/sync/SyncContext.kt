@@ -53,6 +53,9 @@ internal class SyncContext(
      */
     override fun select(folder: Folder): SelectResult = sync.env.selection.ensure(mailboxOf(folder))
 
+    /** SELECTs [folder] again, even when it is selected: unsolicited responses do not update UIDNEXT. */
+    override fun reselect(folder: Folder): SelectResult = sync.env.selection.select(mailboxOf(folder))
+
     /** Runs the incremental sync of one mailbox now (DESIGN §7.2 / §7.3); a Gmail label view syncs All Mail. */
     override suspend fun syncFolder(folder: Folder) {
         val report = SyncReport()

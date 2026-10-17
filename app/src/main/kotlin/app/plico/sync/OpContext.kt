@@ -34,6 +34,9 @@ internal interface OpContext {
     /** SELECTs [folder] unless it is selected already; the result of its last SELECT. */
     fun select(folder: Folder): SelectResult
 
+    /** SELECTs [folder] again, even when it is selected: a fresh UIDNEXT (the one of [select] can be old). */
+    fun reselect(folder: Folder): SelectResult
+
     /** An authenticated SMTP connection; the caller closes it. */
     suspend fun smtp(): SmtpClient
 

@@ -56,6 +56,11 @@ internal class FakeOpContext(
         return client.select(folder.path).also { last = it }
     }
 
+    override fun reselect(folder: Folder): SelectResult {
+        last = null
+        return client.select(folder.path).also { last = it }
+    }
+
     /** Runs when the sender opens its SMTP connection. */
     var beforeSmtp: () -> Unit = {}
 
