@@ -337,6 +337,23 @@ class SenderTest : OpFixture() {
     }
 
     @Test
+    fun aSentMailboxThatIsGoneIsCreatedForTheCopy() {
+        val other = otherAccount()
+        mailbox(other, "Sent", FolderRole.SENT)
+        val id = sendOne(other, "me@example.org")
+        clock += Sender.SENT_COPY_DELAY_MS
+        val imap = FakeImap()
+            .expect("SELECT \"Sent\"", "NO [NONEXISTENT] No such mailbox")
+            .expect("APPEND \"Sent\" (\\Seen) {literal}", "NO [TRYCREATE] No such mailbox")
+            .expect("CREATE \"Sent\"")
+            .expect("APPEND \"Sent\" (\\Seen) {literal}", "OK Saved")
+        runOps(session(other, imap))
+        imap.finish()
+        assertTrue(ops.byAccount(other).isEmpty())
+        assertNull(drafts.get(id))
+    }
+
+    @Test
     fun yahooSavesItsOwnCopy() {
         val yahoo = account("me@yahoo.com", Provider.OTHER, ProviderTable.byDomain("yahoo.com")!!.servers!!)
         mailbox(yahoo, "Sent", FolderRole.SENT)

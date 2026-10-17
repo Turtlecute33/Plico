@@ -2,10 +2,12 @@ package app.plico.sync
 
 import app.plico.R
 import app.plico.data.DraftState
+import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.OpKind
 import app.plico.data.Tables
 import app.plico.mail.imap.Command
+import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.UidSet
 import java.io.IOException
 
@@ -68,8 +70,7 @@ internal object Drafts {
         }
         Ops.checkAppendSize(ctx, bytes.size)
         val path = mailbox?.path ?: Ops.defaultPath(ctx, DEFAULT_PATH)
-        // Without APPENDUID, the UIDNEXT before the APPEND is a UID that the new revision is at or above (§7.6).
-        val before = if (mailbox != null && ctx.account.generic) ctx.select(mailbox).uidNext else null
+        val before = if (mailbox != null && ctx.account.generic) uidNextBefore(ctx, mailbox) else null
         ctx.progress(uploadMs(bytes.size))
         val uid = Ops.creating(ctx, path, FolderRole.DRAFTS) { ctx.client.append(path, FLAGS, bytes) } ?: before
         store.db.tx(Tables.DRAFT, Tables.OP) {
@@ -79,6 +80,16 @@ internal object Drafts {
             val keep = if (kept != null) uid else 0L
             if (keep != null) store.ops.insert(OpArg.DeleteDraft(draft.messageId, keep).toNewOp(ctx.account.id, store.now()))
         }
+    }
+
+    /**
+     * Without APPENDUID, the UIDNEXT before the APPEND is a UID that the new revision is at or above (§7.6). Null when
+     * the server refuses the SELECT (the mailbox is gone: the APPEND creates it, and no revision is deleted).
+     */
+    private fun uidNextBefore(ctx: OpContext, mailbox: Folder): Long? = try {
+        ctx.select(mailbox).uidNext
+    } catch (_: ImapNoException) {
+        null
     }
 
     /**

@@ -13,6 +13,7 @@ import app.plico.data.Files
 import app.plico.data.Folder
 import app.plico.data.FolderRole
 import app.plico.data.Tables
+import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.UidSet
 import app.plico.mail.mime.HeaderBlock
 import app.plico.mail.mime.HeaderSafety
@@ -213,8 +214,13 @@ object Sender {
      */
     private fun hasCopy(ctx: OpContext, sent: Folder, messageId: String?): Boolean {
         if (messageId == null) return false
-        // The stored UIDs of Sent are not used, so a new UIDVALIDITY does not matter here.
-        val sel = ctx.select(sent)
+        // The stored UIDs of Sent are not used, so a new UIDVALIDITY does not matter here. A refused SELECT (the
+        // mailbox is gone) means no copy: the APPEND creates the mailbox.
+        val sel = try {
+            ctx.select(sent)
+        } catch (_: ImapNoException) {
+            return false
+        }
         if (sel.exists == 0L) return false
         var found = false
         ctx.client.uidFetch(UidSet.range(maxOf(1, sel.uidNext - SENT_CHECK)), SENT_CHECK_ITEMS) { item ->
