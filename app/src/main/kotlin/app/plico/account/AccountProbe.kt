@@ -22,6 +22,12 @@ import java.io.IOException
 /** What setup's connection test found: notes for the user, and false [idle] when the server has no IDLE. */
 data class ProbeResult(val notes: List<String>, val idle: Boolean)
 
+/**
+ * A failed connection test. [error] is the classified failure; its cause chain keeps the `:mail` exception (for
+ * example a read timeout or a failed TLS handshake). [endpoint] is the server that the test used when it failed.
+ */
+class ProbeException(val endpoint: Endpoint, val error: MailError) : Exception(error.message, error)
+
 /** Setup's connection test (DESIGN.md §13): IMAP login and capabilities, mailbox access, SMTP login. */
 object AccountProbe {
     /** Notes for the Gmail mailboxes that LIST does not show ("Show in IMAP" off); a hidden All Mail stops setup. */
@@ -38,8 +44,8 @@ object AccountProbe {
 
     /**
      * Signs in to the IMAP and SMTP [servers] with [credentials] and logs out; returns user-visible notes and
-     * whether the server has IDLE. Every failure is thrown as a [MailError] (see [MailErrors.classify] and
-     * [MailErrors.localized]).
+     * whether the server has IDLE. Every failure is thrown as a [ProbeException] with a [MailError] (see
+     * [MailErrors.classify] and [MailErrors.localized]) and the endpoint that failed.
      *
      * Gmail: a hidden All Mail fails with [MailError.Setup]; a hidden Trash or Spam only adds a note. Other
      * servers: LIST and EXAMINE INBOX must work (Exchange and NetEase refuse only mailbox commands). A Gmail
@@ -71,10 +77,32 @@ object AccountProbe {
         imapConnect: (Endpoint) -> ImapClient,
         smtpConnect: (Endpoint) -> SmtpClient,
         validated: () -> Boolean,
-    ): ProbeResult = try {
+    ): ProbeResult {
+        var endpoint = servers.imap
+        return try {
+            test(texts, provider, servers, credentials, imapConnect, smtpConnect) { endpoint = it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ProbeException(endpoint, failure(texts, e, validated))
+        }
+    }
+
+    /** The IMAP test, then the SMTP test; [testing] gets each endpoint before its test starts. */
+    private suspend fun test(
+        texts: Texts,
+        provider: Provider,
+        servers: Servers,
+        credentials: Credentials,
+        imapConnect: (Endpoint) -> ImapClient,
+        smtpConnect: (Endpoint) -> SmtpClient,
+        testing: (Endpoint) -> Unit,
+    ): ProbeResult {
         val notes = ArrayList<String>()
+        testing(servers.imap)
         val idle = imapConnect(servers.imap).use { imap -> testImap(texts, provider, imap, credentials, notes) }
         if (!idle) notes += texts.plural(R.plurals.account_note_no_idle, POLL_MINUTES)
+        testing(servers.smtp)
         smtpConnect(servers.smtp).use { smtp ->
             try {
                 credentials.authSmtp(smtp)
@@ -84,11 +112,7 @@ object AccountProbe {
                 notes += texts.string(R.string.account_note_smtp_off)
             }
         }
-        ProbeResult(notes, idle)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        throw failure(texts, e, validated)
+        return ProbeResult(notes, idle)
     }
 
     /** The IMAP part; returns true when the server has IDLE. */

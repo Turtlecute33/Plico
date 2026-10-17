@@ -115,6 +115,24 @@ class LogoRulesTest {
         assertEquals(emptyList(), LogoRules.hosts(Prefs.LogoSource.WEBSITE))
     }
 
+    @Test
+    fun duckDuckGoAndGoogleReachOnlyTheirOwnHosts() {
+        val ddg = LogoRules.hopFor(Prefs.LogoSource.DUCKDUCKGO)
+        assertTrue(ddg(URI("https://icons.duckduckgo.com/ip3/example.com.ico").toURL()))
+        assertFalse(ddg(URI("https://example.com/favicon.ico").toURL()))
+        assertFalse(ddg(URI("https://duckduckgo.com.evil.com/x.ico").toURL()))
+        val google = LogoRules.hopFor(Prefs.LogoSource.GOOGLE)
+        assertTrue(google(URI("https://www.google.com/s2/favicons?domain=example.com&sz=64").toURL()))
+        assertTrue(google(URI("https://t3.gstatic.com/faviconV2?url=https://example.com").toURL()))
+        assertFalse(google(URI("https://evil.com/favicon.ico").toURL()))
+        assertFalse(google(URI("https://gstatic.com.evil.com/x").toURL()))
+        // The website source follows the redirects of the sender's site.
+        assertTrue(LogoRules.hopFor(Prefs.LogoSource.WEBSITE)(URI("https://cdn.example.net/icon.png").toURL()))
+        for (source in listOf(Prefs.LogoSource.DUCKDUCKGO, Prefs.LogoSource.GOOGLE)) {
+            for (url in LogoRules.urls(source, "example.com")) assertTrue(LogoRules.hopFor(source)(URI(url).toURL()), url)
+        }
+    }
+
     private fun bytes(vararg b: Int) = ByteArray(b.size) { b[it].toByte() }
 
     @Test

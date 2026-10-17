@@ -1,6 +1,6 @@
 # Plico
 
-A private, minimal email app for Android, made for **Riseup** and **Gmail**.
+A private, minimal email app for Android. It works with IMAP mail accounts.
 
 - **Fast push without Google.** New mail arrives through IMAP IDLE in seconds. Plico uses no Firebase and no
   server of its own, and it keeps battery use low with one connection per account and adaptive keep-alives.
@@ -14,7 +14,8 @@ Status: early development. Android 15 or later.
 
 ## Features
 
-- Riseup and Gmail accounts, a unified inbox, folders and Gmail labels, swipe actions, local and server search.
+- Any IMAP account with SSL/TLS or STARTTLS; setup finds the servers. A unified inbox, folders and Gmail labels,
+  swipe actions, local and server search.
 - Gmail sign-in with an app password, with Google sign-in in the browser, or with the Google account on the phone.
   The last two need your own Google Cloud OAuth client (see below).
 - Gmail: archive, labels, Important, categories for notifications, Spam and Trash.

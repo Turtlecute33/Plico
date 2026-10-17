@@ -136,6 +136,24 @@ class MailboxSyncFallbackDeviceTest : DbFixture() {
     }
 
     @Test
+    fun theNotifySweepKeepsTheStatusValueToo() {
+        server.selectUidNext = false
+        inbox.addAll(3)
+        val work = server.box("Work")
+        work.addAll(3)
+        work.expunge(listOf(3L)) // UIDNEXT stays 4; the highest UID is 2.
+        start()
+        folders.setNotify(folder("Work").id, true)
+        sync.notifySweep(SyncReport())
+        assertEquals(4, folder("Work").uidNext, "the STATUS UIDNEXT, not the estimate 3")
+
+        server.take()
+        sync.notifySweep(SyncReport())
+        val wake = server.take()
+        assertEquals(listOf("STATUS \"Work\" (MESSAGES UIDNEXT UIDVALIDITY)"), wake, "unchanged: no SELECT at every wake")
+    }
+
+    @Test
     fun deletedRowsAreHidden() {
         inbox.addAll(3)
         inbox.flag(1, "\\Deleted")

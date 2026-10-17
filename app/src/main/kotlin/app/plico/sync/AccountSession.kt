@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import app.plico.PlicoApp
 import app.plico.R
+import app.plico.account.AccountProbe
 import app.plico.account.AndroidSocketHooks
 import app.plico.account.Credentials
 import app.plico.account.MailError
@@ -474,7 +475,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             // The generic MOVE and expunge rules must never run on Gmail's All Mail (X-GM-EXT-1 never promotes, D18).
             if (!account.isGmail && client.isGmail) throw MailError.Setup(app.getString(R.string.account_error_gmail_server))
             // NetEase refuses SELECT until the client sends ID; only the minimal form, only to these hosts (§11.2).
-            if (ProviderTable.needsId(account.servers.imap.host)) client.id(listOf("name" to "Mail"))
+            if (ProviderTable.needsId(account.servers.imap.host)) client.id(AccountProbe.MINIMAL_ID)
             client.compress()
             if ("CONDSTORE" in client.caps && "ENABLE" in client.caps) client.enable("CONDSTORE")
         } catch (e: Throwable) {
@@ -524,6 +525,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                 publish(sync, report)
             }
             Ops.run(c.ctx)
+            if (sync.movedTargets(report)) publish(sync, report)
             Sender.run(c.ctx)
         }
         runRequests(c)

@@ -145,6 +145,33 @@ class GenericSyncDeviceTest : OpFixture() {
         assertEquals(4, messages.count(folder("INBOX").id))
     }
 
+    @Test
+    fun aMovedMessageIsSyncedBeforeTheNextConnection() {
+        inbox.addAll(2)
+        val junk = server.box("Junk", "\\Junk")
+        val spam = junk.add(subject = "Not spam after all")
+        start()
+        actions.spam(listOf(row(folder("Junk"), spam.uid)!!.id), isSpam = false)
+        clock += MailActions.UNDO_MS + 1_000
+        val imap = FakeImap()
+            .select("Junk", uidValidity = 1)
+            .expect("UID MOVE ${spam.uid} \"INBOX\"", "OK Done") // no COPYUID
+        runBlocking { Ops.run(session(accountId, imap, movedIn = movedIn)) }
+        imap.finish()
+        junk.expunge(listOf(spam.uid))
+        inbox.add(subject = spam.header.substringAfter("Subject: ").substringBefore("\r\n"), gmMsgId = spam.gmMsgId)
+
+        // POLL mode: the cycle syncs the target after the ops, before the next connection forgets the move.
+        assertTrue(sync.movedTargets(SyncReport()))
+        assertTrue(movedIn.paths().isEmpty())
+        assertEquals(3, messages.count(folder("INBOX").id), "the moved message shows at once")
+        movedIn.clear() // the next connection
+        inbox.add(subject = "Fresh")
+        push()
+        assertEquals(listOf("Fresh"), sync.claimNew().map { messages.get(it)!!.subject }, "\"Not spam\" is no new mail")
+        assertFalse(sync.movedTargets(SyncReport()), "nothing to do")
+    }
+
     private class MemoryNotes : KeyValueStore {
         private val values = HashMap<String, String>()
         override fun get(key: String) = values[key]

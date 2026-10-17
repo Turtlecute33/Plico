@@ -85,7 +85,7 @@ fun rememberSenderLogo(
     // Keyed, so that another sender or another source never keeps the logo of the one before.
     val state = remember(email, source, on) { mutableStateOf(if (on) logos.cached(email.orEmpty()) else null) }
     LaunchedEffect(email, source, on, before, exceptId) {
-        if (on && source != null && email != null) logos.load(email, source, before, exceptId)?.let { state.value = it }
+        if (on) logos.load(email, source, before, exceptId)?.let { state.value = it }
     }
     return if (on) state.value else null
 }
@@ -280,7 +280,9 @@ internal class LogoCache<T : Any>(
             // One budget per URL: a large first answer (also one that does not decode) must not make the next
             // URL fail, else the domain gets no "no logo" entry and is fetched again after each failure time.
             val budget = RemoteFetcher.Budget(LogoRules.MAX_BYTES.toLong(), parallel = 1)
-            val request = RemoteFetcher.Request(url, "image/*", LogoRules.MAX_BYTES, type = { it.startsWith("image/") })
+            val request = RemoteFetcher.Request(
+                url, "image/*", LogoRules.MAX_BYTES, type = { it.startsWith("image/") }, hop = LogoRules.hopFor(source),
+            )
             when (val fetched = fetch(request, budget)) {
                 is RemoteFetcher.Fetched.Ok -> {
                     // Bytes that do not decode count as "no logo at this URL".

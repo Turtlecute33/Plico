@@ -43,7 +43,9 @@ internal class SyncAccount(val env: SyncEnv) {
             if (status == null) {
                 report.relist = true
             } else if (status.uidNext > folder.uidNext || status.uidValidity != folder.uidValidity) {
-                mailbox.newMail(folder, report)?.let { mailbox.flagsAndExpunge(it, fullFlags = false, report) }
+                // The STATUS value: a SELECT without UIDNEXT gives only an estimate (plan §5.5).
+                mailbox.newMail(folder, report, statusUidNext = status.uidNext)
+                    ?.let { mailbox.flagsAndExpunge(it, fullFlags = false, report) }
             }
         }
     }
@@ -69,6 +71,22 @@ internal class SyncAccount(val env: SyncEnv) {
         if (!env.gmail) {
             env.client.quota()?.let { env.accounts.setQuota(env.accountId, it.usedKiB * KIB, it.limitKiB * KIB) }
         }
+    }
+
+    /**
+     * New mail of the mailboxes that got messages through a move without COPYUID (DESIGN §7.4), on this
+     * connection: the rows are stored as notified before the next connection forgets the moved Message-IDs (also
+     * in POLL mode), and they show at once. A mailbox without its first sync stores its rows as notified anyway.
+     * Returns false when there was nothing to do.
+     */
+    fun movedTargets(report: SyncReport): Boolean {
+        val paths = env.movedIn.paths()
+        for (path in paths) {
+            val folder = env.folders.byPath(env.accountId, FolderKind.MAILBOX, path)
+            if (folder != null && folder.backfillUid != 0L) mailbox.newMail(folder, report)
+            env.movedIn.forget(path)
+        }
+        return paths.isNotEmpty()
     }
 
     /** A folder opened in the UI; a Gmail label view syncs All Mail. */

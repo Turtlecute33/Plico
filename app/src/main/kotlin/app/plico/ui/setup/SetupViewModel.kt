@@ -20,6 +20,7 @@ import app.plico.account.MailError
 import app.plico.account.OAuthCredentials
 import app.plico.account.OAuthIssuer
 import app.plico.account.PasswordCredentials
+import app.plico.account.ProbeException
 import app.plico.account.ProviderTable
 import app.plico.account.Providers
 import app.plico.account.discovery.Discovery
@@ -224,14 +225,14 @@ class SetupViewModel(
         }
         val typed = password.text.toString()
         val retry = current.retriesLogin
-        test(provider, Method.PASSWORD, starttls = servers.timeoutMeansNoTls) {
+        test(provider, Method.PASSWORD) {
             if (retry) _state.update { it.loginRetryUsed() }
             checkIdentity(address)
             var tested = servers
             val result = try {
                 probePassword(provider, tested, address, typed)
-            } catch (e: MailError.AuthRequired) {
-                if (!retry) throw e
+            } catch (e: ProbeException) {
+                if (!retry || e.error !is MailError.AuthRequired) throw e
                 // RFC 6186 §4: some servers want only the local part as the user name.
                 tested = servers.copy(login = address.substringBeforeLast('@'))
                 probePassword(provider, tested, address, typed)
@@ -425,7 +426,6 @@ class SetupViewModel(
         provider: Provider,
         method: Method,
         busy: Busy = Busy.TESTING,
-        starttls: Boolean = false,
         block: suspend () -> SignedIn?,
     ) {
         work?.cancel()
@@ -439,7 +439,7 @@ class SetupViewModel(
             } catch (e: Rejected) {
                 _state.update { it.failed(e.problem) }
             } catch (e: Exception) {
-                _state.update { it.failed(Problem.of(e, provider, method, starttls)) }
+                _state.update { it.failed(Problem.of(e, provider, method)) }
             } finally {
                 if (method == Method.PASSWORD) password.clearText()
             }

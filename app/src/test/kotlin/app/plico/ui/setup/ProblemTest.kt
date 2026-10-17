@@ -2,8 +2,8 @@ package app.plico.ui.setup
 
 import app.plico.account.MailError
 import app.plico.account.OAuthIssuer
+import app.plico.account.ProbeException
 import app.plico.data.Provider
-import app.plico.data.Servers
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.RespCode
 import app.plico.mail.net.Endpoint
@@ -23,7 +23,7 @@ import kotlin.test.assertEquals
 class ProblemTest {
     private fun riseup(e: Throwable) = Problem.of(e, Provider.RISEUP, Method.PASSWORD)
 
-    private fun other(e: Throwable, starttls: Boolean = false) = Problem.of(e, Provider.OTHER, Method.PASSWORD, starttls)
+    private fun other(e: Throwable) = Problem.of(e, Provider.OTHER, Method.PASSWORD)
 
     private fun gmail(e: Throwable, method: Method = Method.PASSWORD) = Problem.of(e, Provider.GMAIL, method)
 
@@ -100,32 +100,50 @@ class ProblemTest {
         assertEquals(Problem(Problem.Kind.NO_TLS), other(MailError.Network(plain)))
     }
 
+    private fun failedAt(tls: TlsMode, port: Int, error: MailError) =
+        ProbeException(Endpoint("mail.example.org", port, tls), error)
+
     @Test
-    fun `a missing greeting with STARTTLS means the port expects SSL TLS`() {
-        val timeout = SocketTimeoutException("Read timed out")
-        assertEquals(Problem(Problem.Kind.NO_TLS), other(MailError.Network(timeout), starttls = true))
-        assertEquals(Problem(Problem.Kind.NO_TLS), other(timeout, starttls = true))
-        // With implicit TLS, or when the connection itself timed out, it is a network problem.
-        assertEquals(Problem(Problem.Kind.NETWORK), other(MailError.Network(timeout), starttls = false))
+    fun `a missing greeting from a STARTTLS server means the port expects SSL TLS`() {
+        val timeout = MailError.Network(SocketTimeoutException("Read timed out"))
+        // IMAP with STARTTLS, also on 993, and SMTP with STARTTLS on 465: the server waits for a TLS handshake.
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 143, timeout)))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 993, timeout)))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.STARTTLS, 465, timeout)))
+        // The failed server uses SSL/TLS (e.g. IMAP 993 next to SMTP STARTTLS on 587): a network problem.
+        assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.IMPLICIT, 993, timeout)))
+        // Without the failed server (no connection test), a read timeout is a network problem.
+        assertEquals(Problem(Problem.Kind.NETWORK), other(timeout))
+        // The connection itself timed out: a network problem, also with STARTTLS.
         val connect = SocketTimeoutException("failed to connect to imap.example.org/192.0.2.1 (port 143) after 20000ms")
-        assertEquals(Problem(Problem.Kind.NETWORK), other(MailError.Network(connect), starttls = true))
+        assertEquals(Problem(Problem.Kind.NETWORK), other(failedAt(TlsMode.STARTTLS, 143, MailError.Network(connect))))
     }
 
-    private fun servers(imap: TlsMode, imapPort: Int, smtp: TlsMode, smtpPort: Int) =
-        Servers(Endpoint("imap.example.org", imapPort, imap), Endpoint("smtp.example.org", smtpPort, smtp))
+    @Test
+    fun `built-in servers have known TLS modes, so a failed handshake there is a network problem`() {
+        val reset = MailError.Network(TlsHandshakeException(SSLException("Connection reset by peer")))
+        assertEquals(Problem(Problem.Kind.NETWORK), riseup(failedAt(TlsMode.IMPLICIT, 993, reset)))
+        assertEquals(Problem(Problem.Kind.NETWORK), gmail(failedAt(TlsMode.IMPLICIT, 465, reset)))
+        assertEquals(Problem(Problem.Kind.NO_TLS), other(failedAt(TlsMode.IMPLICIT, 993, reset)))
+        // Microsoft SMTP uses STARTTLS on 587: a slow server is a network problem, not a wrong setting.
+        val timeout = MailError.Network(SocketTimeoutException("Read timed out"))
+        assertEquals(
+            Problem(Problem.Kind.NETWORK),
+            Problem.of(failedAt(TlsMode.STARTTLS, 587, timeout), Provider.MICROSOFT, Method.BROWSER),
+        )
+        // A refused STARTTLS is never a network problem.
+        val refused = MailError.Tls(StartTlsException("STARTTLS refused"))
+        assertEquals(
+            Problem(Problem.Kind.NO_TLS),
+            Problem.of(failedAt(TlsMode.STARTTLS, 587, refused), Provider.MICROSOFT, Method.BROWSER),
+        )
+    }
 
     @Test
-    fun `a read timeout is NO_TLS only when the STARTTLS server can be the one that failed`() {
-        val timeout = MailError.Network(SocketTimeoutException("Read timed out"))
-        fun of(servers: Servers) = other(timeout, servers.timeoutMeansNoTls).kind
-        // The usual pair IMAP SSL/TLS and SMTP STARTTLS on 587: a slow IMAP server is a network problem.
-        assertEquals(Problem.Kind.NETWORK, of(servers(TlsMode.IMPLICIT, 993, TlsMode.STARTTLS, 587)))
-        assertEquals(Problem.Kind.NETWORK, of(servers(TlsMode.IMPLICIT, 993, TlsMode.IMPLICIT, 465)))
-        // IMAP is tested first: IMAP with STARTTLS (also on 993) waits for a greeting that does not come.
-        assertEquals(Problem.Kind.NO_TLS, of(servers(TlsMode.STARTTLS, 143, TlsMode.IMPLICIT, 465)))
-        assertEquals(Problem.Kind.NO_TLS, of(servers(TlsMode.STARTTLS, 993, TlsMode.STARTTLS, 587)))
-        // SMTP STARTTLS on the SSL/TLS port is a wrong setting.
-        assertEquals(Problem.Kind.NO_TLS, of(servers(TlsMode.IMPLICIT, 993, TlsMode.STARTTLS, 465)))
+    fun `a failed connection test is classified by its error`() {
+        val refused = MailError.AuthRequired("[AUTHENTICATIONFAILED] Authentication failed.")
+        assertEquals(Problem(Problem.Kind.WRONG_PASSWORD), other(failedAt(TlsMode.IMPLICIT, 993, refused)))
+        assertEquals(Problem(Problem.Kind.SETUP, "hint"), other(failedAt(TlsMode.IMPLICIT, 465, MailError.Setup("hint"))))
     }
 
     @Test
@@ -137,7 +155,7 @@ class ProblemTest {
         assertEquals(Problem(Problem.Kind.TLS), riseup(certificate))
         assertEquals(Problem(Problem.Kind.TLS), riseup(MailError.Tls(certificate)))
         // A certificate failure with STARTTLS is still a certificate failure.
-        assertEquals(Problem(Problem.Kind.TLS), other(MailError.Tls(certificate), starttls = true))
+        assertEquals(Problem(Problem.Kind.TLS), other(failedAt(TlsMode.STARTTLS, 587, MailError.Tls(certificate))))
         assertEquals(Problem(Problem.Kind.THROTTLED), riseup(MailError.Throttled("Maximum number of connections")))
     }
 

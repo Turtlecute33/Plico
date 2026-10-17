@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- tools:ignore="UnusedResources" marks texts for code that is not written yet. -->
+<resources>
     <!-- An issuer argument is Google or Microsoft: brand names, not translated. -->
     <string name="account_error_no_client_id">Enter your %1$s client ID first (Settings → Sign-in clients).</string>
     <string name="account_error_no_browser">Install a web browser to sign in.</string>
@@ -22,18 +21,18 @@
 
     <!-- Microsoft -->
     <!-- 1: the redirect URI of Plico -->
-    <string name="account_error_oauth_client_microsoft" tools:ignore="UnusedResources">Microsoft does not accept your client ID. Make sure that the redirect URI %1$s is under Mobile and desktop applications.</string>
-    <string name="account_error_ms_account_types" tools:ignore="UnusedResources">Microsoft did not accept your client ID for this account. Make sure that the client ID is correct. The account types must be \"Any Entra ID tenant and personal Microsoft accounts\".</string>
-    <string name="account_error_oauth_admin" tools:ignore="UnusedResources">An administrator must approve Plico for this account. Ask the administrator of your organization.</string>
-    <string name="account_error_ms_imap_off" tools:ignore="UnusedResources">Microsoft did not open the mailbox. In Outlook.com, turn on IMAP for devices and apps. Make sure that you signed in with the main address of the account.</string>
-    <string name="account_note_smtp_off" tools:ignore="UnusedResources">Microsoft does not let apps send mail from this account. Plico can receive mail, but it cannot send it. The administrator of the account can turn on SMTP AUTH.</string>
+    <string name="account_error_oauth_client_microsoft">Microsoft does not accept your client ID. Make sure that the redirect URI %1$s is under Mobile and desktop applications.</string>
+    <string name="account_error_ms_account_types">Microsoft did not accept your client ID for this account. Make sure that the client ID is correct. The account types must be \"Any Entra ID tenant and personal Microsoft accounts\".</string>
+    <string name="account_error_oauth_admin">An administrator must approve Plico for this account. Ask the administrator of your organization.</string>
+    <string name="account_error_ms_imap_off">Microsoft did not open the mailbox. In Outlook.com, turn on IMAP for devices and apps. Make sure that you signed in with the main address of the account.</string>
+    <string name="account_note_smtp_off">Microsoft does not let apps send mail from this account. Plico can receive mail, but it cannot send it. The administrator of the account can turn on SMTP AUTH.</string>
 
     <!-- Any server -->
-    <string name="account_error_redirect_taken" tools:ignore="UnusedResources">Another app on this phone can receive the sign-in answer for Plico. Remove that app, then try again.</string>
-    <string name="account_error_auth_method" tools:ignore="UnusedResources">The server does not accept a password sign-in that Plico can use.</string>
-    <string name="account_error_sign_in_kind" tools:ignore="UnusedResources">Plico cannot use this sign-in method with this server. Remove this account and add it again.</string>
-    <string name="account_error_gmail_server" tools:ignore="UnusedResources">This server is a Gmail server. Remove this account and add it again.</string>
-    <plurals name="account_note_no_idle" tools:ignore="UnusedResources">
+    <string name="account_error_redirect_taken">Another app on this phone can receive the sign-in answer for Plico. Remove that app, then try again.</string>
+    <string name="account_error_auth_method">The server does not accept a password sign-in that Plico can use.</string>
+    <string name="account_error_sign_in_kind">Plico cannot use this sign-in method with this server. Remove this account and add it again.</string>
+    <string name="account_error_gmail_server">This server is a Gmail server. Remove this account and add it again.</string>
+    <plurals name="account_note_no_idle">
         <item quantity="one">This server cannot tell Plico about new mail immediately. Plico checks for new mail every %d minute. You can change this in the account settings.</item>
         <item quantity="other">This server cannot tell Plico about new mail immediately. Plico checks for new mail every %d minutes. You can change this in the account settings.</item>
     </plurals>

@@ -2,13 +2,15 @@ package app.plico.html
 
 import app.plico.account.ProviderTable
 import app.plico.data.Prefs
+import java.net.URL
+import java.util.Locale
 
 /**
  * Pure rules for sender logos (DESIGN.md §12): which domain a sender gets a logo for, what each source gets and
  * which hosts it uses, which bytes may be decoded, and how long the cache keeps an answer.
  */
 object LogoRules {
-    /** Largest logo response; also the byte budget of one domain. */
+    /** Largest logo response; also the byte budget of one URL. */
     const val MAX_BYTES = 262_144
 
     /** Smallest and largest logo side in pixels before scaling. */
@@ -60,6 +62,20 @@ object LogoRules {
         Prefs.LogoSource.DUCKDUCKGO -> listOf("icons.duckduckgo.com")
         Prefs.LogoSource.GOOGLE -> listOf("www.google.com", "*.gstatic.com")
         Prefs.LogoSource.WEBSITE -> emptyList()
+    }
+
+    /**
+     * The hop rule of a logo request ([RemoteFetcher.Request.hop]): DuckDuckGo and Google reach only their own
+     * [hosts], also after a redirect, so that no sender sees the address of the phone through them (D20). The
+     * website source may follow the redirects of the sender's site.
+     */
+    fun hopFor(source: Prefs.LogoSource): (URL) -> Boolean {
+        if (source == Prefs.LogoSource.WEBSITE) return { true }
+        val hosts = hosts(source)
+        return { url ->
+            val host = url.host.lowercase(Locale.ROOT)
+            hosts.any { if (it.startsWith("*.")) host.endsWith(it.substring(1)) else host == it }
+        }
     }
 
     /** The image formats that a logo may have, with the MIME types that the platform decoder reports for each. */

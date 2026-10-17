@@ -6,6 +6,7 @@ import app.plico.account.MailError
 import app.plico.account.MailErrors
 import app.plico.account.OAuthIssuer
 import app.plico.account.PasswordCredentials
+import app.plico.account.ProbeException
 import app.plico.account.ProviderTable
 import app.plico.account.discovery.Discovery
 import app.plico.account.discovery.Outcome
@@ -118,13 +119,13 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
         private const val MAX_CAUSES = 16
 
         /**
-         * The message for a failed connection test of [provider] with [method] (DESIGN §14). [starttls] is true
-         * when the failed server uses STARTTLS (see [Servers.timeoutMeansNoTls]): a read timeout then means the
-         * port expects implicit TLS.
+         * The message for a failed connection test of [provider] with [method] (DESIGN §14). A [ProbeException]
+         * in the cause chain gives the classified error and the server that failed.
          */
-        fun of(error: Throwable, provider: Provider, method: Method, starttls: Boolean = false): Problem {
-            if (noTls(error, starttls)) return Problem(Kind.NO_TLS)
-            return when (val e = MailErrors.classify(error, networkValidated = true)) {
+        fun of(error: Throwable, provider: Provider, method: Method): Problem {
+            val probe = generateSequence(error) { it.cause }.take(MAX_CAUSES).firstNotNullOfOrNull { it as? ProbeException }
+            if (noTls(error, provider, probe?.endpoint)) return Problem(Kind.NO_TLS)
+            return when (val e = MailErrors.classify(probe?.error ?: error, networkValidated = true)) {
                 is MailError.AuthRequired -> when {
                     method != Method.PASSWORD -> Problem(
                         Kind.SIGN_IN_REFUSED,
@@ -145,14 +146,24 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
         }
 
         /**
-         * STARTTLS failed, the TLS handshake met a server that does not speak TLS on this port, or (with STARTTLS)
-         * the greeting did not come: the server waits for a TLS handshake. A connect timeout is a network problem.
+         * STARTTLS failed. For servers that the user entered or that setup found (OTHER) also: the TLS handshake
+         * met a server that does not speak TLS on this port, or the failed [endpoint] uses STARTTLS and its
+         * greeting did not come (the server waits for a TLS handshake). The built-in servers of Riseup, Gmail and
+         * Microsoft have known TLS modes, so there these failures are network problems (resets, captive
+         * portals). A connect timeout is always a network problem.
          */
-        private fun noTls(error: Throwable, starttls: Boolean): Boolean =
-            generateSequence(error) { it.cause }.take(MAX_CAUSES).any {
-                it is StartTlsException || it is TlsHandshakeException ||
-                    (starttls && it is SocketTimeoutException && !it.message.orEmpty().contains("connect", true))
+        private fun noTls(error: Throwable, provider: Provider, endpoint: Endpoint?): Boolean {
+            val other = provider == Provider.OTHER
+            val starttls = endpoint?.tls == TlsMode.STARTTLS
+            return generateSequence(error) { it.cause }.take(MAX_CAUSES).any {
+                when {
+                    it is StartTlsException -> true
+                    !other -> false
+                    it is TlsHandshakeException -> true
+                    else -> starttls && it is SocketTimeoutException && !it.message.orEmpty().contains("connect", true)
+                }
             }
+        }
     }
 }
 
@@ -573,14 +584,3 @@ object SetupInput {
         return lower.substringBeforeLast('@').replace(".", "") + "@gmail.com"
     }
 }
-
-/**
- * The `starttls` value of [Problem.of] for a test of these servers: true when a read timeout probably means a
- * STARTTLS server that waits for a TLS handshake. The test does not tell which server failed, so: IMAP with
- * STARTTLS (IMAP is tested first, and a missing greeting shows there), or SMTP with STARTTLS on the SSL/TLS
- * port 465 (then the setting is wrong, whichever server timed out). SMTP STARTTLS on 587 with IMAP SSL/TLS is
- * a usual pair: a timeout there is a network problem.
- */
-internal val Servers.timeoutMeansNoTls: Boolean
-    get() = imap.tls == TlsMode.STARTTLS ||
-        (smtp.tls == TlsMode.STARTTLS && smtp.port == SetupInput.defaultPort(imap = false, TlsMode.IMPLICIT))

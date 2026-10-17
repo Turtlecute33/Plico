@@ -14,9 +14,11 @@ import app.plico.mail.smtp.SmtpAuthUnavailableException
 import app.plico.mail.smtp.SmtpClient
 import app.plico.sync.FolderRules
 import kotlinx.coroutines.test.runTest
+import java.net.SocketTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class AccountProbeTest {
@@ -80,8 +82,9 @@ class AccountProbeTest {
     ): ProbeResult = AccountProbe.probe(
         texts, provider, servers, credentials,
         imapConnect = { endpoint ->
-            val stream = CannedStream(*imapLines).also(imapStreams::add)
-            ImapClient(ImapConnection(stream), endpoint.host)
+            // As ImapClient.connect: the greeting is read, so the capabilities before the login are known.
+            val stream = CannedStream(IMAP_GREETING, *imapLines).also(imapStreams::add)
+            ImapClient(ImapConnection(stream).apply { greeting() }, endpoint.host)
         },
         smtpConnect = { endpoint ->
             val stream = CannedStream(*smtpGreeting, *smtpLines).also(smtpStreams::add)
@@ -89,6 +92,29 @@ class AccountProbeTest {
         },
         validated = { true },
     )
+
+    /** The classified error of a failed probe, after a check that the failure names [endpoint]. */
+    private inline fun <reified T : MailError> failsAt(endpoint: Endpoint, block: () -> Unit): T {
+        val failure = assertFailsWith<ProbeException>(block = block)
+        assertEquals(endpoint, failure.endpoint)
+        return assertIs<T>(failure.error)
+    }
+
+    @Test
+    fun `a failure names the server that failed and keeps the cause`() = runTest {
+        // STARTTLS chosen on the SSL/TLS port: the SMTP greeting does not come.
+        val servers = other.copy(smtp = Endpoint("smtp.example.org", 465, TlsMode.STARTTLS))
+        val failure = assertFailsWith<ProbeException> {
+            AccountProbe.probe(
+                texts, Provider.OTHER, servers, PasswordCredentials(Provider.OTHER, "me@example.org", "pw"),
+                imapConnect = { ImapClient(ImapConnection(CannedStream(IMAP_GREETING, *mailbox())).apply { greeting() }, it.host) },
+                smtpConnect = { throw SocketTimeoutException("Read timed out") },
+                validated = { true },
+            )
+        }
+        assertEquals(servers.smtp, failure.endpoint)
+        assertIs<SocketTimeoutException>(assertIs<MailError.Network>(failure.error).cause)
+    }
 
     private class Endpoint0 : TokenEndpoint {
         var refreshes = 0
@@ -118,7 +144,7 @@ class AccountProbeTest {
     @Test
     fun `another provider fails on an SMTP setup problem`() = runTest {
         val off = "535 5.7.139 Authentication unsuccessful"
-        val error = assertFailsWith<MailError.Setup> {
+        val error = failsAt<MailError.Setup>(other.smtp) {
             probe(Provider.OTHER, other, PasswordCredentials(Provider.OTHER, "me@example.org", "pw"), mailbox(), arrayOf(off))
         }
         assertEquals("535 5.7.139 Authentication unsuccessful", error.message)
@@ -126,7 +152,7 @@ class AccountProbeTest {
 
     @Test
     fun `a Gmail server is never another provider`() = runTest {
-        val error = assertFailsWith<MailError.Setup> {
+        val error = failsAt<MailError.Setup>(other.imap) {
             probe(
                 Provider.OTHER, other, PasswordCredentials(Provider.OTHER, "me@example.org", "pw"),
                 mailbox("IMAP4rev1 IDLE X-GM-EXT-1"), arrayOf(SMTP_OK),
@@ -142,7 +168,9 @@ class AccountProbeTest {
             "me@outlook.com", { "refresh" }, Endpoint0(), AccessToken("setup", Long.MAX_VALUE / 2),
             clock = { 0L }, hosts = OAuthIssuer.MICROSOFT.hosts, smtpOff = "smtp off",
         )
-        val error = assertFailsWith<MailError.Setup> { probe(Provider.MICROSOFT, microsoft, credentials, lines, arrayOf(SMTP_OK)) }
+        val error = failsAt<MailError.Setup>(microsoft.imap) {
+            probe(Provider.MICROSOFT, microsoft, credentials, lines, arrayOf(SMTP_OK))
+        }
         assertEquals("text-${R.string.account_error_ms_imap_off}", error.message)
     }
 
@@ -179,19 +207,19 @@ class AccountProbeTest {
         val noPlain = object : Credentials by PasswordCredentials(Provider.OTHER, "me", "pw") {
             override suspend fun authImap(client: ImapClient) = throw ImapMissingCapabilityException(setOf("AUTH=PLAIN"))
         }
-        val error = assertFailsWith<MailError.Setup> { probe(Provider.OTHER, other, noPlain, mailbox(), arrayOf(SMTP_OK)) }
+        val error = failsAt<MailError.Setup>(other.imap) { probe(Provider.OTHER, other, noPlain, mailbox(), arrayOf(SMTP_OK)) }
         assertEquals("text-${R.string.account_error_auth_method}", error.message)
         val noAuth = object : Credentials by PasswordCredentials(Provider.OTHER, "me", "pw") {
             override suspend fun authSmtp(client: SmtpClient) = throw SmtpAuthUnavailableException()
         }
-        val smtpError = assertFailsWith<MailError.Setup> { probe(Provider.OTHER, other, noAuth, mailbox(), arrayOf(SMTP_OK)) }
+        val smtpError = failsAt<MailError.Setup>(other.smtp) { probe(Provider.OTHER, other, noAuth, mailbox(), arrayOf(SMTP_OK)) }
         assertEquals("text-${R.string.account_error_auth_method}", smtpError.message)
     }
 
     @Test
     fun `a wrong password is classified`() = runTest {
         val lines = arrayOf("A1 NO [AUTHENTICATIONFAILED] Authentication failed.")
-        val error = assertFailsWith<MailError.AuthRequired> {
+        val error = failsAt<MailError.AuthRequired>(other.imap) {
             probe(Provider.OTHER, other, PasswordCredentials(Provider.OTHER, "me@example.org", "pw"), lines, arrayOf(SMTP_OK))
         }
         assertEquals("Authentication failed.", error.message)
@@ -203,7 +231,7 @@ class AccountProbeTest {
             "me@gmail.com", { "refresh" }, Endpoint0(), AccessToken("setup", Long.MAX_VALUE / 2),
             clock = { 0L }, hosts = OAuthIssuer.GOOGLE.hosts,
         )
-        val error = assertFailsWith<MailError.Setup> { probe(Provider.GMAIL, other, credentials, mailbox(), arrayOf(SMTP_OK)) }
+        val error = failsAt<MailError.Setup>(other.imap) { probe(Provider.GMAIL, other, credentials, mailbox(), arrayOf(SMTP_OK)) }
         assertEquals("text-${R.string.account_error_sign_in_kind}", error.message)
         assertEquals(emptyList(), imapStreams.single().written())
     }

@@ -10,6 +10,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.io.File
+import java.net.URI
+import java.net.URL
 import java.nio.file.Files as NioFiles
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
@@ -30,6 +32,7 @@ class SenderLogosTest {
     private var knownResult = false
     private val knownCalls = CopyOnWriteArrayList<String>()
     private val requests = CopyOnWriteArrayList<String>()
+    private val hops = CopyOnWriteArrayList<(URL) -> Boolean>()
 
     /** URL → answer; anything else is Missing. */
     private val answers = HashMap<String, Fetched>()
@@ -63,6 +66,7 @@ class SenderLogosTest {
         },
         fetch = { request, budget ->
             requests += request.url
+            hops += request.hop
             onFetch()
             val answer = answers[request.url] ?: Fetched.Missing
             // Like RemoteFetcher: the body comes out of the budget, and a spent budget fails the fetch.
@@ -86,6 +90,8 @@ class SenderLogosTest {
         val cache = cache()
         assertEquals("logo", cache.load("jane.doe@news.example.com", Prefs.LogoSource.DUCKDUCKGO, 0, 1))
         assertEquals(listOf(ddg), requests)
+        // A redirect may not leave DuckDuckGo: the sender's site never sees the phone (D20).
+        assertFalse(hops.single()(URI("https://example.com/favicon.ico").toURL()))
         // The first-contact rule is only for the website source.
         assertTrue(knownCalls.isEmpty())
         // Memory by host, without I/O; the file holds the re-encoded image, never the server's bytes.

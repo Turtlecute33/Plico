@@ -28,16 +28,28 @@ internal class CannedStream(vararg serverLines: String) : MailStream {
     fun saslResponse(): String = String(Base64.getDecoder().decode(written().first().substringAfterLast(' ')), Charsets.UTF_8)
 }
 
-/** [host] is the endpoint host that credentials check before they send a token. */
+/**
+ * A client after the greeting, so that its capabilities are known ([IMAP_GREETING]); [serverLines] answer the
+ * first command. [host] is the endpoint host that credentials check before they send a token.
+ */
 internal fun imap(vararg serverLines: String, host: String = GMAIL_IMAP): Pair<ImapClient, CannedStream> {
-    val stream = CannedStream(*serverLines)
-    return ImapClient(ImapConnection(stream), host) to stream
+    val stream = CannedStream(IMAP_GREETING, *serverLines)
+    val conn = ImapConnection(stream)
+    conn.greeting()
+    return ImapClient(conn, host) to stream
 }
 
+/** A client after the greeting and EHLO ([SMTP_START]); the output starts empty, so [serverLines] answer the first command. */
 internal fun smtp(vararg serverLines: String, host: String = GMAIL_SMTP): Pair<SmtpClient, CannedStream> {
-    val stream = CannedStream(*serverLines)
-    return SmtpClient(stream, host = host) to stream
+    val stream = CannedStream(*SMTP_START, *serverLines)
+    val client = SmtpClient(stream, host = host)
+    client.start()
+    stream.output.reset()
+    return client to stream
 }
+
+internal const val IMAP_GREETING = "* OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN] ready"
+private val SMTP_START = arrayOf("220 smtp.example ESMTP", "250-smtp.example", "250 AUTH PLAIN LOGIN XOAUTH2")
 
 internal const val GMAIL_IMAP = "imap.gmail.com"
 internal const val GMAIL_SMTP = "smtp.gmail.com"

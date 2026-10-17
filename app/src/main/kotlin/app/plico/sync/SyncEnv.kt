@@ -131,6 +131,15 @@ internal class MovedIn {
         return found
     }
 
+    /** The mailboxes that wait for moved messages. */
+    @Synchronized
+    fun paths(): Set<String> = byPath.keys.toSet()
+
+    @Synchronized
+    fun forget(path: String) {
+        byPath.remove(path)
+    }
+
     @Synchronized
     fun clear() = byPath.clear()
 }
