@@ -2,6 +2,8 @@ package app.plico.account
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.SystemClock
 import app.plico.PlicoApp
@@ -115,10 +117,18 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
     /**
      * Opens the consent page of [issuer] in the default browser. [email] is the login hint; the user can still
      * pick another account, so the result's email comes from the id_token. Throws [MailError.Setup] without a
-     * client ID.
+     * client ID, and when another app can also receive the redirect URI (PKCE stops it from using the code, but
+     * its chooser would block the sign-in).
      */
     fun start(activity: Activity, email: String) {
         val clientId = clientId(issuer)
+        val handlers = activity.packageManager.queryIntentActivities(
+            Intent(Intent.ACTION_VIEW, Uri.parse(redirectUri)),
+            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
+        ).mapNotNull { it.activityInfo?.packageName }
+        if (otherHandlers(handlers, context.packageName).isNotEmpty()) {
+            throw MailError.Setup(context.getString(R.string.account_error_redirect_taken))
+        }
         val verifier = randomToken()
         val state = randomToken()
         prefs.put(PENDING_KEY, Pending(state, verifier, email, now(), issuer = issuer).toJson())
@@ -132,7 +142,8 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
     /**
      * Exchanges the code that [onRedirect] stored, with the issuer of the pending entry. Returns null while no
      * redirect has arrived. Throws [MailError.AuthRequired] when the user declined, [MailError.Setup] for an
-     * expired sign-in, a rejected client or a missing mail scope, and IOException for network failures.
+     * expired sign-in, a rejected client, a client that needs an administrator or other account types, or a
+     * missing mail scope, and IOException for network failures.
      */
     suspend fun completePending(): SignIn? {
         val pending = pending(prefs) ?: return null
@@ -142,14 +153,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
         }
         prefs.put(PENDING_KEY, null)
         val issuer = pending.issuer
-        if (issuer == OAuthIssuer.MICROSOFT) TODO("B")
-        pending.error?.let { error ->
-            throw if (error == "access_denied") {
-                MailError.AuthRequired(context.getString(R.string.account_error_oauth_denied))
-            } else {
-                MailError.Setup(context.getString(R.string.account_error_oauth_failed, error))
-            }
-        }
+        pending.error?.let { throw redirectError(issuer, it, pending.errorCode) }
         val code = pending.code
         if (code == null || !pending.isFresh(now())) {
             throw MailError.Setup(context.getString(R.string.account_error_oauth_expired))
@@ -157,31 +161,23 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
 
         val response = tokenRequest(
             issuer,
-            "grant_type" to "authorization_code",
-            "code" to code,
-            "code_verifier" to pending.verifier,
-            "client_id" to clientId(issuer),
-            "redirect_uri" to issuer.redirectUri(context.packageName),
+            exchangeForm(issuer, code, pending.verifier, clientId(issuer), issuer.redirectUri(context.packageName)),
         )
         if (!grantsMail(issuer, response.scope)) {
             throw MailError.Setup(context.getString(R.string.account_error_oauth_scope))
         }
-        val email = response.idToken?.let(::emailFromIdToken)
+        val idClaims = response.idToken?.let { claims(it) }
         val refreshToken = response.refreshToken
-        if (email == null || refreshToken == null) {
-            throw MailError.Server(context.getString(R.string.account_error_oauth_incomplete, issuer.brand))
-        }
-        return SignIn(email, null, refreshToken, response.accessToken())
+        val signIn = refreshToken?.let { identity(issuer, idClaims, pending.email, it, response.accessToken()) }
+        return signIn ?: throw MailError.Server(context.getString(R.string.account_error_oauth_incomplete, issuer.brand))
     }
 
-    override suspend fun refresh(refreshToken: String): AccessToken {
-        if (issuer == OAuthIssuer.MICROSOFT) TODO("B")
-        return tokenRequest(
-            issuer,
-            "grant_type" to "refresh_token",
-            "refresh_token" to refreshToken,
-            "client_id" to clientId(issuer),
-        ).accessToken()
+    override suspend fun refresh(refreshToken: String): AccessToken = refreshGrant(refreshToken).accessToken
+
+    /** A refresh; Microsoft sends the refresh scopes and may send a new refresh token (rotation). */
+    override suspend fun refreshGrant(refreshToken: String): Refreshed {
+        val response = tokenRequest(issuer, refreshForm(issuer, refreshToken, clientId(issuer)))
+        return Refreshed(response.accessToken(), response.refreshToken?.takeIf { it != refreshToken })
     }
 
     /**
@@ -200,14 +196,39 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
 
     private fun TokenResponse.accessToken() = AccessToken(accessToken, now() + expiresInS * 1000)
 
-    private suspend fun tokenRequest(issuer: OAuthIssuer, vararg form: Pair<String, String>): TokenResponse {
-        val (status, body) = post(issuer.tokenUrl, form.toList())
+    private suspend fun tokenRequest(issuer: OAuthIssuer, form: List<Pair<String, String>>): TokenResponse {
+        val (status, body) = post(issuer.tokenUrl, form)
         if (status in 200..299) return parseToken(body)
-        throw when (failure(status, parseError(body))) {
+        val error = parseError(body)
+        throw when (failure(status, error, aadsts(parseErrorDescription(body)))) {
             Failure.GRANT -> MailError.AuthRequired(context.getString(R.string.account_error_oauth_grant, issuer.brand))
-            Failure.CLIENT -> MailError.Setup(context.getString(R.string.account_error_oauth_client))
+            Failure.DENIED -> MailError.AuthRequired(context.getString(R.string.account_error_oauth_denied))
+            Failure.CLIENT -> MailError.Setup(clientText(issuer))
+            Failure.ACCOUNT_TYPES -> MailError.Setup(context.getString(R.string.account_error_ms_account_types))
+            Failure.ADMIN -> MailError.Setup(context.getString(R.string.account_error_oauth_admin))
             Failure.TEMPORARY -> IOException("Token endpoint: HTTP $status")
         }
+    }
+
+    /** The error of the browser redirect: [error] is its `error`, [code] the AADSTS code of its description. */
+    private fun redirectError(issuer: OAuthIssuer, error: String, code: String?): MailError =
+        when (failure(status = null, error, code)) {
+            Failure.DENIED -> MailError.AuthRequired(context.getString(R.string.account_error_oauth_denied))
+            Failure.ACCOUNT_TYPES -> MailError.Setup(context.getString(R.string.account_error_ms_account_types))
+            Failure.ADMIN -> MailError.Setup(context.getString(R.string.account_error_oauth_admin))
+            Failure.CLIENT -> if (issuer == OAuthIssuer.MICROSOFT) {
+                MailError.Setup(clientText(issuer))
+            } else {
+                MailError.Setup(context.getString(R.string.account_error_oauth_failed, code ?: error))
+            }
+            else -> MailError.Setup(context.getString(R.string.account_error_oauth_failed, code ?: error))
+        }
+
+    /** The text for a client ID that the issuer does not accept. */
+    private fun clientText(issuer: OAuthIssuer): String = when (issuer) {
+        OAuthIssuer.GOOGLE -> context.getString(R.string.account_error_oauth_client)
+        OAuthIssuer.MICROSOFT ->
+            context.getString(R.string.account_error_oauth_client_microsoft, issuer.redirectUri(context.packageName))
     }
 
     /** POSTs a form; returns the HTTP status and at most 64 KiB of the body. */
@@ -235,7 +256,12 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
         }
     }
 
-    internal enum class Failure { GRANT, CLIENT, TEMPORARY }
+    /**
+     * GRANT: sign in again. DENIED: the user did not allow access. CLIENT: the client ID or its registration is
+     * wrong. ACCOUNT_TYPES: the Microsoft client does not accept this kind of account. ADMIN: an administrator
+     * must approve the client. TEMPORARY: try again later.
+     */
+    internal enum class Failure { GRANT, DENIED, CLIENT, ACCOUNT_TYPES, ADMIN, TEMPORARY }
 
     /** A token endpoint answer: [accessToken] lives [expiresInS] seconds. */
     internal class TokenResponse(
@@ -257,19 +283,25 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
         val code: String? = null,
         val error: String? = null,
         val issuer: OAuthIssuer = OAuthIssuer.GOOGLE,
+        /** The first `AADSTS<n>` code of the redirect's `error_description` (Microsoft), else null. */
+        val errorCode: String? = null,
     ) {
         val done: Boolean get() = code != null || error != null
 
         /** [createdAt] and [now] are elapsedRealtime; a reboot makes the age negative, which is not fresh. */
         fun isFresh(now: Long) = now - createdAt in 0..MAX_AGE_MS
 
-        /** The entry with the redirect's result, or null when the redirect does not belong to this entry. */
-        fun redirected(state: String?, code: String?, error: String?, now: Long): Pending? = when {
-            done || state != this.state || !isFresh(now) -> null
-            !error.isNullOrEmpty() -> copy(error = error.take(MAX_PARAM_LENGTH))
-            !code.isNullOrEmpty() && code.length <= MAX_PARAM_LENGTH -> copy(code = code)
-            else -> null
-        }
+        /**
+         * The entry with the redirect's result, or null when the redirect does not belong to this entry.
+         * [description] is the `error_description`; only its AADSTS code is kept.
+         */
+        fun redirected(state: String?, code: String?, error: String?, now: Long, description: String? = null): Pending? =
+            when {
+                done || state != this.state || !isFresh(now) -> null
+                !error.isNullOrEmpty() -> copy(error = error.take(MAX_PARAM_LENGTH), errorCode = aadsts(description))
+                !code.isNullOrEmpty() && code.length <= MAX_PARAM_LENGTH -> copy(code = code)
+                else -> null
+            }
 
         fun toJson(): String = JSONObject()
             .put("state", state)
@@ -279,6 +311,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
             .putOpt("code", code)
             .putOpt("error", error)
             .put("issuer", issuer.id)
+            .putOpt("errorCode", errorCode)
             .toString()
 
         override fun toString() = "Pending(createdAt=$createdAt, done=$done)"
@@ -296,6 +329,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
                         code = o.text("code"),
                         error = o.text("error"),
                         issuer = OAuthIssuer.of(o.text("issuer")),
+                        errorCode = o.text("errorCode"),
                     )
                 } catch (_: JSONException) {
                     null
@@ -330,6 +364,7 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
                 code = uri.getQueryParameter("code"),
                 error = uri.getQueryParameter("error"),
                 now = now(),
+                description = uri.getQueryParameter("error_description"),
             ) ?: return false
             prefs.put(PENDING_KEY, done.toJson())
             return true
@@ -397,6 +432,31 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
                 },
             )
 
+        /** The form of the code exchange. Microsoft needs the scopes here too; Google does not. */
+        internal fun exchangeForm(
+            issuer: OAuthIssuer,
+            code: String,
+            verifier: String,
+            clientId: String,
+            redirectUri: String,
+        ): List<Pair<String, String>> = listOfNotNull(
+            "grant_type" to "authorization_code",
+            "code" to code,
+            "code_verifier" to verifier,
+            "client_id" to clientId,
+            "redirect_uri" to redirectUri,
+            ("scope" to issuer.scopes).takeIf { issuer == OAuthIssuer.MICROSOFT },
+        )
+
+        /** The form of a refresh; with the refresh scopes of the issuer, when it has them (Microsoft). */
+        internal fun refreshForm(issuer: OAuthIssuer, refreshToken: String, clientId: String): List<Pair<String, String>> =
+            listOfNotNull(
+                "grant_type" to "refresh_token",
+                "refresh_token" to refreshToken,
+                "client_id" to clientId,
+                issuer.refreshScope?.let { "scope" to it },
+            )
+
         /** Parses a successful token response. Throws IOException when the access token is missing. */
         internal fun parseToken(json: String): TokenResponse = try {
             val o = JSONObject(json)
@@ -418,12 +478,43 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
             null
         }
 
-        internal fun failure(status: Int, error: String?): Failure = when {
-            error == "invalid_grant" -> Failure.GRANT
+        /**
+         * The class of an OAuth error. [status] is the HTTP status of a token request, null for a browser redirect;
+         * [code] is the AADSTS code of the description (Microsoft). Codes come before the `error` value: Microsoft
+         * sends AADSTS65001 (admin consent) with `invalid_grant`, AADSTS700016 with `unauthorized_client`.
+         */
+        internal fun failure(status: Int?, error: String?, code: String? = null): Failure = when {
+            code in ACCOUNT_TYPE_CODES -> Failure.ACCOUNT_TYPES
+            code in ADMIN_CODES || error == "consent_required" -> Failure.ADMIN
+            code in CLIENT_CODES -> Failure.CLIENT
+            error == "invalid_grant" || error == "interaction_required" -> Failure.GRANT
+            error == "access_denied" -> Failure.DENIED
             error == "invalid_client" || error == "unauthorized_client" -> Failure.CLIENT
+            status == null -> Failure.TEMPORARY
             status >= 500 || status == 408 || status == 429 -> Failure.TEMPORARY
             status in 400..499 -> Failure.CLIENT
             else -> Failure.TEMPORARY
+        }
+
+        /** AADSTS50194: single-tenant client; 50020: account from another tenant; 700016: client ID not found. */
+        private val ACCOUNT_TYPE_CODES = setOf("AADSTS50194", "AADSTS50020", "AADSTS700016")
+
+        /** AADSTS90094 and 65001: an administrator must approve the client. */
+        private val ADMIN_CODES = setOf("AADSTS90094", "AADSTS65001")
+
+        /** AADSTS7000218: not a public client (it wants a secret); 50011: the redirect URI is not registered. */
+        private val CLIENT_CODES = setOf("AADSTS7000218", "AADSTS50011")
+
+        private val AADSTS = Regex("""AADSTS\d+""")
+
+        /** The first `AADSTS<n>` code in [description], or null. */
+        internal fun aadsts(description: String?): String? = description?.let { AADSTS.find(it)?.value }
+
+        /** The `error_description` of an error response, or null. */
+        internal fun parseErrorDescription(json: String?): String? = try {
+            json?.let { JSONObject(it).text("error_description") }
+        } catch (_: JSONException) {
+            null
         }
 
         /** Granular consent lets the user untick mail; then the grant is useless for IMAP. */
@@ -436,14 +527,46 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
          * The `email` claim of an id_token. The token comes straight from the token endpoint of the issuer over
          * TLS, so its signature is not checked (privacy PS16).
          */
-        internal fun emailFromIdToken(idToken: String): String? = try {
+        internal fun emailFromIdToken(idToken: String): String? = claims(idToken)?.email
+
+        /** The claims of an id_token that Plico reads; null when the token cannot be read. */
+        internal class Claims(val email: String?, val preferredUsername: String?)
+
+        internal fun claims(idToken: String): Claims? = try {
             val payload = idToken.split('.').takeIf { it.size == 3 }?.get(1) ?: return null
-            JSONObject(String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8)).text("email")
+            val o = JSONObject(String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8))
+            Claims(o.text("email"), o.text("preferred_username"))
         } catch (_: IllegalArgumentException) {
             null
         } catch (_: JSONException) {
             null
         }
+
+        /**
+         * The account of a sign-in. [hint] is the address that the user typed (the login hint). Google: the
+         * `email` claim, which must exist. Microsoft: the `email` claim, else [hint] (work accounts can have no
+         * `email` claim); the login is `preferred_username` when it is an address that differs from the email.
+         * The login is only the XOAUTH2 user, never a From address. Null when no address is known.
+         */
+        internal fun identity(
+            issuer: OAuthIssuer,
+            claims: Claims?,
+            hint: String,
+            refreshToken: String,
+            accessToken: AccessToken,
+        ): SignIn? = when (issuer) {
+            OAuthIssuer.GOOGLE -> claims?.email?.let { SignIn(it, null, refreshToken, accessToken) }
+            OAuthIssuer.MICROSOFT -> {
+                val email = claims?.email ?: hint.trim().takeIf { '@' in it }
+                val login = claims?.preferredUsername?.trim()
+                    ?.takeIf { '@' in it && email != null && !it.equals(email, ignoreCase = true) }
+                email?.let { SignIn(it, login, refreshToken, accessToken) }
+            }
+        }
+
+        /** Pure: the packages other than [own] among the activities that handle the redirect URI. */
+        internal fun otherHandlers(packages: List<String>, own: String): List<String> =
+            packages.filter { it != own }.distinct()
 
         private fun now() = SystemClock.elapsedRealtime()
 

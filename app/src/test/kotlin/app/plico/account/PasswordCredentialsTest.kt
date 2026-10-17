@@ -78,6 +78,23 @@ class PasswordCredentialsTest {
     }
 
     @Test
+    fun `the login name is the user for IMAP and SMTP`() = runTest {
+        val credentials = PasswordCredentials(Provider.OTHER, "me", "pw")
+        val (imapClient, imapStream) = imap(IMAP_OK, host = "disroot.org")
+        credentials.authImap(imapClient)
+        assertEquals("\u0000me\u0000pw", imapStream.saslResponse())
+        val (smtpClient, smtpStream) = smtp(SMTP_OK, host = "disroot.org")
+        credentials.authSmtp(smtpClient)
+        assertEquals("\u0000me\u0000pw", smtpStream.saslResponse())
+    }
+
+    @Test
+    fun `other providers keep the password as typed`() {
+        assertEquals("ab cd", PasswordCredentials.normalize(Provider.OTHER, "ab cd"))
+        assertEquals("ab cd", PasswordCredentials.normalize(Provider.MICROSOFT, "ab cd"))
+    }
+
+    @Test
     fun `a missing stored secret propagates`() = runTest {
         val credentials = PasswordCredentials(Provider.RISEUP, "me@riseup.net") { throw MailError.AuthRequired("no secret") }
         assertFailsWith<MailError.AuthRequired> { credentials.authImap(imap(IMAP_OK).first) }

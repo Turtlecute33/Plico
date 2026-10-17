@@ -1,11 +1,15 @@
 package app.plico.account
 
+import app.plico.R
 import app.plico.mail.imap.ImapBadException
 import app.plico.mail.imap.ImapByeException
 import app.plico.mail.imap.ImapMissingCapabilityException
 import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.ImapProtocolException
 import app.plico.mail.imap.RespCode
+import app.plico.mail.net.StartTlsException
+import app.plico.mail.net.TlsHandshakeException
+import app.plico.mail.smtp.SmtpAuthUnavailableException
 import app.plico.mail.smtp.SmtpException
 import app.plico.mail.smtp.SmtpException.Stage
 import app.plico.mail.smtp.SmtpRecipientException
@@ -187,6 +191,87 @@ class MailErrorsTest {
         assertIs<MailError.Throttled>(MailErrors.authFailure(no("UNAVAILABLE", "Temporary authentication failure.")))
         assertIs<MailError.Throttled>(MailErrors.authFailure(no("ALERT", "Too many simultaneous connections. (Failure)")))
         assertIs<MailError.Server>(MailErrors.authFailure(no("SERVERBUG", "Internal error occurred.")))
+    }
+
+    @Test
+    fun `STARTTLS failures are Tls on a validated network`() {
+        val refused = StartTlsException("STARTTLS refused")
+        assertIs<MailError.Tls>(classify(refused))
+        assertIs<MailError.Network>(classify(refused, validated = false))
+    }
+
+    @Test
+    fun `a TLS handshake without TLS on the port is Network`() {
+        val plaintext = TlsHandshakeException(SSLException("Unrecognized SSL message, plaintext connection?"))
+        assertIs<MailError.Network>(classify(plaintext))
+        // A certificate cause still wins.
+        assertIs<MailError.Tls>(classify(TlsHandshakeException(handshake(CertificateException("untrusted")))))
+    }
+
+    @Test
+    fun `no usable AUTH mechanism is Setup`() {
+        val error = classify(SmtpAuthUnavailableException())
+        assertIs<MailError.Setup>(error)
+        assertIs<SmtpAuthUnavailableException>(error.cause)
+        assertIs<ImapMissingCapabilityException>(classify(ImapMissingCapabilityException(setOf("AUTH=PLAIN"))).cause)
+    }
+
+    @Test
+    fun `Microsoft SMTP AUTH off is Setup before the 535 rule`() {
+        for (text in listOf(
+            "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant.",
+            "535 5.7.30 Basic authentication is not supported for Client Submission.",
+        )) {
+            val e = SmtpException(535, text.substring(4).substringBefore(' '), text, Stage.AUTH)
+            val error = classify(e)
+            assertIs<MailError.Setup>(error, text)
+            assertSame(e, error.cause)
+        }
+        assertIs<MailError.AuthRequired>(classify(SmtpException(535, "5.7.3", "535 5.7.3 Authentication unsuccessful", Stage.AUTH)))
+    }
+
+    @Test
+    fun `authenticated but not connected is Setup`() {
+        val e = no(null, "User is authenticated but not connected.")
+        val error = classify(e)
+        assertIs<MailError.Setup>(error)
+        assertSame(e, error.cause)
+        // Before the auth codes: a sign-in again does not help.
+        assertIs<MailError.Setup>(classify(no("AUTHORIZATIONFAILED", "User is Authenticated but not connected")))
+        assertIs<MailError.Setup>(MailErrors.authFailure(e))
+    }
+
+    @Test
+    fun `more connection limits are Throttled`() {
+        assertIs<MailError.Throttled>(classify(no(null, "Too many connections from your IP")))
+        assertIs<MailError.Throttled>(classify(ImapByeException(null, "Connection limit reached")))
+        assertTrue(MailErrors.isThrottleText("too many connections"))
+    }
+
+    @Test
+    fun `localized gives Microsoft text for a mailbox without IMAP`() {
+        val text = { id: Int -> "text-$id" }
+        val notConnected = classify(no(null, "User is authenticated but not connected."))
+        val localized = MailErrors.localized(notConnected, text)
+        assertIs<MailError.Setup>(localized)
+        assertEquals("text-${R.string.account_error_ms_imap_off}", localized.message)
+        assertSame(notConnected.cause, localized.cause)
+
+        val wrongHost = wrongHost()
+        assertEquals("text-${R.string.account_error_sign_in_kind}", MailErrors.localized(wrongHost, text).message)
+
+        val other = MailError.Setup("Server lacks IMAP4REV1")
+        assertSame(other, MailErrors.localized(other, text))
+        val auth = MailError.AuthRequired("x")
+        assertSame(auth, MailErrors.localized(auth, text))
+    }
+
+    @Test
+    fun `SMTP causes are found in the chain`() {
+        val smtp = SmtpException(535, "5.7.3", "535 5.7.3 x", Stage.AUTH)
+        assertTrue(MailErrors.hasSmtpCause(MailError.Setup("off", MailError.AuthRequired("x", cause = smtp))))
+        assertTrue(MailErrors.hasSmtpCause(smtp))
+        assertTrue(!MailErrors.hasSmtpCause(MailError.AuthRequired("invalid_grant")))
     }
 
     private companion object {
