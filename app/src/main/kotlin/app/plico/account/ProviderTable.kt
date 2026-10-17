@@ -2,6 +2,8 @@ package app.plico.account
 
 import app.plico.data.Provider
 import app.plico.data.Servers
+import app.plico.mail.net.Endpoint
+import app.plico.mail.net.TlsMode
 import java.util.Locale
 
 /**
@@ -83,6 +85,31 @@ object ProviderTable {
         ),
         OUTLOOK,
         M365,
+        Entry(
+            "Yahoo", Provider.OTHER,
+            setOf(
+                "yahoo.com", "yahoo.co.uk", "yahoo.de", "yahoo.fr", "yahoo.it", "yahoo.es", "yahoo.ca", "yahoo.se",
+                "yahoo.co.in", "yahoo.co.nz", "yahoo.com.au", "yahoo.com.ar", "yahoo.com.br", "yahoo.com.mx",
+                "ymail.com", "rocketmail.com", "myyahoo.com",
+            ),
+            listOf("am0.yahoodns.net"),
+            Servers(
+                Endpoint("imap.mail.yahoo.com", 993, TlsMode.IMPLICIT),
+                Endpoint("smtp.mail.yahoo.com", 465, TlsMode.IMPLICIT),
+            ),
+            notes = setOf(Note.APP_PASSWORD), serverSavesSent = true,
+        ),
+        Entry(
+            "AOL", Provider.OTHER,
+            setOf(
+                "aol.com", "aim.com", "aol.de", "aol.fr", "aol.it", "aol.es", "aol.se", "aol.co.uk", "aol.co.nz",
+                "aol.com.au", "aol.com.ar", "aol.com.br", "aol.com.mx", "netscape.net", "compuserve.com", "cs.com",
+                "wmconnect.com",
+            ),
+            listOf("gm0.yahoodns.net"),
+            Servers(Endpoint("imap.aol.com", 993, TlsMode.IMPLICIT), Endpoint("smtp.aol.com", 465, TlsMode.IMPLICIT)),
+            notes = setOf(Note.APP_PASSWORD), serverSavesSent = true,
+        ),
         Entry(
             "Proton Mail", Provider.OTHER, setOf("proton.me", "protonmail.com", "protonmail.ch", "pm.me"),
             listOf("protonmail.ch"), null, refusal = Refusal.BRIDGE,

@@ -5,6 +5,7 @@ import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
 import app.plico.mail.net.MailStream
 import app.plico.mail.net.SocketHooks
+import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsMode
 import app.plico.mail.sasl.Sasl
 import app.plico.mail.smtp.SmtpException.Stage
@@ -38,7 +39,7 @@ class SmtpClient(
 
     /** Reads the greeting and sends `EHLO [127.0.0.1]`. Called by [connect]. */
     fun start(tls: TlsMode = TlsMode.IMPLICIT) {
-        if (tls == TlsMode.STARTTLS) TODO("A")
+        if (tls == TlsMode.STARTTLS) throw StartTlsException("STARTTLS is not available yet")
         readReply().expect(Stage.CONNECT, 220)
         val ehlo = command("EHLO [127.0.0.1]").expect(Stage.EHLO, 250)
         extensions = ehlo.lines.drop(1).associate { line ->
@@ -240,7 +241,7 @@ class SmtpClient(
             log: (String) -> Unit,
             factory: SSLSocketFactory,
         ): SmtpClient {
-            if (endpoint.tls == TlsMode.STARTTLS) TODO("A")
+            if (endpoint.tls == TlsMode.STARTTLS) throw StartTlsException("STARTTLS is not available yet")
             val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, factory = factory)
             try {
                 return SmtpClient(socket, log, endpoint.host).apply { start(endpoint.tls) }

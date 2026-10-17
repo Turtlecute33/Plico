@@ -3,6 +3,7 @@ package app.plico.mail.imap
 import app.plico.mail.net.Endpoint
 import app.plico.mail.net.MailSocket
 import app.plico.mail.net.SocketHooks
+import app.plico.mail.net.StartTlsException
 import app.plico.mail.net.TlsMode
 import app.plico.mail.sasl.Sasl
 import java.io.Closeable
@@ -349,7 +350,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             log: (String) -> Unit,
             factory: SSLSocketFactory,
         ): ImapClient {
-            if (endpoint.tls == TlsMode.STARTTLS) TODO("A")
+            if (endpoint.tls == TlsMode.STARTTLS) throw StartTlsException("STARTTLS is not available yet")
             val socket = MailSocket.open(endpoint.host, endpoint.port, hooks, factory = factory)
             try {
                 val conn = ImapConnection(socket, log)
