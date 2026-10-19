@@ -1,10 +1,14 @@
 package app.plico.ui.message
 
+import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.widget.ScrollView
 import androidx.test.platform.app.InstrumentationRegistry
+import app.plico.MainActivity
 import app.plico.html.HtmlSanitizer
 import org.junit.After
 import org.junit.Test
@@ -14,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -74,6 +79,57 @@ class MessageWebViewTest {
         show(HtmlSanitizer.sanitize(html, allowRemote = true).html, allowed)
         waitFor { allowed.remote.isNotEmpty() }
         assertEquals(listOf("https://images.example.com/a.png"), allowed.remote)
+    }
+
+    @Test
+    fun aWideBodyIsZoomedOutToTheViewWidthAndANarrowOneIsNot() {
+        val activity = instrumentation.startActivitySync(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        try {
+            // Like the message screen: as tall as its content, in a vertical scroll.
+            fun shown(body: String): WebView {
+                lateinit var view: WebView
+                instrumentation.runOnMainSync {
+                    view = messageWebView(activity, Client(Recorder(), { _, _ -> }, {}))
+                    activity.addContentView(
+                        ScrollView(activity).apply { addView(view) },
+                        ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+                    )
+                    view.loadDataWithBaseURL(null, HtmlSanitizer.sanitize(body, false).html, "text/html", "utf-8", null)
+                }
+                return view.also(views::add)
+            }
+            fun <T> onMain(read: () -> T): T {
+                var value: T? = null
+                instrumentation.runOnMainSync { value = read() }
+                @Suppress("UNCHECKED_CAST")
+                return value as T
+            }
+            val density = context.resources.displayMetrics.density
+
+            fun settled(view: WebView) {
+                waitFor { onMain { view.progress == 100 && view.contentHeight > 0 && view.height > 0 } }
+                Thread.sleep(1_000)
+            }
+
+            val wide = shown("<table width=\"900\"><tr><td>Wide newsletter</td></tr></table>")
+            settled(wide)
+            assertFalse(onMain { wide.canScrollHorizontally(1) })
+            @Suppress("DEPRECATION")
+            val scale = onMain { wide.scale }
+            assertTrue(scale < density)
+            // The view stays as tall as the zoomed-out content: nothing cut off, no empty space below.
+            assertEquals(onMain { wide.contentHeight * scale }, onMain { wide.height.toFloat() }, 2 * density)
+
+            val narrow = shown("<p>Hello</p>")
+            settled(narrow)
+            assertFalse(onMain { narrow.canScrollHorizontally(1) })
+            @Suppress("DEPRECATION")
+            assertEquals(density, onMain { narrow.scale }, 0.01f)
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+        }
     }
 
     @Test

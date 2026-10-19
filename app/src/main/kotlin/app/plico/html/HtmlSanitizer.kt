@@ -102,7 +102,8 @@ object HtmlSanitizer {
         head.appendElement("meta").attr("charset", "utf-8")
         head.appendElement("meta").attr("http-equiv", "Content-Security-Policy").attr("content", csp(allowRemote))
         head.appendElement("meta").attr("http-equiv", "x-dns-prefetch-control").attr("content", "off")
-        head.appendElement("meta").attr("name", "viewport").attr("content", "width=device-width, initial-scale=1")
+        // No initial-scale: the WebView then zooms out a body that is wider than the screen until it fits.
+        head.appendElement("meta").attr("name", "viewport").attr("content", "width=device-width")
         head.appendElement("style").appendChild(DataNode(BASE_CSS))
         for (css in styles) head.appendElement("style").appendChild(DataNode(pass.css(css)))
         doc.outputSettings().prettyPrint(false).charset(Charsets.UTF_8)

@@ -104,7 +104,8 @@ class HtmlSanitizerTest {
             allowed.select("meta[http-equiv=Content-Security-Policy]").attr("content"),
         )
         assertEquals("off", blocked.select("meta[http-equiv=x-dns-prefetch-control]").attr("content"))
-        assertEquals("width=device-width, initial-scale=1", blocked.select("meta[name=viewport]").attr("content"))
+        // No initial-scale, so that the WebView can zoom out a wide body to the screen width.
+        assertEquals("width=device-width", blocked.select("meta[name=viewport]").attr("content"))
         assertEquals("utf-8", blocked.select("meta[charset]").attr("charset"))
         val html = clean("<p>x</p>").html
         assertTrue(html.startsWith("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\""))

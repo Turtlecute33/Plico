@@ -1348,6 +1348,8 @@ unsubscribe POST) rejects IP-literal hosts, `localhost`, single-label names and 
 .internal` (string check). Per request: 10 s connect/read, 20 s total, 5 MB. Per message: 20 MB, 4 parallel.
 The app never declares `ACCESS_LOCAL_NETWORK`.
 
+- Width: `useWideViewPort` and `loadWithOverviewMode` on, viewport `width=device-width` without
+  `initial-scale`. A body that is wider than the screen is zoomed out until it fits: no side scroll.
 One GET engine serves remote content, sender logos (§12) and the autoconfig file (§6.3):
 ```kotlin
 class Request(val url: String, val accept: String, val maxBytes: Int, val type: (String) -> Boolean,

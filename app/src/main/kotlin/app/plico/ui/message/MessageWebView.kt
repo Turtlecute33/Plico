@@ -111,6 +111,9 @@ internal fun messageWebView(context: Context, client: WebViewClient): WebView {
             safeBrowsingEnabled = false
             cacheMode = WebSettings.LOAD_NO_CACHE
             mediaPlaybackRequiresUserGesture = true
+            // Read the viewport tag of HtmlSanitizer and start zoomed out to the full width: no side scroll.
+            useWideViewPort = true
+            loadWithOverviewMode = true
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ATTRIBUTION_REGISTRATION_BEHAVIOR)) {
             WebSettingsCompat.setAttributionRegistrationBehavior(
