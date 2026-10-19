@@ -343,7 +343,7 @@ private fun MessageContent(
         ) {
             SelectionContainer {
                 Text(
-                    text = view.message.subject.ifBlank { stringResource(R.string.ui_no_subject) },
+                    text = revealBidi(view.message.subject).ifBlank { stringResource(R.string.ui_no_subject) },
                     style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.padding(top = 4.dp),
                 )

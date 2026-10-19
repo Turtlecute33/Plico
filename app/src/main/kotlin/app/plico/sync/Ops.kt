@@ -169,7 +169,7 @@ object Ops {
             val attempts = op.attempts + 1
             val now = store.now()
             val ends = OpErrors.endsConnection(e, ctx.client)
-            if (OpErrors.classify(e) == Failure.TRANSIENT && now - op.created < OpErrors.GIVE_UP_MS) {
+            if (OpErrors.classify(e) == Failure.TRANSIENT && !OpErrors.givesUp(attempts)) {
                 store.ops.retryLater(op.id, attempts, now + OpErrors.backoffMs(attempts), OpErrors.text(e))
             } else {
                 drop(ctx, op, arg, failureText(store, arg, e), refetch = !ends)

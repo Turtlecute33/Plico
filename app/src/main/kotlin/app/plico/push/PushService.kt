@@ -31,7 +31,7 @@ class PushService : Service() {
             Log.w(LOG_TAG, "push start: ${e.javaClass.simpleName}")
             app.notifier.pushStopped(silent = false)
             engine.retryStartSoon()
-            stopSelf()
+            stopSelf(startId)
             return START_NOT_STICKY
         }
 
@@ -58,7 +58,8 @@ class PushService : Service() {
             Decision.STOP -> Unit
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // Only this start: a newer startForegroundService that is on its way must still get its onStartCommand.
+        stopSelf(startId)
         return START_NOT_STICKY
     }
 

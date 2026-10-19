@@ -58,13 +58,17 @@ object ComposeIntents {
         return draftId
     }
 
-    /** The draft content for [shared]: valid addresses only, no control characters in the subject. */
+    /**
+     * The draft content for [shared]: valid addresses only, no control characters in the subject. A mailto link
+     * gives bare addresses, as in a message (prefillOf): a chip shows the name, and a web page could name
+     * attacker@evil.example "security@bank.example".
+     */
     internal fun prefill(shared: Shared): DraftPrefill {
         val mailto = shared.mailto?.let(Mailto::parse)
         return DraftPrefill(
-            to = recipients(mailto?.to.orEmpty() + addresses(shared.to)),
-            cc = recipients(mailto?.cc.orEmpty() + addresses(shared.cc)),
-            bcc = recipients(mailto?.bcc.orEmpty() + addresses(shared.bcc)),
+            to = recipients(mailto?.to.orEmpty().bare() + addresses(shared.to)),
+            cc = recipients(mailto?.cc.orEmpty().bare() + addresses(shared.cc)),
+            bcc = recipients(mailto?.bcc.orEmpty().bare() + addresses(shared.bcc)),
             subject = HeaderSafety.clean(mailto?.subject?.ifEmpty { null } ?: shared.subject.orEmpty()),
             body = Mailto.cleanBody(mailto?.body?.ifEmpty { null } ?: shared.text.orEmpty()),
         )
@@ -126,6 +130,8 @@ object ComposeIntents {
     }
 
     private fun addresses(values: List<String>): List<Address> = values.flatMap { Mailto.addresses(it) }
+
+    private fun List<Address>.bare(): List<Address> = map { Address(null, it.email) }
 
     private fun recipients(list: List<Address>): String =
         Recipients.format(Recipients.newOnes(emptyList(), list.map { Recipient.Valid(it) }))

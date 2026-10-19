@@ -105,6 +105,14 @@ class OpErrorsTest {
     }
 
     @Test
+    fun anOpGivesUpAfterADayOfBackoffNotADayOfAge() {
+        // 5 s + 30 s + 2 m + 10 m, then 1 h steps: the 29th failure follows 24 h 12 m of backoff.
+        assertFalse(OpErrors.givesUp(1))
+        assertFalse(OpErrors.givesUp(28))
+        assertTrue(OpErrors.givesUp(29))
+    }
+
+    @Test
     fun textIsTheServerReply() {
         assertEquals("server text", OpErrors.text(no("OVERQUOTA")))
         assertEquals("IOException", OpErrors.text(IOException()))

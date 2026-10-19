@@ -92,6 +92,12 @@ class MailboxMathTest {
         assertEquals(listOf(5_000, 5_000, 2_000), windows.map { it.size })
         assertEquals(10_001L, windows[2].first())
         assertTrue(MailboxMath.windows(emptyList()).isEmpty())
+        // Without ESEARCH a window also stays within the span: old search hits far below the rest get their own.
+        val sparse = listOf(120L, 130L) + (190_000L until 196_000L)
+        assertEquals(listOf(5_000, 1_002), MailboxMath.windows(sparse).map { it.size })
+        val spans = MailboxMath.windows(sparse, MailboxMath.SEARCH_WINDOW)
+        assertEquals(listOf(2, 5_000, 1_000), spans.map { it.size })
+        assertTrue(spans.all { it.last() - it.first() < MailboxMath.SEARCH_WINDOW })
     }
 
     @Test

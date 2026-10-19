@@ -269,6 +269,8 @@ class Notifier(private val app: PlicoApp) {
         synchronized(lock) {
             if (account == null) return clearLocked(accountId)
             val now = SystemClock.elapsedRealtime()
+            // Counted before reconcile: children that the user dismissed change the summary too.
+            val shownBefore = book.pending(accountId).size
             reconcileLocked(accountId, now)
             val before = book.pending(accountId)
             if (before.isEmpty()) return clearLocked(accountId)
@@ -282,7 +284,7 @@ class Notifier(private val app: PlicoApp) {
             } else {
                 children.filter { it.id in noSnippet && rows[it.id]?.snippet?.isNotBlank() == true }
             }
-            if (book.pending(accountId).size == before.size && repost.isEmpty() && !rerender) return
+            if (book.pending(accountId).size == shownBefore && repost.isEmpty() && !rerender) return
             renderLocked(account, rows, now, alert = false, post = repost, cancel = gone + shown)
         }
     }

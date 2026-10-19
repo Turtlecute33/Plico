@@ -70,8 +70,24 @@ internal object MailboxMath {
     fun canSkipExpunge(backfillUid: Long, exists: Long, localRows: Int): Boolean =
         backfillUid == 1L && exists == localRows.toLong()
 
-    /** Step 6: windows of local UIDs (ascending) for the COUNT comparison. */
-    fun windows(localUids: List<Long>): List<List<Long>> = localUids.chunked(EXPUNGE_WINDOW)
+    /**
+     * Step 6: windows of local UIDs (ascending) for the COUNT comparison, at most [EXPUNGE_WINDOW] rows each.
+     * Each window is searched as `first:last`; with [maxSpan] (servers without ESEARCH, whose answer lists every
+     * UID of the range) a window also covers at most that many UIDs.
+     */
+    fun windows(localUids: List<Long>, maxSpan: Long = Long.MAX_VALUE): List<List<Long>> {
+        val windows = ArrayList<List<Long>>()
+        var window = ArrayList<Long>()
+        for (uid in localUids) {
+            if (window.size == EXPUNGE_WINDOW || window.isNotEmpty() && uid - window[0] >= maxSpan) {
+                windows += window
+                window = ArrayList()
+            }
+            window += uid
+        }
+        if (window.isNotEmpty()) windows += window
+        return windows
+    }
 
     /** The guard applies to every mailbox except Trash and Spam, which empty themselves (protocol PS9). */
     fun guarded(role: FolderRole?): Boolean = role != FolderRole.TRASH && role != FolderRole.JUNK

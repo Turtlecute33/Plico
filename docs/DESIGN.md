@@ -434,8 +434,8 @@ class SmtpAuthUnavailableException : java.io.IOException("No usable AUTH mechani
 ## 5. Data (`data`)
 
 Framework SQLite (`SQLiteOpenHelper`, WAL, `PRAGMA foreign_keys=ON`). One `Db` class: `query`,
-`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v3 = schema v1
-(below) + "Migration 1 → 2" + "Migration 2 → 3" (end of this section). Schema v1:
+`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v4 = schema v1
+(below) + "Migration 1 → 2" + "Migration 2 → 3" + "Migration 3 → 4" (end of this section). Schema v1:
 
 ```sql
 CREATE TABLE account(
@@ -591,12 +591,22 @@ UPDATE account SET imap_host = 'imap.gmail.com', smtp_host = 'smtp.gmail.com' WH
 
 ### Migration 2 → 3
 
-`Schema.VERSION` is 3. The column keeps the UIDs that Plico flagged `\Deleted` in a mailbox and that a guarded
+The column keeps the UIDs that Plico flagged `\Deleted` in a mailbox and that a guarded
 EXPUNGE left on the server (§7.4), as a UID set (`3:5,9`). They are Plico's own messages, so they never stop a
 later guarded EXPUNGE. A plain EXPUNGE of the mailbox and a resync (UIDVALIDITY change) clear it.
 
 ```sql
 ALTER TABLE folder ADD COLUMN own_deleted TEXT;                          -- UIDs that Plico flagged \Deleted and a guarded EXPUNGE left on the server; NULL = none
+```
+
+### Migration 3 → 4
+
+`Schema.VERSION` is 4. `attachment.message_id` is the child key of `ON DELETE CASCADE`. Without an index, each
+deleted message scans the whole attachment table (resync, expunge, account removal), and so does each read of
+the attachments of one message.
+
+```sql
+CREATE INDEX attachment_message ON attachment(message_id);              -- the child key of ON DELETE CASCADE
 ```
 
 ## 6. Providers, discovery and sign-in (`account`)
@@ -1074,7 +1084,7 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
   namespace, else that of the stored mailboxes. Riseup accounts and Gmail accounts have the root `""`: no
   change.
 - Errors (`protocol PS14`): transient = IOException, `BYE`, `[UNAVAILABLE] [INUSE] [SERVERBUG]
-  [THROTTLED]`; backoff 5 s, 30 s, 2 m, 10 m, 1 h; give up after 24 h. Every other NO/BAD is permanent.
+  [THROTTLED]`; backoff 5 s, 30 s, 2 m, 10 m, 1 h; give up after 24 h of backoff (time without a try does not count). Every other NO/BAD is permanent.
   `[TRYCREATE]` on move/append → CREATE the target once and retry; also a NO without a response code when no
   folder row of the account has that path (TRYCREATE is only a SHOULD). A dropped op is undone by
   **refetching the truth**: `UID FETCH <uids> (FLAGS [X-GM-LABELS])` for its rows (missing → delete the
@@ -1338,6 +1348,8 @@ class MessageBuilder(val from: Address, val to: List<Address>, val cc: List<Addr
   through `RemoteFetcher`, with the tracker-host list applied here. Everything else → empty 403.
 - `onRenderProcessGone` (`privacy PS7`): destroy the WebView, show the plain-text part ("This message could
   not be shown"), return true; remember the id for the process session and show it as text next time.
+- Width: `useWideViewPort` and `loadWithOverviewMode` on, viewport `width=device-width` without
+  `initial-scale`. A body that is wider than the screen is zoomed out until it fits: no side scroll.
 - Dark mode: `setAlgorithmicDarkeningAllowed(darkTheme && prefs.darkEmail && !showOriginal)`. The activity
   theme is day/night: `values/themes.xml` parent `android:Theme.Material.Light.NoActionBar`,
   `values-night/themes.xml` parent `android:Theme.Material.NoActionBar`.
@@ -1348,8 +1360,6 @@ unsubscribe POST) rejects IP-literal hosts, `localhost`, single-label names and 
 .internal` (string check). Per request: 10 s connect/read, 20 s total, 5 MB. Per message: 20 MB, 4 parallel.
 The app never declares `ACCESS_LOCAL_NETWORK`.
 
-- Width: `useWideViewPort` and `loadWithOverviewMode` on, viewport `width=device-width` without
-  `initial-scale`. A body that is wider than the screen is zoomed out until it fits: no side scroll.
 One GET engine serves remote content, sender logos (§12) and the autoconfig file (§6.3):
 ```kotlin
 class Request(val url: String, val accept: String, val maxBytes: Int, val type: (String) -> Boolean,
@@ -1707,7 +1717,7 @@ sign-in method with this server …". The connection test and `AccountSession.fa
 - Device tests (`app/src/androidTest`) run only on the `megaglass-api35` emulator, always with
   `ANDROID_SERIAL=emulator-5554` (a connected phone with the user's install would be wiped):
   `ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest`. They include the DB tests (`DbTest`,
-  `AccountDaoTest` with the server-change wipe, `MigrationTest` v1 → v3 and v2 → v3, `MessageDaoTest` with `\Deleted` rows),
+  `AccountDaoTest` with the server-change wipe, `MigrationTest` v1 → v4 and v2 → v4, `MessageDaoTest` with `\Deleted` rows),
   the sync tests against `SyncFakeServer` (it answers only the extensions that it advertises): Gmail, Riseup,
   `GenericSyncDeviceTest`, `GenericOpsTest`, `SenderTest` (Sent copy rules), `DraftsTest` (no APPENDUID), and
   `app.plico.sync.fallback` (servers with only IMAP4rev1: no MOVE, UIDPLUS, ESEARCH, CONDSTORE or UIDNEXT),

@@ -52,6 +52,7 @@ import app.plico.mail.mime.Addresses
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.Icons
+import app.plico.ui.message.revealBidi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -179,7 +180,7 @@ private fun RowContent(
     onSelect: (Long) -> Unit,
     onAction: (Long, RowAction) -> Unit,
 ) {
-    val recipient = remember(row.toList, sent) { if (sent) firstRecipient(row.toList) else null }
+    val recipient = remember(row.toList, sent) { if (sent) firstRecipient(row.toList)?.let(::revealBidi) else null }
     val scheme = MaterialTheme.colorScheme
     val type = MaterialTheme.typography
     val unread = !row.seen
@@ -238,7 +239,7 @@ private fun RowContent(
                         text = when {
                             draft -> stringResource(R.string.mailbox_draft)
                             recipient != null -> stringResource(R.string.mailbox_draft_to, recipient)
-                            else -> row.fromName.ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.ui_no_sender) }
+                            else -> revealBidi(row.fromName).ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.ui_no_sender) }
                         },
                         color = if (draft) scheme.error else textColor,
                         style = type.bodyLarge,
@@ -278,7 +279,7 @@ private fun RowContent(
                 Row {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = row.subject.ifBlank { stringResource(R.string.ui_no_subject) },
+                            text = revealBidi(row.subject).ifBlank { stringResource(R.string.ui_no_subject) },
                             color = textColor,
                             style = type.bodyMedium,
                             fontWeight = if (emphasis.bold) FontWeight.SemiBold else FontWeight.Normal,

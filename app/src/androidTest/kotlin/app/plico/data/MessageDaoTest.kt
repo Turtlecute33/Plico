@@ -318,6 +318,18 @@ class MessageDaoTest : DbFixture() {
     }
 
     @Test
+    fun aBodyLargerThanACursorWindowReadsBack() {
+        val id = insert(header(riseup, inbox, 1)).single()
+        // 1.5 MB of html and 1.5 MB of text (multi-byte characters across the chunk ends): 3 MB in one row.
+        val html = "<p>" + "é€😀a".repeat(300_000) + "</p>"
+        val text = "x".repeat(1_500_000)
+        messages.saveBody(id, html, text, "", "", emptyList())
+        assertEquals(Body(id, html, text), messages.observeDetail(id).now()?.body)
+        messages.saveBody(id, null, "", "", "", emptyList())
+        assertEquals(Body(id, null, ""), messages.body(id))
+    }
+
+    @Test
     fun claimNotificationsFollowsTheRule() {
         val now = 1_800_000_000_000L
         val (fresh, old, read, other, notifyOn) = insert(

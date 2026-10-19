@@ -80,7 +80,7 @@ class MigrationTest {
             v2.version = 2
         }
         val db = Db(context, v2Name).also(opened::add)
-        assertEquals(3, db.sql.version)
+        assertEquals(Schema.VERSION, db.sql.version)
         val folders = FolderDao(db)
         assertEquals(7L, folders.get(1)?.uidValidity)
         assertEquals(UidSet.EMPTY, folders.ownDeleted(1))
@@ -88,7 +88,12 @@ class MigrationTest {
         assertEquals(UidSet.of(3, 4, 9), folders.ownDeleted(1))
         val fresh = Db(context, freshName).also(opened::add)
         assertEquals(columns(fresh, "folder"), columns(db, "folder"))
+        assertEquals(indexes(fresh), indexes(db))
+        assertTrue("attachment_message" in indexes(db))
     }
+
+    private fun indexes(db: Db) =
+        db.sql.list("SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name") { it.str(0) }
 
     /** cid, name, type, notnull, dflt_value, pk of each column. */
     private fun columns(db: Db, table: String) =

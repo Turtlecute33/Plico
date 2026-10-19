@@ -27,7 +27,7 @@ object Tables {
  * A fresh database runs the same statements as an upgraded one.
  */
 internal object Schema {
-    const val VERSION = 3
+    const val VERSION = 4
 
     val V1 = listOf(
         """
@@ -142,6 +142,10 @@ internal object Schema {
         listOf(
             // UIDs that Plico flagged \Deleted and a guarded EXPUNGE left on the server; NULL = none
             "ALTER TABLE folder ADD COLUMN own_deleted TEXT",
+        ),
+        listOf(
+            // the child key of ON DELETE CASCADE: without it, each deleted message scans the whole table
+            "CREATE INDEX attachment_message ON attachment(message_id)",
         ),
     )
 }

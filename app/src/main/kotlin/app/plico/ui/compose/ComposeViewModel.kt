@@ -101,6 +101,10 @@ internal class ComposeViewModel(
     /** The reason of an earlier failed send. */
     var failure by mutableStateOf<String?>(null)
         private set
+
+    /** The earlier send may have gone out (DESIGN §7.5): Send asks first, as Retry does. */
+    var mayHaveBeenSent by mutableStateOf(false)
+        private set
     var suggestions by mutableStateOf(Suggestions.NONE)
         private set
 
@@ -306,6 +310,7 @@ internal class ComposeViewModel(
             if (queued) {
                 phase = Phase.QUEUED
                 failure = null
+                mayHaveBeenSent = false
             } else {
                 noticeChannel.trySend(if (tooLarge) Notice.TOO_LARGE else Notice.NOT_SENDABLE)
             }
@@ -380,6 +385,7 @@ internal class ComposeViewModel(
         body = TextFieldValue(draft.body, TextRange.Zero)
         attachments = draft.attachments
         failure = draft.error?.takeIf { DraftState.failed(draft.state) }
+        mayHaveBeenSent = draft.state == DraftState.UNCERTAIN
         undoSeconds = undo
         phase = opened
         app.drafts.observe(draftId).collect { row ->

@@ -29,7 +29,7 @@ internal object OpErrors {
     private val TRANSIENT_CODES = setOf("UNAVAILABLE", "INUSE", "SERVERBUG", "THROTTLED")
     private val BACKOFF_MS = longArrayOf(5_000, 30_000, 120_000, 600_000, 3_600_000)
 
-    /** An op that still fails after this time (from its creation) is dropped. */
+    /** An op that still fails after this much backoff is dropped (see [givesUp]). */
     const val GIVE_UP_MS = 24 * 3_600_000L
 
     /** A send that failed this many times becomes failed (DESIGN.md §7.5). */
@@ -65,6 +65,12 @@ internal object OpErrors {
 
     /** Delay before the next try, after [attempts] failed tries (>= 1): 5 s, 30 s, 2 min, 10 min, then 1 h. */
     fun backoffMs(attempts: Int): Long = BACKOFF_MS[(attempts - 1).coerceIn(0, BACKOFF_MS.lastIndex)]
+
+    /**
+     * True when an op that failed [attempts] times has waited [GIVE_UP_MS] in backoff. Time without a try
+     * (offline, sign-in needed) does not count, so a long wait alone never drops an op on its first failure.
+     */
+    fun givesUp(attempts: Int): Boolean = (1 until attempts).sumOf(::backoffMs) >= GIVE_UP_MS
 
     /** The server's text for a refusal, else a short name of the problem. */
     fun text(t: Throwable): String = t.message?.trim()?.takeIf { it.isNotEmpty() } ?: t.javaClass.simpleName

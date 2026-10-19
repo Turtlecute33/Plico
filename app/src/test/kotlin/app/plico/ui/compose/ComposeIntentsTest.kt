@@ -101,6 +101,14 @@ class ComposeIntentsTest {
     }
 
     @Test
+    fun mailtoNamesAreDropped() {
+        // The chip would read "security@bank.example" and the mail would go to attacker@evil.example.
+        val uri = "mailto:%22security%40bank.example%22%20%3Cattacker%40evil.example%3E?cc=Ann%20%3Cann@example.com%3E"
+        val p = prefill(ComposeIntents.Shared(mailto = uri))
+        assertEquals(DraftPrefill(to = "attacker@evil.example", cc = "ann@example.com"), p)
+    }
+
+    @Test
     fun emptyDetection() {
         assertTrue(ComposeIntents.isEmpty(prefill(ComposeIntents.Shared())))
         assertTrue(ComposeIntents.isEmpty(prefill(ComposeIntents.Shared(to = listOf("nobody"), subject = "\r\n"))))

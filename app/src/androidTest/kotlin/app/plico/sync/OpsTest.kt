@@ -212,16 +212,26 @@ class OpsTest : OpFixture() {
     }
 
     @Test
-    fun opsOlderThanADayAreDropped() {
+    fun opsThatFailedForADayAreDropped() {
         val id = row()
         actions.markSeen(listOf(id), true)
+        // A day offline is not a day of failures: the first failure backs off.
         clock += OpErrors.GIVE_UP_MS + 60_000
-        val imap = FakeImap()
+        val once = FakeImap()
+            .select("INBOX")
+            .expect("UID STORE 3 +FLAGS.SILENT (\\Seen)", "NO [UNAVAILABLE] Try later")
+        run(session(riseup, once))
+        once.finish()
+        val op = ops.byAccount(riseup).single()
+        assertEquals(1, op.attempts)
+
+        ops.retryLater(op.id, 28, clock, null)
+        val last = FakeImap()
             .select("INBOX")
             .expect("UID STORE 3 +FLAGS.SILENT (\\Seen)", "NO [UNAVAILABLE] Try later")
             .expect("UID FETCH 3 (UID FLAGS)", "* 1 FETCH (UID 3 FLAGS ())")
-        run(session(riseup, imap))
-        imap.finish()
+        run(session(riseup, last))
+        last.finish()
         assertTrue(ops.byAccount(riseup).isEmpty())
         assertFalse(messages.get(id)!!.seen)
     }

@@ -115,6 +115,7 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
     val resources = LocalResources.current
     val snackbar = remember { SnackbarHostState() }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
+    var confirmSend by rememberSaveable { mutableStateOf(false) }
     val toFocus = remember { FocusRequester() }
     val bodyFocus = remember { FocusRequester() }
     val photos = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { vm.attach(it) }
@@ -149,6 +150,7 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
                     launchPicker(vm) { photos.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo)) }
                 },
                 onFiles = { launchPicker(vm) { files.launch(arrayOf("*/*")) } },
+                onSend = { if (vm.mayHaveBeenSent) confirmSend = true else vm.send() },
                 onDiscard = { confirmDiscard = true },
             )
         },
@@ -253,6 +255,18 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
             destructive = true,
         )
     }
+    if (confirmSend) {
+        ConfirmDialog(
+            title = stringResource(R.string.mailbox_send_again_title),
+            text = vm.failure,
+            confirmLabel = stringResource(R.string.mailbox_send_again),
+            onConfirm = {
+                confirmSend = false
+                vm.send()
+            },
+            onDismiss = { confirmSend = false },
+        )
+    }
 }
 
 @Composable
@@ -261,6 +275,7 @@ private fun ComposeTopBar(
     onBack: () -> Unit,
     onPhotos: () -> Unit,
     onFiles: () -> Unit,
+    onSend: () -> Unit,
     onDiscard: () -> Unit,
 ) {
     TopAppBar(
@@ -281,7 +296,7 @@ private fun ComposeTopBar(
                 enabled = vm.editing,
             )
             Button(
-                onClick = vm::send,
+                onClick = onSend,
                 enabled = vm.editing,
                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                 modifier = Modifier.padding(horizontal = 4.dp).rejectObscuredTouches(),

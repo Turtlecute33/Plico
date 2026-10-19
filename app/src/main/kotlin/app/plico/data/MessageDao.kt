@@ -367,10 +367,25 @@ class MessageDao(private val db: Db) {
     private fun SQLiteDatabase.message(id: Long) =
         one("SELECT $MESSAGE_COLS FROM message WHERE id = ?", id, row = ::messageOf)
 
-    private fun SQLiteDatabase.body(id: Long) =
-        one("SELECT message_id, html, text FROM body WHERE message_id = ?", id) { c ->
-            Body(c.getLong(0), c.strOrNull(1), c.strOrNull(2))
+    /** Each column in chunks: html and text of one message can be larger than a 2 MB CursorWindow together. */
+    private fun SQLiteDatabase.body(id: Long): Body? {
+        val (html, text) = one("SELECT length(html), length(text) FROM body WHERE message_id = ?", id) { c ->
+            c.longOrNull(0) to c.longOrNull(1)
+        } ?: return null
+        return Body(id, bodyColumn("html", id, html), bodyColumn("text", id, text))
+    }
+
+    /** [length] characters of [column]; [BODY_CHUNK] characters are at most 1 MB of UTF-8. */
+    private fun SQLiteDatabase.bodyColumn(column: String, id: Long, length: Long?): String? {
+        if (length == null) return null
+        val out = StringBuilder(length.toInt())
+        for (start in 1..length step BODY_CHUNK) {
+            one("SELECT substr($column, ?, $BODY_CHUNK) FROM body WHERE message_id = ?", start, id) { c ->
+                c.strOrNull(0)
+            }?.let(out::append)
         }
+        return out.toString()
+    }
 
     private fun SQLiteDatabase.attachmentRows(messageId: Long) = list(
         "SELECT $ATTACHMENT_COLS FROM attachment WHERE message_id = ? ORDER BY id",
@@ -390,6 +405,7 @@ class MessageDao(private val db: Db) {
 
         private val WHITESPACE = Regex("\\s+")
         private val NON_TOKEN = Regex("[^\\p{L}\\p{N}\\p{M}]+")
+        private const val BODY_CHUNK = 256L * 1024
 
         private fun accountFilter(accountId: Long?) = if (accountId == null) "" else " AND m.account_id = ?"
 

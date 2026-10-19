@@ -269,14 +269,15 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
     /**
      * Step 6 (protocol PS4): skipped when every server message is local. Else `RETURN (COUNT)` per window of
      * 5,000 local rows, and `RETURN (ALL)` only for windows that differ. Without ESEARCH both forms return the full
-     * list, so one plain search per window is compared by its size. The guard keeps a mass delete.
+     * list, so one plain search per window (of at most 50,000 UIDs) is compared by its size. The guard keeps a
+     * mass delete.
      */
     private fun expunge(folder: Folder, report: SyncReport) {
         val sel = env.selection.current(folder.path) ?: return
         if (MailboxMath.canSkipExpunge(folder.backfillUid, sel.exists, env.messages.count(folder.id))) return
         val uids = env.messages.uids(folder.id)
         val missing = ArrayList<Long>()
-        for (window in MailboxMath.windows(uids)) {
+        for (window in MailboxMath.windows(uids, if (env.esearch) Long.MAX_VALUE else MailboxMath.SEARCH_WINDOW)) {
             val range = Command.raw("UID", "${window.first()}:${window.last()}")
             val onServer = if (env.esearch) {
                 if (env.client.uidSearchCount(range) == window.size.toLong()) continue
