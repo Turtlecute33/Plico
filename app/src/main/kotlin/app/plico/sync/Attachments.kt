@@ -37,6 +37,11 @@ object Attachments {
                         if (item.uid == message.uid && section != null) chunk = section
                     }
                     val bytes = chunk ?: if (offset == 0L) throw FileNotFoundException("Message is gone") else break
+                    // A server that ignores the partial range sends full chunks without end (review PS29).
+                    // The part is never larger than the size the server declared for it.
+                    if (bytes.size > CHUNK || (attachment.size > 0 && offset + bytes.size > attachment.size + CHUNK)) {
+                        throw IOException("The server sent more data than the attachment has")
+                    }
                     out.write(bytes)
                     offset += bytes.size
                     if (attachment.size > 0) onProgress((offset.toFloat() / attachment.size).coerceAtMost(1f))
