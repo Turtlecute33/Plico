@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="128" height="128">
+  <title>Plico</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3F51B5"/>
+      <stop offset=".55" stop-color="#2D3A8C"/>
+      <stop offset="1" stop-color="#1D2559"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="18" width="72" height="72" rx="20" fill="url(#bg)"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M36,37H72A6,6 0 0,1 78,43V65A6,6 0 0,1 72,71H36A6,6 0 0,1 30,65V43A6,6 0 0,1 36,37ZM34,41L47.69,50.58A9,9 0 0,1 60.31,50.58L74,41L74,45L62.19,53.27A9,9 0 1,1 45.81,53.27L34,45Z"/>
+  <path fill="#FFFFFF" d="M47.5,57A6.5,6.5 0 1,0 60.5,57A6.5,6.5 0 1,0 47.5,57Z"/>
+</svg>
