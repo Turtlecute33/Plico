@@ -27,7 +27,7 @@ object Tables {
  * A fresh database runs the same statements as an upgraded one.
  */
 internal object Schema {
-    const val VERSION = 5
+    const val VERSION = 6
 
     val V1 = listOf(
         """
@@ -150,6 +150,14 @@ internal object Schema {
         listOf(
             // 1 = set on a VERIFIED message: honoured only there; 0 = set by From only (rows of before stay 0)
             "ALTER TABLE trusted_sender ADD COLUMN verified INTEGER NOT NULL DEFAULT 0",
+        ),
+        listOf(
+            // the draft check of every list row; without it, each row scans the draft table
+            "CREATE INDEX draft_message ON draft(account_id, message_id)",
+            // lists walk this index and stop after the limit, with no sort of the whole folder
+            "CREATE INDEX message_date ON message(date DESC)",
+            // unread counts read only the unread rows
+            "CREATE INDEX message_unread ON message(id) WHERE seen = 0 AND hidden = 0 AND deleted = 0",
         ),
     )
 }

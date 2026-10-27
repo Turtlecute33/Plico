@@ -136,12 +136,7 @@ class FolderDao(private val db: Db) {
 
     /** Unseen, visible messages per folder id (`simplicity EM10`); folders without any are absent. */
     fun observeUnread(): Flow<Map<Long, Int>> = db.observe(Tables.MESSAGE, Tables.MESSAGE_FOLDER) {
-        list(
-            """
-            SELECT mf.folder_id, count(*) FROM message_folder mf JOIN message m ON m.id = mf.message_id
-            WHERE m.seen = 0 AND m.hidden = 0 AND m.deleted = 0 GROUP BY mf.folder_id
-            """,
-        ) { c -> c.getLong(0) to c.getInt(1) }.toMap()
+        list(UNREAD_SQL) { c -> c.getLong(0) to c.getInt(1) }.toMap()
     }
 
     /** Unseen, visible messages in any inbox (the unified inbox); each message counts once. */
@@ -165,6 +160,13 @@ class FolderDao(private val db: Db) {
     private fun SQLiteDatabase.id(accountId: Long, kind: Int, path: String) =
         long("SELECT id FROM folder WHERE account_id = ? AND kind = ? AND path = ?", accountId, kind, path)
 }
+
+/**
+ * [FolderDao.observeUnread]. CROSS JOIN keeps `message` the outer loop, so that the partial index `message_unread`
+ * gives only the unread rows and the cost follows their number, not the size of the database (PLICO-PERF-003).
+ */
+internal const val UNREAD_SQL = "SELECT mf.folder_id, count(*) FROM message m CROSS JOIN message_folder mf " +
+    "ON mf.message_id = m.id WHERE m.seen = 0 AND m.hidden = 0 AND m.deleted = 0 GROUP BY mf.folder_id"
 
 internal const val FOLDER_COLS = "id, account_id, path, name, role, kind, delimiter, hidden, notify, guard, " +
     "uidvalidity, uidnext, modseq, backfill_uid, synced_at"

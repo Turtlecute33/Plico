@@ -435,8 +435,9 @@ class SmtpAuthUnavailableException : java.io.IOException("No usable AUTH mechani
 ## 5. Data (`data`)
 
 Framework SQLite (`SQLiteOpenHelper`, WAL, `PRAGMA foreign_keys=ON`). One `Db` class: `query`,
-`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v5 = schema v1
-(below) + "Migration 1 → 2" + "Migration 2 → 3" + "Migration 3 → 4" + "Migration 4 → 5" (end of this section).
+`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v6 = schema v1
+(below) + "Migration 1 → 2" + "Migration 2 → 3" + "Migration 3 → 4" + "Migration 4 → 5" + "Migration 5 → 6"
+(end of this section).
 Schema v1:
 
 ```sql
@@ -613,7 +614,7 @@ CREATE INDEX attachment_message ON attachment(message_id);              -- the c
 
 ### Migration 4 → 5
 
-`Schema.VERSION` is 5. `trusted_sender.verified` keeps where the user set the trust (§11.4, `PLICO-PRIV-003`):
+`trusted_sender.verified` keeps where the user set the trust (§11.4, `PLICO-PRIV-003`):
 1 = on a VERIFIED message (Gmail with `dmarc=pass`), where the "A sender can be faked" note does not show; such a
 trust counts only on VERIFIED messages. 0 = on a FROM_ONLY message, where the note was on screen; it counts on
 both. The rows of before get 0, so that they work as before. A trust set by From only stays 0 when the user also
@@ -621,6 +622,21 @@ sets it on a VERIFIED message (`min`).
 
 ```sql
 ALTER TABLE trusted_sender ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;   -- 1 = set on a VERIFIED message: honoured only there; 0 = set by From only (rows of before stay 0)
+```
+
+### Migration 5 → 6
+
+`Schema.VERSION` is 6. Indexes only, no data change (`PLICO-PERF-003`). Without them, each re-read of a list
+during a sync reads and sorts every row of the folder, and each list row scans the draft table (the draft check
+of `protocol PS7`). A folder list is a correlated `EXISTS` on `message_folder`, so that SQLite walks
+`message_date` newest first and stops after the limit. The unread counts start from the unread rows
+(`message_unread`, a partial index), so that their cost follows the number of unread rows. A small folder in a
+large database can read more rows than before: the walk ends only after the limit or at the oldest row.
+
+```sql
+CREATE INDEX draft_message ON draft(account_id, message_id);           -- the draft check of every list row
+CREATE INDEX message_date ON message(date DESC);                       -- lists stop after the limit, no sort
+CREATE INDEX message_unread ON message(id) WHERE seen = 0 AND hidden = 0 AND deleted = 0;   -- unread counts
 ```
 
 ## 6. Providers, discovery and sign-in (`account`)

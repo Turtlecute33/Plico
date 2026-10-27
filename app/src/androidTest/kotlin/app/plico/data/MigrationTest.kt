@@ -12,12 +12,13 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** An installed v1 database (release 0.1.0), v2 or v4 database opened by this build. */
+/** An installed v1 database (release 0.1.0), v2, v4 or v5 database opened by this build. */
 class MigrationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val v1Name = "test-v1-${UUID.randomUUID()}.db"
     private val v2Name = "test-v2-${UUID.randomUUID()}.db"
     private val v4Name = "test-v4-${UUID.randomUUID()}.db"
+    private val v5Name = "test-v5-${UUID.randomUUID()}.db"
     private val freshName = "test-fresh-${UUID.randomUUID()}.db"
     private val opened = ArrayList<Db>()
 
@@ -27,6 +28,7 @@ class MigrationTest {
         context.deleteDatabase(v1Name)
         context.deleteDatabase(v2Name)
         context.deleteDatabase(v4Name)
+        context.deleteDatabase(v5Name)
         context.deleteDatabase(freshName)
     }
 
@@ -110,6 +112,29 @@ class MigrationTest {
         assertEquals(TrustedOn.FROM_ONLY, runBlocking { TrustDao(db).observeTrusted("news@example.org").first() })
         val fresh = Db(context, freshName).also(opened::add)
         assertEquals(columns(fresh, "trusted_sender"), columns(db, "trusted_sender"))
+    }
+
+    @Test
+    fun upgradeFromV5AddsTheListIndexes() {
+        val path = context.getDatabasePath(v5Name).apply { parentFile?.mkdirs() }
+        SQLiteDatabase.openOrCreateDatabase(path, null).use { v5 ->
+            (Schema.V1 + Schema.MIGRATIONS.take(4).flatten()).forEach(v5::execSQL)
+            v5.execSQL(
+                "INSERT INTO account(id, provider, email, label, auth, secret) " +
+                    "VALUES(1, 'other', 'a@example.org', 'Mail', 'password', x'01')",
+            )
+            v5.execSQL("INSERT INTO folder(id, account_id, path, name, role) VALUES(1, 1, 'INBOX', 'INBOX', 'inbox')")
+            v5.execSQL("INSERT INTO message(id, account_id, folder_id, uid, subject, date) VALUES(1, 1, 1, 7, 'hello', 1000)")
+            v5.execSQL("INSERT INTO message_folder(folder_id, message_id) VALUES(1, 1)")
+            v5.version = 5
+        }
+        val db = Db(context, v5Name).also(opened::add)
+        assertEquals(Schema.VERSION, db.sql.version)
+        assertEquals(mapOf(1L to 1), runBlocking { FolderDao(db).observeUnread().first() })
+        assertEquals(listOf(1L), runBlocking { MessageDao(db).observeList(MailView.InFolder(1), 50).first() }.map { it.id })
+        val fresh = Db(context, freshName).also(opened::add)
+        assertEquals(indexes(fresh), indexes(db))
+        assertTrue(indexes(db).containsAll(listOf("draft_message", "message_date", "message_unread")))
     }
 
     private fun indexes(db: Db) =

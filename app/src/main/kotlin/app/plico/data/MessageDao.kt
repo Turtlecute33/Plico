@@ -22,31 +22,41 @@ class MessageDao(private val db: Db) {
      * [serverHits] (the first [MAX_SERVER_HITS] ids of a server search, DESIGN §7.7).
      */
     fun observeList(view: MailView, limit: Int, serverHits: List<Long> = emptyList()): Flow<List<MessageSummary>> {
-        val (where, args) = when (view) {
-            MailView.Unified -> "m.id IN (SELECT mf.message_id FROM message_folder mf " +
-                "JOIN folder f ON f.id = mf.folder_id WHERE f.role = 'inbox')" to emptyList()
-            is MailView.InFolder ->
-                "m.id IN (SELECT message_id FROM message_folder WHERE folder_id = ?)" to listOf(view.folderId)
-            is MailView.Starred -> "m.flagged = 1 AND m.folder_id NOT IN " +
-                "(SELECT id FROM folder WHERE role IN ('trash', 'junk'))" + accountFilter(view.accountId) to
-                listOfNotNull(view.accountId)
-            is MailView.Search -> {
-                val match = ftsQuery(view.query) ?: return flowOf(emptyList())
-                // Numbers only, so inlining them cannot inject SQL.
-                val hits = serverHits.take(MAX_SERVER_HITS).sqlList()
-                "(m.id IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) OR m.id IN ($hits))" +
-                    accountFilter(view.accountId) to listOfNotNull(match, view.accountId)
-            }
-        }
+        val (sql, args) = listSql(view, limit, serverHits) ?: return flowOf(emptyList())
         val tables = when (view) {
             MailView.Unified -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.FOLDER, Tables.DRAFT)
             is MailView.InFolder -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.DRAFT)
             is MailView.Starred -> arrayOf(Tables.MESSAGE, Tables.FOLDER, Tables.DRAFT)
             is MailView.Search -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FTS, Tables.DRAFT)
         }
-        val sql = "SELECT $SUMMARY_COLS FROM message m WHERE $where AND $VISIBLE ORDER BY m.date DESC LIMIT $limit"
         val bound = args.toTypedArray<Any>()
         return db.observe(*tables) { list(sql, *bound, row = ::summaryOf) }
+    }
+
+    /**
+     * The SELECT of [observeList] and its arguments; null for a search without terms. A folder is a correlated
+     * EXISTS, so that SQLite walks `message_date` and stops after [limit] rows, with no sort of the whole folder
+     * (PLICO-PERF-003). Internal for the query-plan test.
+     */
+    internal fun listSql(view: MailView, limit: Int, serverHits: List<Long> = emptyList()): Pair<String, List<Any>>? {
+        val (where, args) = when (view) {
+            MailView.Unified -> "m.id IN (SELECT mf.message_id FROM message_folder mf " +
+                "JOIN folder f ON f.id = mf.folder_id WHERE f.role = 'inbox')" to emptyList()
+            is MailView.InFolder ->
+                "EXISTS (SELECT 1 FROM message_folder mf WHERE mf.folder_id = ? AND mf.message_id = m.id)" to
+                    listOf(view.folderId)
+            is MailView.Starred -> "m.flagged = 1 AND m.folder_id NOT IN " +
+                "(SELECT id FROM folder WHERE role IN ('trash', 'junk'))" + accountFilter(view.accountId) to
+                listOfNotNull(view.accountId)
+            is MailView.Search -> {
+                val match = ftsQuery(view.query) ?: return null
+                // Numbers only, so inlining them cannot inject SQL.
+                val hits = serverHits.take(MAX_SERVER_HITS).sqlList()
+                "(m.id IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) OR m.id IN ($hits))" +
+                    accountFilter(view.accountId) to listOfNotNull(match, view.accountId)
+            }
+        }
+        return "SELECT $SUMMARY_COLS FROM message m WHERE $where AND $VISIBLE ORDER BY m.date DESC LIMIT $limit" to args
     }
 
     fun get(id: Long): Message? = db.sql.message(id)

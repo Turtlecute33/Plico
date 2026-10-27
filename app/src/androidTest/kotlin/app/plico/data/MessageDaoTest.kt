@@ -164,6 +164,19 @@ class MessageDaoTest : DbFixture() {
     }
 
     @Test
+    fun folderListsAndUnreadCountsUseTheirIndexes() {
+        // PLICO-PERF-003: a folder list stops after the limit (no sort of the whole folder, no scan of the drafts),
+        // and the unread counts start from the unread rows.
+        val (sql, args) = messages.listSql(MailView.InFolder(inbox), 50)!!
+        val list = plan(sql, *args.toTypedArray())
+        assertTrue("message_date" in list, list)
+        assertFalse("TEMP B-TREE" in list, list)
+        assertFalse("SCAN d" in list, list)
+        val unread = plan(UNREAD_SQL)
+        assertTrue("message_unread" in unread, unread)
+    }
+
+    @Test
     fun starredLeavesOutTrashAndJunk() {
         val (a, b) = insert(header(riseup, inbox, 1, flagged = true), header(riseup, trash, 1, flagged = true))
         assertEquals(listOf(a), list(MailView.Starred(null)))
@@ -463,6 +476,10 @@ class MessageDaoTest : DbFixture() {
         insert(header(riseup, inbox, 1).copy(deleted = true))
         assertEquals(listOf(struck), list(MailView.InFolder(inbox)))
     }
+
+    /** The detail column of EXPLAIN QUERY PLAN, one line for each step. */
+    private fun plan(sql: String, vararg args: Any): String =
+        db.sql.list("EXPLAIN QUERY PLAN $sql", *args) { it.str(3) }.joinToString("\n")
 
     private fun memberships(id: Long) =
         db.sql.list("SELECT folder_id FROM message_folder WHERE message_id = ?", id) { it.getLong(0) }.toSet()
