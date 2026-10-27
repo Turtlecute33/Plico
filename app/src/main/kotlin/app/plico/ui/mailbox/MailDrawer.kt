@@ -215,6 +215,9 @@ private fun DrawerEntry(
     val scheme = MaterialTheme.colorScheme
     val content = if (selected) scheme.onSecondaryContainer else scheme.onSurfaceVariant
     val unread = if (badge > 0) pluralStringResource(R.plurals.mailbox_unread_count, badge, badge) else null
+    // TalkBack says what the bell shows (PLICO-UX-010).
+    val notifies = if (notify) stringResource(R.string.mailbox_notifies) else null
+    val state = listOfNotNull(unread, notifies).joinToString(", ")
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,7 +231,7 @@ private fun DrawerEntry(
             )
             .semantics {
                 this.selected = selected
-                unread?.let { stateDescription = it }
+                if (state.isNotEmpty()) stateDescription = state
             }
             .padding(start = 16.dp, end = 24.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -34,6 +34,8 @@
     <string name="mailbox_less">Less</string>
     <string name="mailbox_folder_options">Folder options</string>
     <string name="mailbox_notify_new_mail">Notify for new mail</string>
+    <!-- TalkBack state of a folder with "Notify for new mail" on -->
+    <string name="mailbox_notifies">Notifications on</string>
     <plurals name="mailbox_unread_count">
         <item quantity="one">%d unread</item>
         <item quantity="other">%d unread</item>
