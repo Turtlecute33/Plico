@@ -29,6 +29,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.plico.R
 import app.plico.data.Account
@@ -45,11 +46,13 @@ import app.plico.ui.components.rejectObscuredTouches
  * opening a hit animates like any other screen change. In search mode the leading button ends the search.
  * The buttons sit beside the field, not inside it: keyboard focus that enters the screen (after Back, for
  * example) lands on the drawer button, so the field gets focus and the keyboard only when the user taps it.
+ * [title] is the name of the open view, for the hint "Search in Trash" (PLICO-UX-001); null until it is known.
  */
 @Composable
 internal fun SearchTopBar(
     query: TextFieldState,
     searchBar: SearchBarState,
+    title: String?,
     account: Account?,
     menu: List<MenuEntry>,
     onEndSearch: () -> Unit,
@@ -86,7 +89,14 @@ internal fun SearchTopBar(
                         searchBarState = searchBar,
                         onSearch = { focus.clearFocus() },
                         modifier = field,
-                        placeholder = { Text(stringResource(R.string.mailbox_search_hint)) },
+                        placeholder = {
+                            Text(
+                                text = title?.let { stringResource(R.string.mailbox_search_in, it) }
+                                    ?: stringResource(R.string.mailbox_search_hint),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                     )
                 }
                 when {

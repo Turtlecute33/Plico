@@ -58,6 +58,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
@@ -168,6 +169,14 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
         gmailIpNoteShown = gmailIpNoteShown,
         unsent = unsent,
     )
+    // The name of the open view, for the search hint and the TalkBack pane title (PLICO-UX-001).
+    val viewName = when (vm.view) {
+        MailView.Unified -> stringResource(R.string.ui_all_inboxes)
+        is MailView.Starred -> stringResource(R.string.mailbox_starred)
+        is MailView.InFolder -> folder?.let { folderName(it) }
+        // Not a list view: a search route lists all inboxes (MailboxViewModel.view).
+        is MailView.Search -> null
+    }
     val selectedInfos = selected.mapNotNull(infos::get)
     val selection = if (selectedInfos.isEmpty()) null else RowActions.selection(selectedInfos)
 
@@ -300,6 +309,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
         gesturesEnabled = drawerState.isOpen,
     ) {
         Scaffold(
+            modifier = Modifier.semantics { viewName?.let { paneTitle = it } },
             topBar = {
                 if (selection != null) {
                     SelectionTopBar(
@@ -326,6 +336,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                     SearchTopBar(
                         query = vm.query,
                         searchBar = searchBar,
+                        title = viewName,
                         account = viewAccount ?: accounts.singleOrNull(),
                         menu = emptyFolderMenu(folder) { confirmEmpty = it },
                         onEndSearch = ::endSearch,

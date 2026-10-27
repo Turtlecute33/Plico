@@ -1653,7 +1653,9 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
     found, or a Microsoft login); an IMAP host or port change first stops the session and then wipes the
     synced data (§5). Servers of another provider are refused ("These are the servers of X. Remove this
     account and add it again."). "Sign in again" never revokes after the new consent.
-- **Mailbox**: search-bar top bar with drawer button. Drawer: All inboxes, Starred, then per account Inbox,
+- **Mailbox**: search-bar top bar with drawer button. The search hint names the open view ("Search in Trash"),
+  and the screen has that name as its TalkBack pane title (`PLICO-UX-001`). Drawer: All inboxes, Starred, then
+  per account Inbox,
   Sent, Drafts, Archive (not Gmail) / All mail (Gmail), Important (Gmail), Spam, Trash, other folders/labels under
   "More"; unread counts on every entry; long-press a folder → "Notify for new mail". Rows: avatar, sender,
   date, subject, 2-line snippet, star, paperclip. The list reads its look once (`RowLook`: unread style,

@@ -2,6 +2,8 @@
 <resources>
     <!-- Top bar and search -->
     <string name="mailbox_search_hint">Search mail</string>
+    <!-- Search hint with the name of the open view, for example "Search in Trash" -->
+    <string name="mailbox_search_in">Search in %1$s</string>
     <string name="mailbox_open_menu">Open menu</string>
     <string name="mailbox_close_search">Close search</string>
     <string name="mailbox_clear_search">Clear search</string>
