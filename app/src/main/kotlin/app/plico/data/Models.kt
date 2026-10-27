@@ -386,8 +386,6 @@ data class NewAttachment(
 /** Everything the message screen shows from the database. */
 data class MessageDetail(
     val message: Message,
-    /** Null until the body is downloaded. */
-    val body: Body?,
     val attachments: List<Attachment>,
     /** The source mailbox and the Gmail label views that hold the message. */
     val folders: List<Folder>,

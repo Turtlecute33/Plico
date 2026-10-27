@@ -165,7 +165,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, MessageState.Loading)
 
     val body: StateFlow<BodyState> = combine(
-        detail.map { it?.body }.distinctUntilChanged(),
+        app.messages.observeBody(messageId),
         state.mapNotNull { (it as? MessageState.Ready)?.view?.remoteAllowed }.distinctUntilChanged(),
         bodyError,
         renderGone,
@@ -195,7 +195,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         viewModelScope.launch {
             val first = detail.first() ?: return@launch
             if (!first.message.seen) change { mail.markSeen(ids, true) }
-            if (first.body == null) loadBody()
+            if (!first.message.hasBody) loadBody()
             val f = fixed.await()
             if (f?.ownMessage == false) {
                 warnings.value = withContext(Dispatchers.IO) { senderWarnings(first.message, f.own) }

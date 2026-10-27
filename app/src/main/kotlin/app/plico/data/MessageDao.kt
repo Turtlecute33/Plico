@@ -2,8 +2,12 @@ package app.plico.data
 
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 
 /**
  * Message rows, their folder memberships, bodies, attachments and search index (DESIGN.md §5).
@@ -61,13 +65,12 @@ class MessageDao(private val db: Db) {
 
     fun get(id: Long): Message? = db.sql.message(id)
 
-    /** The message with its body, attachments and folders; null once the row is gone. */
+    /** The message with its attachments and folders; null once the row is gone. The body is [observeBody]. */
     fun observeDetail(id: Long): Flow<MessageDetail?> =
-        db.observe(Tables.MESSAGE, Tables.BODY, Tables.ATTACHMENT, Tables.MESSAGE_FOLDER, Tables.FOLDER) {
+        db.observe(Tables.MESSAGE, Tables.ATTACHMENT, Tables.MESSAGE_FOLDER, Tables.FOLDER) {
             message(id)?.let { m ->
                 MessageDetail(
                     message = m,
-                    body = body(id),
                     attachments = attachmentRows(id),
                     folders = list(
                         "SELECT $FOLDER_COLS FROM folder WHERE id IN " +
@@ -77,6 +80,17 @@ class MessageDao(private val db: Db) {
                 )
             }
         }
+
+    /**
+     * The body of [id]; null until it is downloaded and once the row is gone. A commit reads only the body flag of
+     * the row, and the body itself is read again only when the flag changes (PLICO-PERF-004): a message gets its
+     * body once (`MailActions.loadBody`, `needingBodies`), so a sync of other rows reads no megabytes.
+     */
+    fun observeBody(id: Long): Flow<Body?> =
+        db.observe(Tables.MESSAGE) { long("SELECT body FROM message WHERE id = ?", id) == 1L }
+            .distinctUntilChanged()
+            .map { has -> if (has) body(id) else null }
+            .flowOn(Dispatchers.IO)
 
     fun body(messageId: Long): Body? = db.sql.body(messageId)
 

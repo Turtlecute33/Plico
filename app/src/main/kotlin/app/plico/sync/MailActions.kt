@@ -726,10 +726,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
         return Triple(account, identities, source)
     }
 
-    /** The message with its body; loads a missing body first (waiting at most [BODY_WAIT_MS]). */
+    /** The message; loads a missing body first (waiting at most [BODY_WAIT_MS]). */
     private suspend fun detail(messageId: Long, needBody: Boolean): MessageDetail {
         val detail = store.messages.observeDetail(messageId).first() ?: throw gone()
-        if (detail.body != null) return detail
+        if (detail.message.hasBody) return detail
         val loaded = try {
             withTimeoutOrNull(BODY_WAIT_MS) { loadBody(messageId) } != null
         } catch (e: CancellationException) {
@@ -742,8 +742,9 @@ class MailActions internal constructor(private val store: OpStore, private val h
         return store.messages.observeDetail(messageId).first() ?: throw gone()
     }
 
+    /** Blocking; Dispatchers.IO. */
     private fun bodyText(detail: MessageDetail): String =
-        detail.body?.let { it.text ?: it.html?.let(HtmlSanitizer::text) }.orEmpty()
+        store.messages.body(detail.message.id)?.let { it.text ?: it.html?.let(HtmlSanitizer::text) }.orEmpty()
 
     /** Downloads [attachments] (not the inline images) into the draft; on failure the draft is discarded. */
     private suspend fun copyAttachments(draftId: Long, attachments: List<Attachment>) {

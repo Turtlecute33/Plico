@@ -1,9 +1,12 @@
 package app.plico.data
 
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -342,8 +345,27 @@ class MessageDaoTest : DbFixture() {
         val detail = messages.observeDetail(id).now()
         assertNotNull(detail)
         assertEquals(listOf(inbox), detail.folders.map { it.id })
-        assertEquals("<img src=cid:logo@x>", detail.body?.html)
+        assertEquals("<img src=cid:logo@x>", messages.observeBody(id).now()?.html)
         assertEquals(detail.attachments.single().id, messages.attachment(detail.attachments.single().id)?.id)
+    }
+
+    @Test
+    fun theBodyFlowReadsTheBodyOnlyWhenTheRowGetsIt() = runBlocking {
+        // PLICO-PERF-004: commits of flags or of other rows do not read the open body again.
+        val (id, other) = insert(header(riseup, inbox, 1), header(riseup, inbox, 2))
+        val reads = Channel<Body?>(Channel.UNLIMITED)
+        val job = launch { messages.observeBody(id).collect { reads.send(it) } }
+        assertNull(withTimeout(5_000) { reads.receive() })
+        messages.setSeen(listOf(id), true)
+        messages.saveBody(other, null, "other", "other", "other", emptyList())
+        messages.saveBody(id, "<p>hi</p>", "hi", "hi", "hi", emptyList())
+        assertEquals(Body(id, "<p>hi</p>", "hi"), withTimeout(5_000) { reads.receive() })
+        messages.setFlagged(listOf(id), true)
+        messages.saveBody(other, null, "again", "again", "again", emptyList())
+        assertNull(withTimeoutOrNull(500) { reads.receive() }, "no read after the body is there")
+        messages.delete(listOf(id))
+        assertNull(withTimeout(5_000) { reads.receive() }, "the row is gone")
+        job.cancel()
     }
 
     @Test
@@ -353,7 +375,7 @@ class MessageDaoTest : DbFixture() {
         val html = "<p>" + "é€😀a".repeat(300_000) + "</p>"
         val text = "x".repeat(1_500_000)
         messages.saveBody(id, html, text, "", "", emptyList())
-        assertEquals(Body(id, html, text), messages.observeDetail(id).now()?.body)
+        assertEquals(Body(id, html, text), messages.observeBody(id).now())
         messages.saveBody(id, null, "", "", "", emptyList())
         assertEquals(Body(id, null, ""), messages.body(id))
     }
