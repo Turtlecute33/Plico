@@ -255,7 +255,7 @@ object Ops {
                 raw("X-GM-MSGID")
                 raw(msgId.toString())
             }
-            ctx.client.uidSearch(criteria).toList().maxOrNull()?.let { uids[row.uid] = it }
+            ctx.client.uidSearch(criteria).max?.takeIf { it != UidSet.MAX }?.let { uids[row.uid] = it }
         }
         return all to uids
     }

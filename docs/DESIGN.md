@@ -288,7 +288,8 @@ data class Namespaces(val personal: List<Namespace>, val otherUsers: List<Namesp
   in IMAP4rev1 mode (Plico never sends `ENABLE IMAP4rev2`). Never `ENABLE UTF8=ACCEPT`. Gmail `X-GM-LABELS` values
   are astrings in modified UTF-7; system labels start with `\`.
 - `UidSet`: sorted ranges; `toString()` = `1:5,8,10:12`; `*` parses to Long.MAX_VALUE; split into
-  commands of at most 500 ranges.
+  commands of at most 500 ranges. A UID out of 1..2^32-1 is malformed; `toList()` of more than 1,000,000 UIDs is a
+  protocol error (a server range cannot fill the heap).
 - Search with non-ASCII text: `UID SEARCH CHARSET UTF-8 <criteria with literal>` (`protocol PS16`).
 - No VANISHED (QRESYNC is never enabled) and no `~{n}` literals (BINARY is not used).
 

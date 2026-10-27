@@ -59,6 +59,17 @@ class UidSetTest {
     fun malformedInputThrows() {
         assertFailsWith<NumberFormatException> { UidSet.parse("1,,2") }
         assertFailsWith<NumberFormatException> { UidSet.parse("a:b") }
+        // UIDs are 1..2^32-1 (RFC 3501 nz-number).
+        assertFailsWith<IllegalArgumentException> { UidSet.parse("0") }
+        assertFailsWith<IllegalArgumentException> { UidSet.parse("-5:3") }
+        assertFailsWith<IllegalArgumentException> { UidSet.parse("1:4294967296") }
+        assertEquals(4294967295L, UidSet.parse("1:4294967295").max)
+    }
+
+    @Test
+    fun hugeSetHasNoList() {
+        assertFailsWith<ImapProtocolException> { UidSet.parse("1:4294967295").toList() }
+        assertEquals(1_000_000, UidSet.parse("1:1000000").toList().size)
     }
 
     @Test

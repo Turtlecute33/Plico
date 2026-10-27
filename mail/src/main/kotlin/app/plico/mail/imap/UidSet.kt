@@ -50,9 +50,13 @@ class UidSet private constructor(val ranges: List<LongRange>) {
         else -> fromRanges(ranges + other.ranges)
     }
 
-    /** All UIDs in ascending order. Do not call on a set that contains `*`. */
+    /**
+     * All UIDs in ascending order. Do not call on a set that contains `*`. A set of more than [MAX_LIST] UIDs
+     * (a server range such as `1:4294967295`) throws [ImapProtocolException], so that it cannot fill the heap.
+     */
     fun toList(): List<Long> {
         require(max != MAX) { "open range" }
+        if (count > MAX_LIST) throw ImapProtocolException("UID set too large")
         return ranges.flatMap { it.toList() }
     }
 
@@ -70,6 +74,7 @@ class UidSet private constructor(val ranges: List<LongRange>) {
 
     companion object {
         const val MAX = Long.MAX_VALUE
+        private const val MAX_LIST = 1_000_000L
         val EMPTY = UidSet(emptyList())
 
         fun of(uids: Iterable<Long>): UidSet = fromRanges(uids.map { it..it })
@@ -90,7 +95,9 @@ class UidSet private constructor(val ranges: List<LongRange>) {
             })
         }
 
-        private fun bound(s: String): Long = if (s == "*") MAX else s.toLong()
+        /** `*` or a UID in 1..2^32-1 (RFC 3501 nz-number), so that [count] cannot overflow. */
+        private fun bound(s: String): Long =
+            if (s == "*") MAX else s.toLong().also { require(it in 1..0xFFFF_FFFFL) { "UID out of range" } }
 
         private fun fromRanges(input: List<LongRange>): UidSet {
             if (input.isEmpty()) return EMPTY
