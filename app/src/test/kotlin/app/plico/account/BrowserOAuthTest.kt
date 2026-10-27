@@ -181,21 +181,21 @@ class BrowserOAuthTest {
         val payload = Base64.getUrlEncoder().withoutPadding().encodeToString(claims.toByteArray())
         assertTrue('-' in payload || '_' in payload)
         assertFalse('=' in payload)
-        assertEquals("user.name@gmail.com", BrowserOAuth.emailFromIdToken("eyJhbGciOiJSUzI1NiJ9.$payload.c2ln"))
+        assertEquals("user.name@gmail.com", BrowserOAuth.claims("eyJhbGciOiJSUzI1NiJ9.$payload.c2ln")?.email)
 
         val padded = Base64.getUrlEncoder().encodeToString("""{"email":"a@gmail.com"}""".toByteArray())
         assertTrue(padded.endsWith("="))
-        assertEquals("a@gmail.com", BrowserOAuth.emailFromIdToken("h.$padded.s"))
+        assertEquals("a@gmail.com", BrowserOAuth.claims("h.$padded.s")?.email)
     }
 
     @Test
     fun `malformed id tokens give no email`() {
         val noEmail = Base64.getUrlEncoder().withoutPadding().encodeToString("""{"sub":"1"}""".toByteArray())
-        assertNull(BrowserOAuth.emailFromIdToken("h.$noEmail.s"))
-        assertNull(BrowserOAuth.emailFromIdToken("onlyone"))
-        assertNull(BrowserOAuth.emailFromIdToken("a.b"))
-        assertNull(BrowserOAuth.emailFromIdToken("h.!!!.s"))
-        assertNull(BrowserOAuth.emailFromIdToken("h.${Base64.getUrlEncoder().encodeToString("not json".toByteArray())}.s"))
+        assertNull(BrowserOAuth.claims("h.$noEmail.s")?.email)
+        assertNull(BrowserOAuth.claims("onlyone")?.email)
+        assertNull(BrowserOAuth.claims("a.b")?.email)
+        assertNull(BrowserOAuth.claims("h.!!!.s")?.email)
+        assertNull(BrowserOAuth.claims("h.${Base64.getUrlEncoder().encodeToString("not json".toByteArray())}.s")?.email)
     }
 
     @Test

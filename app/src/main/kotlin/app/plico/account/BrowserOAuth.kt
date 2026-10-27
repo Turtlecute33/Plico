@@ -532,15 +532,13 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
             OAuthIssuer.MICROSOFT -> scope.contains(issuer.mailScope, ignoreCase = true)
         }
 
-        /**
-         * The `email` claim of an id_token. The token comes straight from the token endpoint of the issuer over
-         * TLS, so its signature is not checked (privacy PS16).
-         */
-        internal fun emailFromIdToken(idToken: String): String? = claims(idToken)?.email
-
         /** The claims of an id_token that Plico reads; null when the token cannot be read. */
         internal class Claims(val email: String?, val preferredUsername: String?)
 
+        /**
+         * The [Claims] of [idToken]. The token comes straight from the token endpoint of the issuer over TLS, so
+         * its signature is not checked (privacy PS16).
+         */
         internal fun claims(idToken: String): Claims? = try {
             val payload = idToken.split('.').takeIf { it.size == 3 }?.get(1) ?: return null
             val o = JSONObject(String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8))
