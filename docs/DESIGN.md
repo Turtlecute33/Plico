@@ -1430,6 +1430,8 @@ class MessageBuilder(val from: Address, val to: List<Address>, val cc: List<Addr
   not be shown"), return true; remember the id for the process session and show it as text next time.
 - Width: `useWideViewPort` and `loadWithOverviewMode` on, viewport `width=device-width` without
   `initial-scale`. A body that is wider than the screen is zoomed out until it fits: no side scroll.
+  Pinch zoom on (`setSupportZoom`, `builtInZoomControls`), no on-screen zoom buttons (`displayZoomControls`
+  off), so that the user can zoom in on small text (WCAG 1.4.4, `PLICO-UX-002`).
 - Dark mode: `setAlgorithmicDarkeningAllowed(darkTheme && prefs.darkEmail && !showOriginal)`. The activity
   theme is day/night: `values/themes.xml` parent `android:Theme.Material.Light.NoActionBar`,
   `values-night/themes.xml` parent `android:Theme.Material.NoActionBar`.

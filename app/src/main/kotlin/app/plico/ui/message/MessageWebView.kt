@@ -114,6 +114,10 @@ internal fun messageWebView(context: Context, client: WebViewClient): WebView {
             // Read the viewport tag of HtmlSanitizer and start zoomed out to the full width: no side scroll.
             useWideViewPort = true
             loadWithOverviewMode = true
+            // Pinch zoom, so that a zoomed-out body can be read (WCAG 1.4.4, PLICO-UX-002); no +/- buttons.
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ATTRIBUTION_REGISTRATION_BEHAVIOR)) {
             WebSettingsCompat.setAttributionRegistrationBehavior(

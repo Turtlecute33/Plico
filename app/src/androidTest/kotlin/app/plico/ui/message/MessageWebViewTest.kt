@@ -133,6 +133,16 @@ class MessageWebViewTest {
     }
 
     @Test
+    fun pinchZoomIsOnWithoutZoomButtons() {
+        val view = show("<p>Hello</p>", Recorder())
+        var zoom = emptyList<Boolean>()
+        instrumentation.runOnMainSync {
+            zoom = with(view.settings) { listOf(supportZoom(), builtInZoomControls, displayZoomControls) }
+        }
+        assertEquals(listOf(true, true, false), zoom)
+    }
+
+    @Test
     fun rendererDeathIsContained() {
         val gone = CountDownLatch(1)
         val view = show("<p>Hello</p>", Recorder()) { gone.countDown() }
