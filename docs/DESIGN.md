@@ -1678,7 +1678,9 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
     size of the source image.
   Swipe (`apis AF4`): per row `remember(msg.id) { SwipeToDismissBoxState(Settled) { it * 0.4f } }`, `onDismiss`
   captures only the id; toggle actions reset the state first, then apply; defaults start→end Archive, end→start
-  Delete; choices Archive, Delete, Read/Unread, Star, None; Undo snackbar. Long-press multi-select: Select all,
+  Delete; choices Archive, Delete, Read/Unread, Star, None; Undo snackbar. A haptic tick each time the swipe
+  passes the threshold, and a confirm haptic when a send is queued (`PLICO-UX-011`; the system touch-feedback
+  setting applies). Long-press multi-select: Select all,
   Archive, Delete, Read/Unread, Star, Move/Labels, Spam/Not spam. Trash and Spam overflow: Empty (confirm).
   Pull to refresh. Extended FAB "Compose". Banners: sign-in needed, push paused/late, guard, Gmail setup state,
   messages not sent. Rows of sent mail (in Sent, or from the account address) show "To: <first recipient>".

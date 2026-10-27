@@ -57,7 +57,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -128,7 +130,10 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
     if (vm.phase == ComposeViewModel.Phase.QUEUED) {
         val sending = stringResource(R.string.compose_sending)
         val undo = stringResource(R.string.ui_undo)
+        val haptic = LocalHapticFeedback.current
         LaunchedEffect(Unit) {
+            // The send is queued (PLICO-UX-011); the system touch-feedback setting applies.
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             snackbar.currentSnackbarData?.dismiss()
             if (!snackbar.showUndo(sending, undo, UndoWindow.sendMs(vm.undoSeconds))) {
                 nav.back()

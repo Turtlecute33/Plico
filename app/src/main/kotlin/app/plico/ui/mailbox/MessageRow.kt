@@ -25,13 +25,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -54,6 +58,7 @@ import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.Icons
 import app.plico.ui.message.revealBidi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /** The swipe actions of one row; null turns a direction off. */
@@ -93,6 +98,13 @@ internal fun MessageRow(
     val scope = rememberCoroutineScope()
     val currentSwipe by rememberUpdatedState(swipe)
     val currentAction by rememberUpdatedState(onAction)
+    // One tick each time the swipe passes the threshold; the system touch-feedback setting applies (PLICO-UX-011).
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(state) {
+        snapshotFlow { state.targetValue }.drop(1).collect {
+            if (it != SwipeToDismissBoxValue.Settled) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        }
+    }
     val onDismiss = remember(id) {
         { value: SwipeToDismissBoxValue ->
             val action = when (value) {
