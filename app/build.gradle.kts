@@ -1,3 +1,4 @@
+import com.android.build.api.variant.SigningConfigInfo
 import java.util.Properties
 
 plugins {
@@ -15,9 +16,11 @@ val signingProps = rootProject.file("keystore.properties").takeIf { it.exists() 
     Properties().apply { f.inputStream().use { load(it) } }
 }
 
-fun keychain(service: String): String =
+// A lazy Keychain read: `security` runs only when a release signing task needs the password. Debug builds
+// never run it, and the configuration cache keeps the command, not the password.
+fun keychain(service: String): Provider<String> =
     providers.exec { commandLine("security", "find-generic-password", "-s", service, "-w") }
-        .standardOutput.asText.get().trim()
+        .standardOutput.asText.map { it.trim() }
 
 android {
     namespace = "app.plico"
@@ -36,25 +39,13 @@ android {
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"\"")
     }
 
-    signingConfigs {
-        if (signingProps != null) {
-            create("release") {
-                storeFile = file(signingProps.getProperty("storeFile"))
-                storePassword = keychain(signingProps.getProperty("storePasswordKeychain"))
-                keyAlias = signingProps.getProperty("keyAlias")
-                keyPassword = keychain(signingProps.getProperty("keyPasswordKeychain"))
-            }
-        }
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             vcsInfo { include = false }
-            // Without a release key, produce an unsigned artifact instead of using the debug identity.
-            signingConfig = signingConfigs.findByName("release")
+            // No DSL signing config: androidComponents below adds the release key, so the debug key never signs.
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -88,6 +79,23 @@ android {
         checkDependencies = true
         // arm64-v8a only on purpose: Plico targets phones, not ChromeOS.
         disable += "ChromeOsAbiSupport"
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        // Without a release key, the release APK stays unsigned. Local values only in the lambda, so that
+        // the configuration cache can store it without the build script.
+        signingProps?.let { props ->
+            val storeFile = file(props.getProperty("storeFile"))
+            val alias = props.getProperty("keyAlias")
+            variant.signingConfig.from(
+                keychain(props.getProperty("storePasswordKeychain"))
+                    .zip(keychain(props.getProperty("keyPasswordKeychain"))) { store, key ->
+                        SigningConfigInfo(storeFile, store, alias, key, "PKCS12")
+                    },
+            )
+        }
     }
 }
 
