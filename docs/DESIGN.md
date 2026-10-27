@@ -435,8 +435,9 @@ class SmtpAuthUnavailableException : java.io.IOException("No usable AUTH mechani
 ## 5. Data (`data`)
 
 Framework SQLite (`SQLiteOpenHelper`, WAL, `PRAGMA foreign_keys=ON`). One `Db` class: `query`,
-`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v4 = schema v1
-(below) + "Migration 1 → 2" + "Migration 2 → 3" + "Migration 3 → 4" (end of this section). Schema v1:
+`tx {}`, `changes: SharedFlow<Set<String>>` (table names) that drives `Flow` queries. Schema v5 = schema v1
+(below) + "Migration 1 → 2" + "Migration 2 → 3" + "Migration 3 → 4" + "Migration 4 → 5" (end of this section).
+Schema v1:
 
 ```sql
 CREATE TABLE account(
@@ -602,12 +603,24 @@ ALTER TABLE folder ADD COLUMN own_deleted TEXT;                          -- UIDs
 
 ### Migration 3 → 4
 
-`Schema.VERSION` is 4. `attachment.message_id` is the child key of `ON DELETE CASCADE`. Without an index, each
+`attachment.message_id` is the child key of `ON DELETE CASCADE`. Without an index, each
 deleted message scans the whole attachment table (resync, expunge, account removal), and so does each read of
 the attachments of one message.
 
 ```sql
 CREATE INDEX attachment_message ON attachment(message_id);              -- the child key of ON DELETE CASCADE
+```
+
+### Migration 4 → 5
+
+`Schema.VERSION` is 5. `trusted_sender.verified` keeps where the user set the trust (§11.4, `PLICO-PRIV-003`):
+1 = on a VERIFIED message (Gmail with `dmarc=pass`), where the "A sender can be faked" note does not show; such a
+trust counts only on VERIFIED messages. 0 = on a FROM_ONLY message, where the note was on screen; it counts on
+both. The rows of before get 0, so that they work as before. A trust set by From only stays 0 when the user also
+sets it on a VERIFIED message (`min`).
+
+```sql
+ALTER TABLE trusted_sender ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;   -- 1 = set on a VERIFIED message: honoured only there; 0 = set by From only (rows of before stay 0)
 ```
 
 ## 6. Providers, discovery and sign-in (`account`)
@@ -1405,6 +1418,10 @@ redirects, a blocked hop).
 - "Always show remote content from this sender" and one-click unsubscribe POST: Gmail only when `auth = 1`
   and the message is not in Junk. Other servers (Riseup too): per-sender trust is From-only; the toggle says
   "A sender can be faked"; no one-click POST (link sheet instead).
+- The trust stores where the user set it (`trusted_sender.verified`, `TrustedOn`): a trust set on a VERIFIED
+  message counts only on VERIFIED messages, so it does not load remote content on another account where From
+  can be forged and the user never saw the note (`PLICO-PRIV-003`). A trust set on a FROM_ONLY message counts on
+  both (`trustedFor`).
 - `ListUnsubscribe` is the one parser of `List-Unsubscribe` for the UI and the POST: the URIs in angle
   brackets, else the comma-separated values; the first https (else http) page and the first mailto with an
   address. One-click needs an https URI and `List-Unsubscribe-Post`; the POST re-checks the trust rule.

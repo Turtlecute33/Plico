@@ -7,6 +7,7 @@ import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.MailView
+import app.plico.data.TrustedOn
 import app.plico.html.Idn
 import app.plico.html.Link
 import app.plico.html.LinkWarning
@@ -154,6 +155,17 @@ fun placementOf(sourceFolderId: Long, folders: List<Folder>, gmail: Boolean): Pl
         labelIds = if (gmail) labels.mapTo(HashSet()) { it.id } else emptySet(),
         view = MailView.InFolder(if (gmail && inboxLabel != null) inboxLabel.id else sourceFolderId),
     )
+}
+
+/**
+ * True when the trust of the user ([trustedOn], null = none) counts for a message of [trust] (DESIGN §11.4,
+ * PLICO-PRIV-003). A trust set on a VERIFIED message counts only on VERIFIED messages: on another account From can
+ * be forged, and the user did not see the "A sender can be faked" note. A trust set by From only counts on both.
+ */
+fun trustedFor(trustedOn: TrustedOn?, trust: SenderTrust): Boolean = when (trustedOn) {
+    null -> false
+    TrustedOn.VERIFIED -> trust == SenderTrust.VERIFIED
+    TrustedOn.FROM_ONLY -> trust.alwaysShowRemote
 }
 
 /**

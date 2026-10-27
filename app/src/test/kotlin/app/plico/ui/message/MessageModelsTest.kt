@@ -6,6 +6,7 @@ import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.MailView
+import app.plico.data.TrustedOn
 import app.plico.html.Link
 import app.plico.html.LinkCleaner
 import app.plico.html.LinkWarning
@@ -191,6 +192,21 @@ class MessageModelsTest {
         assertTrue(allow(trusted = true, trust = SenderTrust.FROM_ONLY))
         // A trusted address whose message is not verified (Gmail without dmarc=pass) is not enough.
         assertFalse(allow(trusted = true, trust = SenderTrust.NONE))
+    }
+
+    @Test
+    fun trustCountsWhereTheUserSetIt() {
+        // Set on a verified Gmail message: not on another account, where From can be forged.
+        assertTrue(trustedFor(TrustedOn.VERIFIED, SenderTrust.VERIFIED))
+        assertFalse(trustedFor(TrustedOn.VERIFIED, SenderTrust.FROM_ONLY))
+        assertFalse(allowRemote(false, false, trustedFor(TrustedOn.VERIFIED, SenderTrust.FROM_ONLY), SenderTrust.FROM_ONLY, false))
+        // Set by From only, with the note on screen: on both.
+        assertTrue(trustedFor(TrustedOn.FROM_ONLY, SenderTrust.FROM_ONLY))
+        assertTrue(trustedFor(TrustedOn.FROM_ONLY, SenderTrust.VERIFIED))
+        // Never without a trust, and never on an unverified Gmail message or in Junk.
+        assertFalse(trustedFor(null, SenderTrust.VERIFIED))
+        assertFalse(trustedFor(TrustedOn.FROM_ONLY, SenderTrust.NONE))
+        assertFalse(trustedFor(TrustedOn.VERIFIED, SenderTrust.NONE))
     }
 
     @Test

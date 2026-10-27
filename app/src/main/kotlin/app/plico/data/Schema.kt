@@ -27,7 +27,7 @@ object Tables {
  * A fresh database runs the same statements as an upgraded one.
  */
 internal object Schema {
-    const val VERSION = 4
+    const val VERSION = 5
 
     val V1 = listOf(
         """
@@ -146,6 +146,10 @@ internal object Schema {
         listOf(
             // the child key of ON DELETE CASCADE: without it, each deleted message scans the whole table
             "CREATE INDEX attachment_message ON attachment(message_id)",
+        ),
+        listOf(
+            // 1 = set on a VERIFIED message: honoured only there; 0 = set by From only (rows of before stay 0)
+            "ALTER TABLE trusted_sender ADD COLUMN verified INTEGER NOT NULL DEFAULT 0",
         ),
     )
 }

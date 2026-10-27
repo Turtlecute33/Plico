@@ -4,17 +4,20 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.platform.app.InstrumentationRegistry
 import app.plico.account.Providers
 import app.plico.mail.imap.UidSet
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** An installed v1 database (release 0.1.0) or v2 database opened by this build. */
+/** An installed v1 database (release 0.1.0), v2 or v4 database opened by this build. */
 class MigrationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val v1Name = "test-v1-${UUID.randomUUID()}.db"
     private val v2Name = "test-v2-${UUID.randomUUID()}.db"
+    private val v4Name = "test-v4-${UUID.randomUUID()}.db"
     private val freshName = "test-fresh-${UUID.randomUUID()}.db"
     private val opened = ArrayList<Db>()
 
@@ -23,6 +26,7 @@ class MigrationTest {
         opened.forEach(Db::close)
         context.deleteDatabase(v1Name)
         context.deleteDatabase(v2Name)
+        context.deleteDatabase(v4Name)
         context.deleteDatabase(freshName)
     }
 
@@ -90,6 +94,22 @@ class MigrationTest {
         assertEquals(columns(fresh, "folder"), columns(db, "folder"))
         assertEquals(indexes(fresh), indexes(db))
         assertTrue("attachment_message" in indexes(db))
+    }
+
+    @Test
+    fun upgradeFromV4KeepsTrustedSendersAsFromOnly() {
+        val path = context.getDatabasePath(v4Name).apply { parentFile?.mkdirs() }
+        SQLiteDatabase.openOrCreateDatabase(path, null).use { v4 ->
+            (Schema.V1 + Schema.MIGRATIONS.take(3).flatten()).forEach(v4::execSQL)
+            v4.execSQL("INSERT INTO trusted_sender(email) VALUES('news@example.org')")
+            v4.version = 4
+        }
+        val db = Db(context, v4Name).also(opened::add)
+        assertEquals(Schema.VERSION, db.sql.version)
+        // A trust of before counts as before: by From only, on every account.
+        assertEquals(TrustedOn.FROM_ONLY, runBlocking { TrustDao(db).observeTrusted("news@example.org").first() })
+        val fresh = Db(context, freshName).also(opened::add)
+        assertEquals(columns(fresh, "trusted_sender"), columns(db, "trusted_sender"))
     }
 
     private fun indexes(db: Db) =

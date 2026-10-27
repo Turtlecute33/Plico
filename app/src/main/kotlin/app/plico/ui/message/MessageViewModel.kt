@@ -14,6 +14,7 @@ import app.plico.data.Files
 import app.plico.data.Folder
 import app.plico.data.Message
 import app.plico.data.MessageDetail
+import app.plico.data.TrustedOn
 import app.plico.html.AttachmentCheck
 import app.plico.html.AttachmentSafety
 import app.plico.html.HtmlSanitizer
@@ -68,6 +69,7 @@ data class MessageView(
     val banners: List<SenderBanner>,
     val firstContact: Boolean,
     val trust: SenderTrust,
+    /** The trust of the user counts for this message ([trustedFor]). */
     val trusted: Boolean,
     val remoteDefault: Boolean,
     val remoteAllowed: Boolean,
@@ -228,9 +230,10 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     }
 
     fun setAlwaysRemote(on: Boolean) {
-        val email = (state.value as? MessageState.Ready)?.view?.message?.fromEmail ?: return
+        val view = (state.value as? MessageState.Ready)?.view ?: return
         if (!on) shownOnce.value = false
-        change { app.trustedSenders.setTrusted(email, on) }
+        val verified = view.trust == SenderTrust.VERIFIED
+        change { app.trustedSenders.setTrusted(view.message.fromEmail, on, verified) }
     }
 
     /**
@@ -510,7 +513,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     private fun viewOf(
         d: MessageDetail,
         f: Fixed,
-        trusted: Boolean,
+        trustedOn: TrustedOn?,
         remoteDefault: Boolean,
         once: Boolean,
         warnings: List<SenderWarning>,
@@ -518,6 +521,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         val m = d.message
         val placement = placementOf(m.folderId, d.folders, f.account.isGmail)
         val trust = SenderCheck.trust(f.account.isGmail, m.auth, placement.inJunk)
+        val trusted = trustedFor(trustedOn, trust)
         val recipients = recipientLines(m.toList, m.ccList, m.bccList)
         return MessageView(
             message = m,

@@ -218,7 +218,7 @@ class AccountDaoTest : DbFixture() {
         val outFile = files.newOutboxFile(draft, "a.txt").apply { writeText("z") }
         ops.insert(NewOp(gone, OpKind.FLAGS, listOf(goneMsg)))
         ContactDao(db).touch(listOf(Address("Ann", "ann@example.org")))
-        TrustDao(db).setTrusted("news@example.org", true)
+        TrustDao(db).setTrusted("news@example.org", true, verified = false)
 
         accounts.purge(gone, files)
 
@@ -277,10 +277,16 @@ class AccountDaoTest : DbFixture() {
         assertFalse(contacts.isKnown("zed@example.org"))
 
         assertFalse(trust.isTrusted("news@example.org"))
-        trust.setTrusted("News@Example.org", true)
+        trust.setTrusted("News@Example.org", true, verified = true)
         assertTrue(trust.isTrusted("news@example.org"))
-        assertTrue(withTimeout(5_000) { trust.observeTrusted("NEWS@example.org").first() })
-        trust.setTrusted("news@example.org", false)
+        assertEquals(TrustedOn.VERIFIED, withTimeout(5_000) { trust.observeTrusted("NEWS@example.org").first() })
+        // A trust set by From only is the wider kind, and a later verified one does not make it narrower.
+        trust.setTrusted("news@example.org", true, verified = false)
+        assertEquals(TrustedOn.FROM_ONLY, withTimeout(5_000) { trust.observeTrusted("news@example.org").first() })
+        trust.setTrusted("news@example.org", true, verified = true)
+        assertEquals(TrustedOn.FROM_ONLY, withTimeout(5_000) { trust.observeTrusted("news@example.org").first() })
+        trust.setTrusted("news@example.org", false, verified = true)
         assertFalse(trust.isTrusted("news@example.org"))
+        assertNull(withTimeout(5_000) { trust.observeTrusted("news@example.org").first() })
     }
 }

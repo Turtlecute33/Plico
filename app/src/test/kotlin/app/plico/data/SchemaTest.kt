@@ -13,7 +13,7 @@ class SchemaTest {
         val v1 = design.substringAfter("```sql\n").substringBefore("```")
         assertEquals(normalize(v1), normalize(Schema.V1.joinToString("\n")))
         // The migration block of DESIGN.md has SQL comments; Schema.MIGRATIONS has them as Kotlin comments.
-        for ((i, heading) in listOf("### Migration 1 → 2", "### Migration 2 → 3", "### Migration 3 → 4").withIndex()) {
+        for ((i, heading) in listOf("### Migration 1 → 2", "### Migration 2 → 3", "### Migration 3 → 4", "### Migration 4 → 5").withIndex()) {
             val migration = design.substringAfter(heading).substringAfter("```sql\n").substringBefore("```")
             assertEquals(normalize(migration.replace(sqlComment, "")), normalize(Schema.MIGRATIONS[i].joinToString("\n")), heading)
         }
@@ -21,7 +21,7 @@ class SchemaTest {
 
     @Test
     fun statementsAreSingle() {
-        assertEquals(4, Schema.VERSION)
+        assertEquals(5, Schema.VERSION)
         assertEquals(Schema.VERSION - 1, Schema.MIGRATIONS.size)
         for (statement in Schema.V1 + Schema.MIGRATIONS.flatten()) {
             // execSQL runs one statement; outside comments, only the trigger body holds a semicolon.
