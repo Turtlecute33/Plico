@@ -1034,10 +1034,12 @@ class AccountSession(...) {
    only. NOMODSEQ, no CONDSTORE, or HIGHESTMODSEQ went backwards → `UID FETCH <newest 200 local> (UID
    FLAGS)` on push events, the full local range when the folder is opened or every 6 h.
 6. **Expunge** (`protocol PS4`): skip when `backfill_uid = 1` and SELECT EXISTS = local row count of
-   the mailbox (hidden rows included). Otherwise compare `UID SEARCH RETURN (COUNT) UID <a>:<b>` per
-   window of 5,000 local rows; for windows that differ, `RETURN (ALL)` and delete the missing rows. Without
-   ESEARCH both forms return the full list, so one plain `UID SEARCH UID <a>:<b>` per window is compared by its
-   size.
+   the mailbox (hidden rows included). Otherwise compare one `UID SEARCH RETURN (COUNT) UID <lowest>:<highest>`
+   over the whole local range with the local row count, and stop when they are equal (`PLICO-PERF-006`: during a
+   backfill, each push event costs one round trip). When they differ, compare `UID SEARCH RETURN (COUNT) UID
+   <a>:<b>` per window of 5,000 local rows; for windows that differ, `RETURN (ALL)` and delete the missing rows.
+   Without ESEARCH both forms return the full list, so there is no first COUNT, and one plain `UID SEARCH UID
+   <a>:<b>` per window is compared by its size.
    **Guard** (`protocol PS9`, `simplicity EM12`): not for `trash`/`junk`; if one pass would delete
    > 50 % of a mailbox's rows and > 50 rows, set `folder.guard = 1` and stop syncing that folder (ops
    on it wait). The folder shows a banner "Many messages are gone on the server · Resync". Resync drops

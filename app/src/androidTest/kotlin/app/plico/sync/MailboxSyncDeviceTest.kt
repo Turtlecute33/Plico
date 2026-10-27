@@ -172,6 +172,26 @@ class MailboxSyncDeviceTest : DbFixture() {
     }
 
     @Test
+    fun anIncompleteBackfillChecksExpungesWithOneCount() {
+        // PLICO-PERF-006: 200 of 300 messages are local, so EXISTS differs from the local count on each push.
+        inbox.addAll(300)
+        val f = start()
+        assertEquals(101, f.backfillUid)
+        server.take()
+        push()
+        assertEquals(listOf("UID SEARCH RETURN (COUNT) UID 101:300"), server.take().filter { "SEARCH" in it })
+
+        inbox.expunge(listOf(150L))
+        push()
+        assertEquals(
+            listOf("UID SEARCH RETURN (COUNT) UID 101:300", "UID SEARCH RETURN (ALL) UID 101:300"),
+            server.take().filter { "SEARCH" in it },
+        )
+        assertNull(row(f, 150))
+        assertEquals(199, messages.count(f.id))
+    }
+
+    @Test
     fun massDeleteFreezesTheFolderButNotTrash() {
         inbox.addAll(120)
         val trash = server.box("Trash", "\\Trash")

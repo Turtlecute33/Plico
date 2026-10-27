@@ -143,6 +143,11 @@ class MessageDao(private val db: Db) {
         folderId,
     ) { it.getLong(0) }.asReversed()
 
+    /** Lowest..highest local UID of [folderId] and its number of rows (hidden rows included); null for none. */
+    fun uidRange(folderId: Long): Pair<LongRange, Int>? = db.sql.one(
+        "SELECT min(uid), max(uid), count(*) FROM message WHERE folder_id = ?", folderId,
+    ) { c -> if (c.isNull(0)) null else c.getLong(0)..c.getLong(1) to c.getInt(2) }
+
     /** Number of local rows of [folderId] with a UID in [from]..[to]; hidden rows included. */
     fun count(folderId: Long, from: Long = 1, to: Long = Long.MAX_VALUE): Int = db.sql.long(
         "SELECT count(*) FROM message WHERE folder_id = ? AND uid BETWEEN ? AND ?",
