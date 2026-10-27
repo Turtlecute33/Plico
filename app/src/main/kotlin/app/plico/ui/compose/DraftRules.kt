@@ -4,6 +4,7 @@ import app.plico.data.Account
 import app.plico.data.DraftState
 import app.plico.data.Identity
 import app.plico.data.Provider
+import app.plico.sync.ReplyRules
 
 /** An address the user can send from: an account address or one of its identities (DESIGN §13). */
 internal data class SenderOption(
@@ -71,6 +72,24 @@ internal object DraftRules {
 
     /** True when [body] has no text before its signature separator (a line `-- `). */
     fun isBlankBody(body: String): Boolean = body.lineSequence().takeWhile { it != "-- " }.all(String::isBlank)
+
+    /**
+     * What Send asks first (PLICO-UX-016), in order: a blank [subject], then a forgotten attachment, when the
+     * text that the user wrote names one and the draft has no file.
+     */
+    fun sendQuestions(subject: String, body: String, hasAttachments: Boolean): List<SendQuestion> = buildList {
+        if (subject.isBlank()) add(SendQuestion.NO_SUBJECT)
+        if (!hasAttachments && ownLines(body).any(attachWord::containsMatchIn)) add(SendQuestion.NO_ATTACHMENT)
+    }
+
+    /** English only, as the rest of the text. */
+    private val attachWord = Regex("""\battach(?:ed|ments?)?\b""", RegexOption.IGNORE_CASE)
+
+    /** The lines that the user wrote: they stop at the signature, a quote, an attribution or a forward. */
+    private fun ownLines(body: String): Sequence<String> = body.lineSequence().takeWhile { line ->
+        line != "-- " && !line.startsWith(">") && !line.startsWith(ReplyRules.FORWARD_HEADER) &&
+            !(line.startsWith("On ") && line.endsWith(" wrote:"))
+    }
 
     /** Every account address, then its identities, in account order. */
     fun senderOptions(accounts: List<Account>, identities: (Long) -> List<Identity>): List<SenderOption> =

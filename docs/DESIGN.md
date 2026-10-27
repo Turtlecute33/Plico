@@ -1697,6 +1697,8 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
 - **Compose**: From (account addresses and identities), To/Cc/Bcc chip fields with local autocomplete,
   Subject, plain-text body, quoted text, attachments (photo picker, document picker, share), size warning
   when (raw size + 4 KB) × 1.37 exceeds the provider limit (the same estimate that Send checks), Send with Undo.
+  Send asks first when the subject is blank, and when the new text (above the signature, the quote or the
+  forwarded message) has "attach", "attached" or "attachment(s)" and no file is attached (`PLICO-UX-016`).
   A reply, forward, mailto or new draft that is left without an edit is discarded. A queued draft opens
   read-only with "Cancel send and edit"; opening it never cancels the send.
   Reply rules (`simplicity EM16`): From = the identity whose address is in the source's To/Cc, else the account

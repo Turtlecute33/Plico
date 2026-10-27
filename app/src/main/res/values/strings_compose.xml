@@ -42,6 +42,9 @@
     <string name="compose_not_sendable">This message cannot be sent. Check the recipients and the size of the files.</string>
     <string name="compose_attach_failed">The file could not be attached.</string>
     <string name="compose_no_picker">No app on this phone can choose files.</string>
+    <string name="compose_no_subject_title">Send without a subject?</string>
+    <string name="compose_no_attachment_title">Did you forget the attachment?</string>
+    <string name="compose_no_attachment_text">The message text names an attachment, but no file is attached.</string>
 
     <string name="compose_discard">Discard</string>
     <string name="compose_discard_title">Discard this draft?</string>

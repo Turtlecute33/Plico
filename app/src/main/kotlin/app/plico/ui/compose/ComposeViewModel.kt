@@ -50,6 +50,12 @@ internal enum class Notice(@StringRes val text: Int) {
     BEING_SENT(R.string.compose_undo_too_late),
 }
 
+/** What Send asks before it queues (PLICO-UX-016), in this order. */
+internal enum class SendQuestion(@StringRes val title: Int, @StringRes val text: Int?) {
+    NO_SUBJECT(R.string.compose_no_subject_title, null),
+    NO_ATTACHMENT(R.string.compose_no_attachment_title, R.string.compose_no_attachment_text),
+}
+
 /** A file that is being copied into the draft. */
 internal data class PendingAttachment(val key: Long, val name: String?)
 
@@ -112,6 +118,10 @@ internal class ComposeViewModel(
     var sending by mutableStateOf(false)
         private set
     var undoSeconds = 0
+        private set
+
+    /** The question that Send asks now; null when it asks nothing. */
+    var question by mutableStateOf<SendQuestion?>(null)
         private set
 
     val notices: Flow<Notice> get() = noticeChannel.receiveAsFlow()
@@ -274,9 +284,13 @@ internal class ComposeViewModel(
         noticeChannel.trySend(notice)
     }
 
-    /** Checks the recipients, saves and queues the send; the screen then offers Undo. */
-    fun send() {
+    /**
+     * Checks the recipients, asks each [SendQuestion] that comes after [after] (the one the user said yes to),
+     * then saves and queues the send; the screen then offers Undo.
+     */
+    fun send(after: SendQuestion? = null) {
         if (!editing) return
+        question = null
         listOf(to, cc, bcc).forEach(::commit)
         val all = to.chips + cc.chips + bcc.chips
         val problem = when {
@@ -287,6 +301,12 @@ internal class ComposeViewModel(
         }
         if (problem != null) {
             noticeChannel.trySend(problem)
+            return
+        }
+        val ask = DraftRules.sendQuestions(subject, body.text, attachments.isNotEmpty())
+            .firstOrNull { after == null || it > after }
+        if (ask != null) {
+            question = ask
             return
         }
         autosave?.cancel()
@@ -315,6 +335,11 @@ internal class ComposeViewModel(
                 noticeChannel.trySend(if (tooLarge) Notice.TOO_LARGE else Notice.NOT_SENDABLE)
             }
         }
+    }
+
+    /** Cancel on [asked]: back to editing. A [send] that asks the next question keeps that one. */
+    fun dismissQuestion(asked: SendQuestion) {
+        if (question == asked) question = null
     }
 
     /** Undo send (or Cancel send): back to editing, or [onTooLate] when sending has started. */

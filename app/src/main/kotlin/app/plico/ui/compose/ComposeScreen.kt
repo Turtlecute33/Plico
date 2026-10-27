@@ -272,6 +272,15 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
             onDismiss = { confirmSend = false },
         )
     }
+    vm.question?.let { asked ->
+        ConfirmDialog(
+            title = stringResource(asked.title),
+            text = asked.text?.let { stringResource(it) },
+            confirmLabel = stringResource(R.string.compose_send),
+            onConfirm = { vm.send(after = asked) },
+            onDismiss = { vm.dismissQuestion(asked) },
+        )
+    }
 }
 
 @Composable

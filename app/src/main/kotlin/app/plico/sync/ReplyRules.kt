@@ -28,6 +28,9 @@ internal object ReplyRules {
     private val forwardPrefix = Regex("""^(?:\s*(?:fwd?|wg)\s*(?:\[\d+\])?\s*:)+\s*""", RegexOption.IGNORE_CASE)
     private val minute = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneOffset.UTC)
 
+    /** The first line of a forwarded message in a draft. */
+    const val FORWARD_HEADER = "---------- Forwarded message ----------"
+
     /**
      * Reply: Reply-To, else From; for the user's own message its To. Reply all adds To and Cc of the source as
      * Cc. Every own address ([own], lower-case) is removed, unless that would leave no recipient (a note to
@@ -97,7 +100,7 @@ internal object ReplyRules {
     ): String = buildString {
         append("\n\n")
         if (signature.isNotBlank()) append(signatureBlock(signature)).append("\n\n")
-        append("---------- Forwarded message ----------\n")
+        append(FORWARD_HEADER).append('\n')
         from?.let { append("From: ").append(Addresses.format(listOf(it), encode = false)).append('\n') }
         append("Date: ").append(minute.format(Instant.ofEpochMilli(date))).append(" UTC\n")
         append("Subject: ").append(subject).append('\n')

@@ -7,6 +7,7 @@ import app.plico.data.DraftState
 import app.plico.data.Identity
 import app.plico.data.Provider
 import app.plico.data.PushMode
+import app.plico.sync.ReplyRules
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -52,6 +53,42 @@ class DraftRulesTest {
         assertEquals(ComposeViewModel.Phase.WAITING, DraftRules.openPhase(DraftState.QUEUED))
         assertEquals(ComposeViewModel.Phase.GONE, DraftRules.openPhase(DraftState.SENDING))
         assertEquals(ComposeViewModel.Phase.GONE, DraftRules.openPhase(DraftState.SENT))
+    }
+
+    @Test
+    fun sendAsksForABlankSubjectThenAForgottenAttachment() {
+        val none = emptyList<SendQuestion>()
+        assertEquals(none, DraftRules.sendQuestions("Hello", "Hi there", hasAttachments = false))
+        assertEquals(listOf(SendQuestion.NO_SUBJECT), DraftRules.sendQuestions(" ", "Hi there", hasAttachments = false))
+        assertEquals(
+            listOf(SendQuestion.NO_SUBJECT, SendQuestion.NO_ATTACHMENT),
+            DraftRules.sendQuestions("", "The plan is attached.", hasAttachments = false),
+        )
+        for (text in listOf("I attach the plan", "See the ATTACHMENT", "two attachments")) {
+            assertEquals(listOf(SendQuestion.NO_ATTACHMENT), DraftRules.sendQuestions("Plan", text, false), text)
+        }
+        assertEquals(none, DraftRules.sendQuestions("Plan", "The plan is attached.", hasAttachments = true))
+        // Only the whole word counts.
+        assertEquals(none, DraftRules.sendQuestions("Plan", "I am attaching nothing; attachable", false))
+    }
+
+    @Test
+    fun theAttachmentCheckReadsOnlyTheNewText() {
+        val reply = "Thanks!" + ReplyRules.replyBody(
+            signature = "Jane",
+            attribution = ReplyRules.attribution(0, "Alice"),
+            text = "The file is attached.",
+        )
+        assertEquals(emptyList(), DraftRules.sendQuestions("Re: Plan", reply, hasAttachments = false))
+        val noSignature = "Thanks!" + ReplyRules.replyBody("", ReplyRules.attribution(0, "Alice"), "See attachment")
+        assertEquals(emptyList(), DraftRules.sendQuestions("Re: Plan", noSignature, hasAttachments = false))
+        val forward = "FYI" + ReplyRules.forwardBody("", null, 0, "Plan", emptyList(), emptyList(), "Attached: plan")
+        assertEquals(emptyList(), DraftRules.sendQuestions("Fwd: Plan", forward, hasAttachments = false))
+        assertEquals(emptyList(), DraftRules.sendQuestions("Plan", "Hi\n\n-- \nJane, attach files here", false))
+        assertEquals(
+            listOf(SendQuestion.NO_ATTACHMENT),
+            DraftRules.sendQuestions("Re: Plan", "Here is the attachment." + reply.removePrefix("Thanks!"), false),
+        )
     }
 
     @Test
