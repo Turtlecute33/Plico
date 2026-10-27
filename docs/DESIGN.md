@@ -1025,8 +1025,9 @@ class AccountSession(...) {
    on it wait). The folder shows a banner "Many messages are gone on the server · Resync". Resync drops
    the rows, resets uidvalidity/uidnext/modseq/backfill and clears the guard.
 7. **Bodies** for rows in the window (`date ≥ now − body_days`, or all when `body_days = 0`):
-   `BODYSTRUCTURE`, then the display text parts (`BODY.PEEK[<section>]`, each ≤ 2 MB; larger text
-   parts are shown as an attachment), batches of 25. Inline images and attachments on demand.
+   `BODYSTRUCTURE`, then the first 50 display text parts (`BODY.PEEK[<section>]`, each ≤ 2 MB; larger
+   and later text parts are shown as an attachment), batches of 25. The items go in FETCH lines of about
+   4 KB, below the line limit of the server (Dovecot: 64 KiB). Inline images and attachments on demand.
 8. **Backfill** (one step per cycle): `UID FETCH <max(1, backfill_uid−500)>:<backfill_uid−1>` headers
    (sequence numbers are not used, because UIDs are sparse; when the range returns nothing, continue
    with `UID SEARCH RETURN (MAX) UID 1:<backfill_uid−1>`). Without ESEARCH: plain searches in windows of

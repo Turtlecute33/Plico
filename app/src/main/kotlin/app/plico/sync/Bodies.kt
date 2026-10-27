@@ -12,8 +12,8 @@ import app.plico.mail.mime.displayParts
 import app.plico.mail.mime.parseBodyStructure
 
 /**
- * Message bodies (DESIGN.md §7.2 step 7): BODYSTRUCTURE, then the display text parts of at most 2 MB each,
- * joined into one body with its search text, snippet and attachment rows. Inline images and attachments
+ * Message bodies (DESIGN.md §7.2 step 7): BODYSTRUCTURE, then the first 50 display text parts of at most 2 MB
+ * each, joined into one body with its search text, snippet and attachment rows. Inline images and attachments
  * download on demand ([Attachments]).
  */
 object Bodies {
@@ -55,11 +55,14 @@ object Bodies {
         val data = HashMap<Long, MutableMap<String, ByteArray>>()
         for ((sections, group) in plans.entries.groupBy { it.value.sections }) {
             if (sections.isEmpty()) continue
-            val items = sections.joinToString(" ") { "BODY.PEEK[$it]" }
-            // A response stays far below the reader's 64 MiB limit, which would otherwise fail on every retry.
-            for (uids in byWeight(group.map { it.key to it.value.bytes })) {
-                ctx.client.uidFetch(UidSet.of(uids), items) { item ->
-                    if (item.uid in plans) data.getOrPut(item.uid) { HashMap() }.putAll(item.sections)
+            // A server refuses a long command line (Dovecot: 64 KiB), so the items go in lines of about 4 KB.
+            for (run in runs(sections, MAX_ITEM_CHARS) { it.length + ITEM_CHARS }) {
+                val items = run.joinToString(" ") { "BODY.PEEK[$it]" }
+                // A response stays far below the reader's 64 MiB limit, which would otherwise fail on every retry.
+                for (uids in runs(group, MAX_FETCH_BYTES) { it.value.bytes }) {
+                    ctx.client.uidFetch(UidSet.of(uids.map { it.key }), items) { item ->
+                        if (item.uid in plans) data.getOrPut(item.uid) { HashMap() }.putAll(item.sections)
+                    }
                 }
             }
         }
@@ -72,19 +75,26 @@ object Bodies {
 
 private const val MAX_FETCH_BYTES = 8L * 1024 * 1024
 
-/** Splits (uid, size) pairs into runs of at most [MAX_FETCH_BYTES]; one large item runs alone. */
-private fun byWeight(items: List<Pair<Long, Long>>): List<List<Long>> {
-    val runs = ArrayList<List<Long>>()
-    var run = ArrayList<Long>()
+/** Characters of `BODY.PEEK[...]` items in one FETCH command. */
+private const val MAX_ITEM_CHARS = 4096L
+
+/** Characters of one item without its section: `BODY.PEEK[]` and a space. */
+private const val ITEM_CHARS = 12L
+
+/** Splits [items] into runs whose [weight] adds up to at most [max]; one heavy item runs alone. */
+private inline fun <T> runs(items: List<T>, max: Long, weight: (T) -> Long): List<List<T>> {
+    val runs = ArrayList<List<T>>()
+    var run = ArrayList<T>()
     var total = 0L
-    for ((uid, size) in items) {
-        if (run.isNotEmpty() && total + size > MAX_FETCH_BYTES) {
+    for (item in items) {
+        val w = weight(item)
+        if (run.isNotEmpty() && total + w > max) {
             runs += run
             run = ArrayList()
             total = 0
         }
-        run += uid
-        total += size
+        run += item
+        total += w
     }
     if (run.isNotEmpty()) runs += run
     return runs
@@ -97,8 +107,8 @@ internal data class StoredBody(val html: String?, val text: String, val snippet:
 internal class BodyPlan(root: MimePart) {
     private val parts = root.displayParts()
 
-    /** Text parts small enough to download; larger ones are listed as attachments. */
-    private val texts = parts.textParts.filter { it.size <= MAX_TEXT_PART }
+    /** Text parts small enough to download, at most [MAX_TEXT_PARTS]; the others are listed as attachments. */
+    private val texts = parts.textParts.filter { it.size <= MAX_TEXT_PART }.take(MAX_TEXT_PARTS)
 
     /** IMAP sections to fetch, in document order. */
     val sections: List<String> = texts.map { it.section }
@@ -130,6 +140,9 @@ internal class BodyPlan(root: MimePart) {
 
     companion object {
         const val MAX_TEXT_PART = 2L * 1024 * 1024
+
+        /** A crafted message can have thousands of text parts; each one costs a FETCH item (PLICO-SEC-001). */
+        const val MAX_TEXT_PARTS = 50
 
         /** A name for a part that has none, e.g. "message.eml", "image.png"; else "attachment". */
         fun defaultName(part: MimePart): String = when {

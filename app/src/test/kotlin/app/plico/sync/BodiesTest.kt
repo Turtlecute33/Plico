@@ -83,6 +83,18 @@ class BodiesTest {
     }
 
     @Test
+    fun manyTextPartsBecomeAttachmentsAfterTheCap() {
+        val part = """("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 5 1)"""
+        val plan = BodyPlan(structure("(" + part.repeat(500) + " \"mixed\")"))
+        val first = (1..BodyPlan.MAX_TEXT_PARTS).map { it.toString() }
+        assertEquals(first, plan.sections)
+        val body = assertNotNull(plan.assemble(first.associateWith { "Hi $it".toByteArray() }))
+        assertEquals(500 - BodyPlan.MAX_TEXT_PARTS, body.attachments.size)
+        assertEquals("${BodyPlan.MAX_TEXT_PARTS + 1}", body.attachments.first().section)
+        assertTrue(body.attachments.all { it.name == "message.txt" && !it.inline })
+    }
+
+    @Test
     fun missingDataMeansNoBody() {
         assertNull(BodyPlan(structure(plain)).assemble(emptyMap()))
     }
