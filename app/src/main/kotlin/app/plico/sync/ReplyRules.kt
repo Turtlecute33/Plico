@@ -31,6 +31,9 @@ internal object ReplyRules {
     /** The first line of a forwarded message in a draft. */
     const val FORWARD_HEADER = "---------- Forwarded message ----------"
 
+    /** The most characters of the source that a reply or a forward quotes (PLICO-PERF-007). */
+    const val MAX_QUOTE_CHARS = 32_000
+
     /**
      * Reply: Reply-To, else From; for the user's own message its To. Reply all adds To and Cc of the source as
      * Cc. Every own address ([own], lower-case) is removed, unless that would leave no recipient (a note to
@@ -76,6 +79,16 @@ internal object ReplyRules {
         }
     }
 
+    /**
+     * [text], cut after [MAX_QUOTE_CHARS] and then ended with a "[…]" line. The quote is in the editable body,
+     * and a long body makes each keystroke slow.
+     */
+    fun capQuote(text: String): String {
+        if (text.length <= MAX_QUOTE_CHARS) return text
+        val end = if (Character.isHighSurrogate(text[MAX_QUOTE_CHARS - 1])) MAX_QUOTE_CHARS - 1 else MAX_QUOTE_CHARS
+        return text.substring(0, end).trimEnd() + "\n[…]"
+    }
+
     /** The body of a new draft: [text], then the signature after "-- ". */
     fun newBody(text: String, signature: String): String =
         if (signature.isBlank()) text else "$text\n\n${signatureBlock(signature)}"
@@ -85,7 +98,7 @@ internal object ReplyRules {
         append("\n\n")
         if (signature.isNotBlank()) append(signatureBlock(signature)).append("\n\n")
         append(attribution)
-        if (text.isNotBlank()) append('\n').append(quote(text))
+        if (text.isNotBlank()) append('\n').append(quote(capQuote(text)))
     }
 
     /** Room for a note, the signature, then the original headers and [text]. */
@@ -106,7 +119,7 @@ internal object ReplyRules {
         append("Subject: ").append(subject).append('\n')
         if (to.isNotEmpty()) append("To: ").append(Addresses.format(to, encode = false)).append('\n')
         if (cc.isNotEmpty()) append("Cc: ").append(Addresses.format(cc, encode = false)).append('\n')
-        append('\n').append(text.replace("\r\n", "\n").trimEnd())
+        append('\n').append(capQuote(text.replace("\r\n", "\n").trimEnd()))
     }
 
     private fun signatureBlock(signature: String) = "-- \n" + signature.trimEnd()

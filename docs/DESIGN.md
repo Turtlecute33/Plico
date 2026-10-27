@@ -1695,7 +1695,8 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   WebView or plain text, attachment cards with progress, bottom actions Reply / Reply all / Forward. Opening
   marks it seen.
 - **Compose**: From (account addresses and identities), To/Cc/Bcc chip fields with local autocomplete,
-  Subject, plain-text body, quoted text, attachments (photo picker, document picker, share), size warning
+  Subject, plain-text body, quoted text (at most 32,000 characters of the source, then a "[…]" line, so that
+  typing stays fast; `PLICO-PERF-007`), attachments (photo picker, document picker, share), size warning
   when (raw size + 4 KB) × 1.37 exceeds the provider limit (the same estimate that Send checks), Send with Undo.
   Send asks first when the subject is blank, and when the new text (above the signature, the quote or the
   forwarded message) has "attach", "attached" or "attachment(s)" and no file is attached (`PLICO-UX-016`).

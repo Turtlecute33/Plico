@@ -4,6 +4,7 @@ import app.plico.mail.mime.Address
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReplyRulesTest {
     private val me = "me@riseup.net"
@@ -106,6 +107,23 @@ class ReplyRulesTest {
                 "Subject: Lunch\nTo: me@riseup.net\n\nHi",
             body,
         )
+    }
+
+    @Test
+    fun aLongSourceIsQuotedUpToTheCap() {
+        val source = "A newsletter line of about sixty characters for the test.\n".repeat(1_800) // About 100 KB.
+        val capped = ReplyRules.capQuote(source)
+        assertTrue(capped.length <= ReplyRules.MAX_QUOTE_CHARS + "\n[…]".length)
+        assertTrue(capped.endsWith("\n[…]"))
+        assertTrue(source.startsWith(capped.removeSuffix("\n[…]")))
+        assertTrue(ReplyRules.replyBody("", "On x, A wrote:", source).endsWith("\n> […]"))
+        val forward = ReplyRules.forwardBody("", null, 0, "News", emptyList(), emptyList(), source)
+        assertTrue(forward.endsWith("\n[…]"))
+        assertTrue(forward.length < ReplyRules.MAX_QUOTE_CHARS + 200)
+        assertEquals("short", ReplyRules.capQuote("short"))
+        // A cut never splits a surrogate pair.
+        val emoji = "x".repeat(ReplyRules.MAX_QUOTE_CHARS - 1) + "😀".repeat(10)
+        assertEquals("x".repeat(ReplyRules.MAX_QUOTE_CHARS - 1) + "\n[…]", ReplyRules.capQuote(emoji))
     }
 
     @Test
