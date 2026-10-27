@@ -27,6 +27,7 @@ import app.plico.notify.NotificationBook.Item
 import app.plico.push.PushService
 import app.plico.push.StartPolicy
 import app.plico.sync.NotificationAction
+import app.plico.ui.message.revealBidi
 import app.plico.ui.nav.MessageLink
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -365,7 +366,7 @@ class Notifier(private val app: PlicoApp) {
 
     private fun childOf(account: Account, message: Message, canDelete: Boolean): Notification {
         val channel = mailChannel(account.id)
-        val subject = message.subject.ifBlank { app.getString(R.string.push_no_subject) }
+        val subject = revealBidi(message.subject).ifBlank { app.getString(R.string.push_no_subject) }
         val public = base(channel)
             .setContentTitle(app.getString(R.string.push_new_message))
             .apply { Texts.publicLabel(account.label)?.let(::setSubText) }
@@ -536,7 +537,7 @@ class Notifier(private val app: PlicoApp) {
         return SpannableStringBuilder(sender).apply {
             setSpan(StyleSpan(Typeface.BOLD), 0, sender.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             append("  ")
-            append(message.subject.ifBlank { app.getString(R.string.push_no_subject) })
+            append(revealBidi(message.subject).ifBlank { app.getString(R.string.push_no_subject) })
         }
     }
 

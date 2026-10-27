@@ -1,6 +1,7 @@
 package app.plico.notify
 
 import app.plico.data.Provider
+import app.plico.ui.message.revealBidi
 
 /** Pure text rules of the notifications (DESIGN §9, privacy PS11). */
 internal object Texts {
@@ -17,13 +18,13 @@ internal object Texts {
     /** Notifications show no content when the app lock is on or the user hid it (DESIGN §9). */
     fun hideContent(appLock: Boolean, hideNotificationContent: Boolean): Boolean = appLock || hideNotificationContent
 
-    /** The sender as the private version shows it: the display name, else the address. */
+    /** The sender as the private version shows it: the display name, else the address, with [revealBidi]. */
     fun sender(fromName: String, fromEmail: String): String? =
-        fromName.trim().ifEmpty { fromEmail.trim() }.ifEmpty { null }
+        revealBidi(fromName.trim().ifEmpty { fromEmail.trim() }).ifEmpty { null }
 
-    /** BigTextStyle text: the subject, then the snippet when known. */
+    /** BigTextStyle text: the subject, then the snippet when known, both with [revealBidi]. */
     fun bigText(subject: String, snippet: String): String =
-        if (snippet.isBlank()) subject else subject + "\n" + snippet.trim()
+        revealBidi(subject).let { if (snippet.isBlank()) it else it + "\n" + revealBidi(snippet.trim()) }
 
     fun childTag(messageId: Long): String = CHILD_PREFIX + messageId
 

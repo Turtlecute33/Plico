@@ -50,6 +50,16 @@ class TextsTest {
     }
 
     @Test
+    fun bidiControlsAreRevealed() {
+        assertEquals("Ana\uFFFDgro.x", Texts.sender("Ana\u202Egro.x", "ana@x.org"))
+        assertEquals("Hi\uFFFDfdp.exe\nSee\uFFFDyou", Texts.bigText("Hi\u202Efdp.exe", "See\u202Eyou"))
+        assertEquals("Hi\uFFFDthere", Texts.bigText("Hi\u202Ethere", ""))
+        // Plain text stays the same.
+        assertEquals("Ana", Texts.sender("Ana", "ana@x.org"))
+        assertEquals("Hello\nSee you", Texts.bigText("Hello", "See you"))
+    }
+
+    @Test
     fun tagsRoundTrip() {
         assertEquals("msg:42", Texts.childTag(42))
         assertEquals(42L, Texts.childId("msg:42"))
