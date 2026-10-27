@@ -626,20 +626,23 @@ ALTER TABLE trusted_sender ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;   -- 
 
 ### Migration 5 → 6
 
-`Schema.VERSION` is 6. Indexes only, no data change (`PLICO-PERF-003`, `PLICO-PERF-009`). Without them, each re-read of a list
+`Schema.VERSION` is 6. Indexes only, no data change (`PLICO-PERF-003`, `PLICO-PERF-009`, `PLICO-PERF-010`). Without them, each re-read of a list
 during a sync reads and sorts every row of the folder, and each list row scans the draft table (the draft check
 of `protocol PS7`). A folder list is a correlated `EXISTS` on `message_folder`, so that SQLite walks
 `message_date` newest first and stops after the limit. The unread counts start from the unread rows
 (`message_unread`, a partial index), so that their cost follows the number of unread rows. A small folder in a
 large database can read more rows than before: the walk ends only after the limit or at the oldest row.
 `message_unnotified` (`PLICO-PERF-009`) serves the probe and the UPDATE of `claimNotifications`, which run in each
-background cycle: they read only the rows with `notified = 0`, not every row of the account.
+background cycle: they read only the rows with `notified = 0`, not every row of the account. `message_from`
+(`PLICO-PERF-010`) serves `hasEarlierFrom` and `hasEarlierSeenFrom` (the first-contact check of the message view
+and of the website logo source): without it, a real first contact reads every message of every account.
 
 ```sql
 CREATE INDEX draft_message ON draft(account_id, message_id);           -- the draft check of every list row
 CREATE INDEX message_date ON message(date DESC);                       -- lists stop after the limit, no sort
 CREATE INDEX message_unread ON message(id) WHERE seen = 0 AND hidden = 0 AND deleted = 0;   -- unread counts
 CREATE INDEX message_unnotified ON message(account_id) WHERE notified = 0;   -- the notification claim
+CREATE INDEX message_from ON message(from_email COLLATE NOCASE, date);   -- the first-contact check
 ```
 
 ## 6. Providers, discovery and sign-in (`account`)

@@ -160,6 +160,8 @@ internal object Schema {
             "CREATE INDEX message_unread ON message(id) WHERE seen = 0 AND hidden = 0 AND deleted = 0",
             // the notification claim reads only the rows that did not notify yet
             "CREATE INDEX message_unnotified ON message(account_id) WHERE notified = 0",
+            // the first-contact check: earlier mail from an address, in any case
+            "CREATE INDEX message_from ON message(from_email COLLATE NOCASE, date)",
         ),
     )
 }

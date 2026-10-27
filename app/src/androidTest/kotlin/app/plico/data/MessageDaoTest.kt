@@ -315,6 +315,17 @@ class MessageDaoTest : DbFixture() {
     }
 
     @Test
+    fun theFirstContactCheckSearchesAnIndex() {
+        // PLICO-PERF-010: the queries of hasEarlierFrom and hasEarlierSeenFrom, with no scan of every message.
+        for (seen in listOf("", "seen = 1 AND ")) {
+            val sql = "SELECT 1 FROM message WHERE from_email = ? COLLATE NOCASE AND ${seen}date < ? AND id != ? LIMIT 1"
+            val plan = plan(sql, "ann@example.org", 200, 0)
+            assertTrue("message_from" in plan, plan)
+            assertFalse("SCAN message" in plan, plan)
+        }
+    }
+
+    @Test
     fun earlierReadMailFromASender() {
         val (first, second) = insert(
             header(riseup, inbox, 1, date = 100).copy(fromEmail = "ann@example.org"),
