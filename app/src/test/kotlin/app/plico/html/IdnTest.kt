@@ -63,5 +63,12 @@ class IdnTest {
         assertFalse(Idn.isLookalike("пример.рф"))
         assertFalse(Idn.isLookalike("apple.com"))
         assertFalse(Idn.isLookalike("bücher.de"))
+        // Latin letters that copy ASCII letters: script g, dotless i.
+        assertTrue(Idn.isLookalike("ɡoogle.com"))
+        assertTrue(Idn.isLookalike("xn--oogle-qmc.com"))
+        assertTrue(Idn.isLookalike("lınkedin.com"))
+        assertFalse(Idn.isMixedScript("ɡoogle.com"))
+        // A visible accent is not a lookalike.
+        assertFalse(Idn.isLookalike("münchen.de"))
     }
 }

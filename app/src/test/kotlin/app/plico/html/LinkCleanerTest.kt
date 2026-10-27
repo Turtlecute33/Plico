@@ -193,6 +193,10 @@ class LinkCleanerTest {
         // WebView URLs are already punycode.
         assertEquals(apple.warnings, web("https://xn--pple-43d.com/login").warnings)
         assertEquals(setOf(LinkWarning.LOOKALIKE), web("https://аррӏе.com/").warnings)
+        // Latin script only (U+0261 script g).
+        val google = web("https://ɡoogle.com/")
+        assertEquals("https://xn--oogle-qmc.com/", google.url)
+        assertEquals(setOf(LinkWarning.LOOKALIKE), google.warnings)
         val russian = web("https://пример.рф/")
         assertEquals("https://xn--e1afmkfd.xn--p1ai/", russian.url)
         assertEquals(emptySet(), russian.warnings)

@@ -12,9 +12,12 @@ object Idn {
         UnicodeScript.HANGUL, UnicodeScript.BOPOMOFO,
     )
 
-    /** Cyrillic, Greek and Armenian letters that look like Latin letters. */
+    /**
+     * Letters that look like ASCII letters: Cyrillic, Greek and Armenian, and Latin letters of confusables.txt
+     * that copy one ASCII letter (`ɡoogle.com`, `lınkedin.com`; PLICO-SEC-004).
+     */
     private val latinLookalikes: Set<Int> =
-        ("аьсԁеһіјкӏорԛѕԝхуү" + "αικνορτυω" + "հոսօց").codePoints().toArray().toSet()
+        ("аьсԁеһіјкӏорԛѕԝхуү" + "αικνορτυω" + "հոսօց" + "ɡıɑǀɩʟɪꞁȷ").codePoints().toArray().toSet()
 
     /**
      * Lower-case ASCII form of [host] (punycode for non-ASCII labels), without a trailing dot. Null when it is

@@ -1403,7 +1403,8 @@ redirects, a blocked hop).
   warn on userinfo, `\`, whitespace and controls; rebuild the URL from the parsed parts; show and open that
   exact string with `Intent(ACTION_VIEW, uri).addCategory(CATEGORY_BROWSABLE)` (no component, no selector).
 - Sheet: registrable domain (PSL, `privacy PS6`) in bold, full cleaned URL, punycode for non-ASCII hosts,
-  warnings (link text shows another registrable domain; IP host; mixed-script host). Buttons: Open, Copy,
+  warnings (link text shows another registrable domain; IP host; mixed-script host; a non-ASCII label of only
+  letters that look like ASCII letters, Cyrillic, Greek, Armenian or Latin such as `ɡ ı ɑ`). Buttons: Open, Copy,
   Open original.
 - `Psl`: matcher over `public_suffix_list.dat` (ICANN + PRIVATE, wildcard and exception rules), loaded lazily.
   `matchedRule(host)` gives the rule that decides the public suffix, with its section (`private` = the PRIVATE
