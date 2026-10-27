@@ -1028,6 +1028,11 @@ class AccountSession(...) {
    `BODYSTRUCTURE`, then the first 50 display text parts (`BODY.PEEK[<section>]`, each ≤ 2 MB; larger
    and later text parts are shown as an attachment), batches of 25. The items go in FETCH lines of about
    4 KB, below the line limit of the server (Dovecot: 64 KiB). Inline images and attachments on demand.
+   A batch that gets NO or BAD is tried again one message at a time on the same connection; a batch that
+   the reader refuses (a line > 1 MiB) closes the connection, and the next one tries it one message at a
+   time. A message that fails alone is skipped until the process restarts (`BodySkips`), so that it cannot
+   stop the cycle before IDLE. A NO with a busy or throttle code backs off as before. Opening the message
+   still loads its body.
 8. **Backfill** (one step per cycle): `UID FETCH <max(1, backfill_uid−500)>:<backfill_uid−1>` headers
    (sequence numbers are not used, because UIDs are sparse; when the range returns nothing, continue
    with `UID SEARCH RETURN (MAX) UID 1:<backfill_uid−1>`). Without ESEARCH: plain searches in windows of

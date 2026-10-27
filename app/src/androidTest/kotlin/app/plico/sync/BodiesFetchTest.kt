@@ -3,10 +3,12 @@ package app.plico.sync
 import app.plico.data.FolderRole
 import app.plico.data.MailView
 import app.plico.data.NewAttachment
+import app.plico.mail.imap.ImapProtocolException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -40,6 +42,48 @@ class BodiesFetchTest : OpFixture() {
         assertEquals(listOf(id), found.map { it.id })
         // Nothing is left in the window.
         assertEquals(0, Bodies.fetchWindow(session(riseup, FakeImap()), folders.get(inbox)!!, 25))
+    }
+
+    private val plain = """("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 2 1)"""
+
+    @Test
+    fun aRefusedBatchIsFetchedAloneAndTheBadRowIsSkipped() {
+        val (good, _) = insert(header(riseup, inbox, 7, date = clock), header(riseup, inbox, 8, date = clock - 1_000))
+        val skips = BodySkips()
+        val refused = "NO Some messages could not be FETCHed (Failure)"
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7:8 (UID BODYSTRUCTURE)", "* 1 FETCH (UID 7 BODYSTRUCTURE $plain)", refused)
+            .expect("UID FETCH 7 (UID BODYSTRUCTURE)", "* 1 FETCH (UID 7 BODYSTRUCTURE $plain)")
+            .expect("UID FETCH 7 (UID BODY.PEEK[1])", "* 1 FETCH (UID 7 BODY[1] ${literal("Hi")})")
+            .expect("UID FETCH 8 (UID BODYSTRUCTURE)", refused)
+        assertEquals(1, Bodies.fetchWindow(session(riseup, imap), folders.get(inbox)!!, 25, skips))
+        imap.finish()
+        assertEquals("Hi", messages.body(good)?.text)
+        // The connection stays open, and the refused row is not fetched again.
+        assertEquals(0, Bodies.fetchWindow(session(riseup, FakeImap()), folders.get(inbox)!!, 25, skips))
+    }
+
+    @Test
+    fun aStructureTooLongToReadIsFetchedAloneOnTheNextConnection() {
+        val (good, _) = insert(header(riseup, inbox, 7, date = clock), header(riseup, inbox, 8, date = clock - 1_000))
+        val skips = BodySkips()
+        // More than the 1 MiB line limit of the reader, which then closes the connection.
+        val huge = "(" + """("text" "plain" NIL NIL "${"d".repeat(1_000)}" "7bit" 2 1)""".repeat(1_100) + " \"mixed\")"
+        val first = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7:8 (UID BODYSTRUCTURE)", "* 2 FETCH (UID 8 BODYSTRUCTURE $huge)")
+        assertFailsWith<ImapProtocolException> { Bodies.fetchWindow(session(riseup, first), folders.get(inbox)!!, 25, skips) }
+        val second = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7 (UID BODYSTRUCTURE)", "* 1 FETCH (UID 7 BODYSTRUCTURE $plain)")
+            .expect("UID FETCH 7 (UID BODY.PEEK[1])", "* 1 FETCH (UID 7 BODY[1] ${literal("Hi")})")
+            .expect("UID FETCH 8 (UID BODYSTRUCTURE)", "* 2 FETCH (UID 8 BODYSTRUCTURE $huge)")
+        assertFailsWith<ImapProtocolException> { Bodies.fetchWindow(session(riseup, second), folders.get(inbox)!!, 25, skips) }
+        second.finish()
+        assertEquals("Hi", messages.body(good)?.text)
+        // The third connection gets past the body step.
+        assertEquals(0, Bodies.fetchWindow(session(riseup, FakeImap()), folders.get(inbox)!!, 25, skips))
     }
 
     @Test

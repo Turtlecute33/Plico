@@ -1,5 +1,6 @@
 package app.plico.sync
 
+import app.plico.data.MessageRef
 import app.plico.mail.imap.ImapReader
 import app.plico.mail.imap.ImapValue
 import app.plico.mail.imap.Untagged
@@ -92,6 +93,26 @@ class BodiesTest {
         assertEquals(500 - BodyPlan.MAX_TEXT_PARTS, body.attachments.size)
         assertEquals("${BodyPlan.MAX_TEXT_PARTS + 1}", body.attachments.first().section)
         assertTrue(body.attachments.all { it.name == "message.txt" && !it.inline })
+    }
+
+    @Test
+    fun failedBatchGoesAloneThenSkips() {
+        val rows = (1L..30L).map { MessageRef(it, 1, 100 + it) }
+        val skips = BodySkips()
+        assertEquals(listOf(25, 5), skips.batches(rows, 30, 25).map { it.size })
+        // A batch that failed: its rows go alone, before the others.
+        skips.failed(rows.take(25))
+        val next = skips.batches(rows, 30, 25)
+        assertEquals(26, next.size)
+        assertEquals(rows.take(25).map { listOf(it) }, next.take(25))
+        assertEquals(rows.drop(25), next.last())
+        // A row that fails alone is skipped; a row that passes alone joins the batches again.
+        skips.failed(listOf(rows[3]))
+        skips.passed(rows.take(25).filter { it != rows[3] })
+        assertEquals(1, skips.skipped)
+        val after = skips.batches(rows, 30, 25)
+        assertEquals(listOf(rows.filter { it != rows[3] }.take(25), rows.drop(26)), after)
+        assertEquals(listOf(rows[0]), skips.batches(listOf(rows[3], rows[0]), 1, 25).single())
     }
 
     @Test

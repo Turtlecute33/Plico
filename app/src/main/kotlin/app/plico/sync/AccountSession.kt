@@ -180,6 +180,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     /** Moves without COPYUID on the current connection (DESIGN §7.4); a new connection starts empty. */
     internal val movedIn = MovedIn()
 
+    /** Rows whose body prefetch failed, kept across connections; loop-only. */
+    private val bodySkips = BodySkips()
+
     internal val store: OpStore by lazy { OpStore.of(app) }
 
     internal val isWorkPending: Boolean get() = workPending.get()
@@ -614,7 +617,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         val folders = (report.newRows + listOfNotNull(ctx.sync.idleMailbox()?.id)).mapNotNull(app.folders::get)
         for (folder in folders) {
             var batches = 0
-            while (batches++ < BODY_BATCHES && !workPending.get() && Bodies.fetchWindow(ctx, folder) >= BODY_BATCH) {
+            while (batches++ < BODY_BATCHES && !workPending.get()) {
+                // Fewer than a full batch: nothing more to fetch now, or some rows failed (Bodies.fetchWindow).
+                if (Bodies.fetchWindow(ctx, folder, skips = bodySkips) < BODY_BATCH) break
                 ctx.progress()
             }
         }

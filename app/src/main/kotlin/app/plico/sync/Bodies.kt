@@ -5,6 +5,9 @@ import app.plico.data.FolderKind
 import app.plico.data.MessageRef
 import app.plico.data.NewAttachment
 import app.plico.html.HtmlSanitizer
+import app.plico.mail.imap.ImapBadException
+import app.plico.mail.imap.ImapNoException
+import app.plico.mail.imap.ImapProtocolException
 import app.plico.mail.imap.UidSet
 import app.plico.mail.mime.MimePart
 import app.plico.mail.mime.TransferDecoding
@@ -33,20 +36,58 @@ object Bodies {
         }
     }
 
-    /** Fetches missing bodies in the body window of [folder], at most [limit] messages. Returns how many. */
-    internal fun fetchWindow(ctx: OpContext, folder: Folder, limit: Int = BATCH): Int {
+    /**
+     * Fetches missing bodies in the body window of [folder], at most [limit] messages, without the rows that
+     * [skips] skips. Returns how many bodies it saved.
+     */
+    internal fun fetchWindow(
+        ctx: OpContext,
+        folder: Folder,
+        limit: Int = BATCH,
+        skips: BodySkips = BodySkips(),
+    ): Int {
         if (folder.kind != FolderKind.MAILBOX || folder.hidden || folder.guard || limit <= 0) return 0
         val days = ctx.account.bodyDays
         val since = if (days == 0) 0L else ctx.store.now() - days * DAY_MS
-        val rows = ctx.store.messages.needingBodies(folder.id, since, limit)
-        if (rows.isEmpty()) return 0
+        val rows = ctx.store.messages.needingBodies(folder.id, since, limit + skips.skipped)
+        val batches = skips.batches(rows, limit, BATCH)
+        if (batches.isEmpty()) return 0
         Ops.selectChecked(ctx, folder)
-        rows.chunked(BATCH).forEach { fetchBatch(ctx, it) }
-        return rows.size
+        return batches.sumOf { fetchGuarded(ctx, it, skips) }
     }
 
-    /** Two round trips per batch: the structures, then the text parts (one FETCH per set of sections). */
-    private fun fetchBatch(ctx: OpContext, rows: List<MessageRef>) {
+    /**
+     * [fetchBatch], and a failed batch goes to [skips] (PLICO-SEC-001, PLICO-PERF-001). A NO or BAD keeps the
+     * connection, so the rows of the batch are tried again alone at once. A protocol error (a response that the
+     * reader refuses) closes it, so the next connection tries them alone.
+     */
+    private fun fetchGuarded(ctx: OpContext, batch: List<MessageRef>, skips: BodySkips): Int = try {
+        fetchBatch(ctx, batch).also { skips.passed(batch) }
+    } catch (e: ImapProtocolException) {
+        skips.failed(batch)
+        throw e
+    } catch (e: ImapNoException) {
+        // A busy or throttled server: the session backs off, as before.
+        if (OpErrors.classify(e) == Failure.TRANSIENT) throw e
+        retryAlone(ctx, batch, skips)
+    } catch (_: ImapBadException) {
+        retryAlone(ctx, batch, skips)
+    }
+
+    private fun retryAlone(ctx: OpContext, batch: List<MessageRef>, skips: BodySkips): Int {
+        skips.failed(batch)
+        if (batch.size == 1) return 0
+        return batch.sumOf { row ->
+            ctx.progress()
+            fetchGuarded(ctx, listOf(row), skips)
+        }
+    }
+
+    /**
+     * Two round trips per batch: the structures, then the text parts (one FETCH per set of sections). Returns
+     * how many bodies it saved.
+     */
+    private fun fetchBatch(ctx: OpContext, rows: List<MessageRef>): Int {
         val byUid = rows.associateBy { it.uid }
         val plans = HashMap<Long, BodyPlan>()
         ctx.client.uidFetch(UidSet.of(byUid.keys), "BODYSTRUCTURE") { item ->
@@ -66,9 +107,47 @@ object Bodies {
                 }
             }
         }
+        var saved = 0
         for ((uid, plan) in plans) {
             val body = plan.assemble(data[uid].orEmpty()) ?: continue
             ctx.store.messages.saveBody(byUid.getValue(uid).id, body.html, body.text, body.text, body.snippet, body.attachments)
+            saved++
+        }
+        return saved
+    }
+}
+
+/**
+ * The rows whose body prefetch failed on one session; pure, loop-only. A row of a failed batch is fetched alone
+ * next time, and a row that fails alone is skipped until the process restarts, so that one bad message cannot
+ * stop the cycle before IDLE on each connection. Opening the message still loads its body ([Bodies.fetch]).
+ */
+internal class BodySkips {
+    private val suspects = HashSet<Long>()
+    private val skips = HashSet<Long>()
+
+    /** How many rows are skipped. */
+    val skipped: Int get() = skips.size
+
+    /** At most [limit] of [rows] that are not skipped, in batches of at most [size]; a suspect row goes alone. */
+    fun batches(rows: List<MessageRef>, limit: Int, size: Int): List<List<MessageRef>> {
+        val (alone, other) = rows.filter { it.id !in skips }.take(limit).partition { it.id in suspects }
+        return alone.map { listOf(it) } + other.chunked(size)
+    }
+
+    /** The fetch of [batch] ended without an error. */
+    fun passed(batch: List<MessageRef>) {
+        batch.forEach { suspects -= it.id }
+    }
+
+    /** The fetch of [batch] failed: its rows go alone next time; a row that was alone is skipped. */
+    fun failed(batch: List<MessageRef>) {
+        val row = batch.singleOrNull()
+        if (row == null) {
+            batch.forEach { suspects += it.id }
+        } else {
+            suspects -= row.id
+            skips += row.id
         }
     }
 }
