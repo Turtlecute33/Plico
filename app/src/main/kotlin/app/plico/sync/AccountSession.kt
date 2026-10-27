@@ -825,7 +825,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                 host.onAccountProblem(accountId, error)
                 retry(error, Backoff.Kind.TLS, now)
                 _status.value = Status.Problem(error)
-                app.accounts.setState(accountId, AccountState.TLS_PROBLEM, null)
+                // The cause for the banner and the account settings (PLICO-UX-009); never certificate data.
+                app.accounts.setState(accountId, AccountState.TLS_PROBLEM, MailErrors.tlsReason(error).name)
             }
             is MailError.Setup -> {
                 relist = true

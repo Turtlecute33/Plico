@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.plico.R
+import app.plico.account.TlsReason
 import app.plico.app
 import app.plico.data.Account
 import app.plico.data.Draft
@@ -86,6 +87,7 @@ import app.plico.ui.components.rememberDateFormats
 import app.plico.ui.components.rememberPref
 import app.plico.ui.components.showUndo
 import app.plico.ui.components.text
+import app.plico.ui.components.tlsCause
 import app.plico.ui.message.MessageUndo
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
@@ -563,9 +565,13 @@ private fun MailboxBannerItem(
             onAction = { onSignIn(banner.account) },
         )
         is MailboxBanner.Tls -> Banner(
-            text = stringResource(R.string.mailbox_banner_tls, banner.account.label),
+            text = TlsReason.of(banner.account.stateText)
+                ?.let { stringResource(R.string.mailbox_banner_tls_cause, banner.account.label, stringResource(tlsCause(it))) }
+                ?: stringResource(R.string.mailbox_banner_tls, banner.account.label),
             modifier = modifier,
             kind = BannerKind.ERROR,
+            actionLabel = stringResource(R.string.mailbox_account),
+            onAction = { onAccount(banner.account) },
         )
         is MailboxBanner.Setup -> Banner(
             text = banner.account.stateText?.takeIf(String::isNotBlank)

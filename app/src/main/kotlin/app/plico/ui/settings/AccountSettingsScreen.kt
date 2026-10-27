@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.plico.R
 import app.plico.account.Providers
+import app.plico.account.TlsReason
 import app.plico.app
 import app.plico.data.Account
 import app.plico.data.AccountState
@@ -68,6 +69,7 @@ import app.plico.ui.components.Icons
 import app.plico.ui.components.PrivateTextInput
 import app.plico.ui.components.SystemPages
 import app.plico.ui.components.fileSize
+import app.plico.ui.components.tlsCause
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
 
@@ -126,7 +128,7 @@ private fun AccountHeader(account: Account, onSignIn: () -> Unit) {
     val problem = when (account.state) {
         AccountState.OK -> null
         AccountState.SIGN_IN_NEEDED -> stringResource(R.string.settings_state_sign_in_text)
-        AccountState.TLS_PROBLEM -> stringResource(R.string.settings_state_tls_text)
+        AccountState.TLS_PROBLEM -> tlsProblem(account)
         AccountState.SETUP_PROBLEM -> account.stateText ?: stringResource(R.string.settings_state_setup_text)
     }
     if (problem != null) {
@@ -141,6 +143,23 @@ private fun AccountHeader(account: Account, onSignIn: () -> Unit) {
             onAction = onSignIn,
         )
     }
+}
+
+/**
+ * The cause of a TLS problem and what to do (PLICO-UX-009). A name mismatch on a built-in server is not a typo:
+ * it points to the network, as an untrusted certificate does.
+ */
+@Composable
+private fun tlsProblem(account: Account): String {
+    val reason = TlsReason.of(account.stateText) ?: return stringResource(R.string.settings_state_tls_text)
+    val advice = when (reason) {
+        TlsReason.EXPIRED -> R.string.settings_tls_expired
+        TlsReason.NOT_YET_VALID -> R.string.settings_tls_clock
+        TlsReason.NAME_MISMATCH ->
+            if (account.provider == Provider.OTHER) R.string.settings_tls_name else R.string.settings_tls_network
+        TlsReason.UNTRUSTED, TlsReason.NO_TLS -> R.string.settings_tls_network
+    }
+    return stringResource(tlsCause(reason)) + " " + stringResource(advice)
 }
 
 private enum class ProfileDialog { LABEL, NAME, SIGNATURE }

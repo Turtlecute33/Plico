@@ -1309,6 +1309,11 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   min) plus a retry on network change, shows the state in the app at once, and posts "Secure connection to <label>
   failed" only after 1 h or on a second network. A TLS failure while the network lacks VALIDATED is `Network`.
   Only `AuthRequired` stops retries.
+- TLS cause (`PLICO-UX-009`): `MailErrors.tlsReason` finds `EXPIRED`, `NOT_YET_VALID`, `NAME_MISMATCH`,
+  `UNTRUSTED` or `NO_TLS` (STARTTLS) in the cause chain; the session stores its name in `account.state_text`.
+  The mailbox banner tells the cause and has the action "Account"; the account settings add what to do (phone
+  clock; for a name mismatch on other servers the server name; else try a different network). No certificate
+  data is stored or logged, and there is no "accept" button (non-goal).
 - Keepalive cost (Dovecot example, e.g. Riseup): Dovecot's default 2-min keepalive is about 720 wakes/day per
   connection. Accounts on one phone share the phase only if the server sees the public client IP, otherwise
   each account has its own phase (`push PB18`). The account screen shows the measured interval and the

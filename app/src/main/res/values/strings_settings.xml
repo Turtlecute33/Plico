@@ -16,6 +16,11 @@
     <string name="settings_state_setup">Setup problem</string>
     <string name="settings_state_sign_in_text">Plico cannot sign in to this account. Sync stops until you sign in again.</string>
     <string name="settings_state_tls_text">Plico cannot make a secure connection to the server. It tries again later.</string>
+    <!-- What to do after the cause of a failed secure connection (ui_tls_*) -->
+    <string name="settings_tls_expired">Make sure that the date and time of the phone are correct. If they are correct, the mail provider must replace the certificate.</string>
+    <string name="settings_tls_clock">Make sure that the date and time of the phone are correct.</string>
+    <string name="settings_tls_name">Make sure that the server name is correct. Use the server name that your mail provider gives. If the name is correct, try again on a different network.</string>
+    <string name="settings_tls_network">A network that examines connections, for example at a hotel or at work, can cause this. Try again on a different network.</string>
     <string name="settings_state_setup_text">This account needs a change in the settings on the server side.</string>
 
     <!-- Sign-in clients -->

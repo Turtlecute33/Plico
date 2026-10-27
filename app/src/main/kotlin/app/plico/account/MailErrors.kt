@@ -14,9 +14,25 @@ import app.plico.mail.smtp.SmtpRecipientException
 import app.plico.mail.smtp.SmtpUncertainException
 import java.io.IOException
 import java.security.cert.CertPathValidatorException
+import java.security.cert.CertPathValidatorException.BasicReason
 import java.security.cert.CertificateException
+import java.security.cert.CertificateExpiredException
+import java.security.cert.CertificateNotYetValidException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLPeerUnverifiedException
+
+/**
+ * Why a secure connection failed (PLICO-UX-009). The session stores the name in `account.state_text` of a
+ * TLS problem, so that the banner and the account settings can tell the cause.
+ */
+enum class TlsReason {
+    EXPIRED, NOT_YET_VALID, NAME_MISMATCH, UNTRUSTED, NO_TLS;
+
+    companion object {
+        /** The reason stored as [name]; null for an older row without one. */
+        fun of(name: String?): TlsReason? = entries.firstOrNull { it.name == name }
+    }
+}
 
 /** Maps `:mail` and platform exceptions to [MailError] (DESIGN.md §8.3 "Error classes", §14). */
 object MailErrors {
@@ -38,6 +54,9 @@ object MailErrors {
      * signed in with an alias. A sign-in again does not help.
      */
     private val NOT_CONNECTED = Regex("authenticated but not connected", RegexOption.IGNORE_CASE)
+
+    /** A certificate for another host name. Conscrypt: "No subjectAltNames on the certificate match". */
+    private val NAME_TEXT = Regex("subjectAltName|subject alternative", RegexOption.IGNORE_CASE)
 
     /** Microsoft: SMTP AUTH is off for the tenant or the mailbox (5.7.139), or basic auth is off (5.7.30). */
     private val SMTP_AUTH_OFF = setOf("5.7.139", "5.7.30")
@@ -118,6 +137,26 @@ object MailErrors {
             error
         }
     }
+
+    /**
+     * The [TlsReason] of a [MailError.Tls]: from the exception types and the path validation reason in the cause
+     * chain. A name mismatch from the platform check has only a message; UNTRUSTED when nothing is more exact.
+     */
+    fun tlsReason(t: Throwable): TlsReason {
+        val causes = generateSequence(t) { it.cause }.take(MAX_CAUSES).toList()
+        val reasons = causes.mapNotNull { (it as? CertPathValidatorException)?.reason }
+        return when {
+            causes.any { it is StartTlsException } -> TlsReason.NO_TLS
+            causes.any { it is CertificateExpiredException } || BasicReason.EXPIRED in reasons -> TlsReason.EXPIRED
+            causes.any { it is CertificateNotYetValidException } || BasicReason.NOT_YET_VALID in reasons ->
+                TlsReason.NOT_YET_VALID
+            causes.any { it is SSLPeerUnverifiedException || it is CertificateException && isNameText(it) } ->
+                TlsReason.NAME_MISMATCH
+            else -> TlsReason.UNTRUSTED
+        }
+    }
+
+    private fun isNameText(t: Throwable) = NAME_TEXT.containsMatchIn(t.message.orEmpty())
 
     private fun isCertificateFailure(t: Throwable): Boolean =
         generateSequence(t) { it.cause }.take(MAX_CAUSES).any {

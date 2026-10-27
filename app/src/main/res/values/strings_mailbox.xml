@@ -111,6 +111,8 @@
     <!-- Banners -->
     <string name="mailbox_banner_sign_in">Sign-in needed for %1$s</string>
     <string name="mailbox_banner_tls">The secure connection to %1$s failed. Plico tries again later.</string>
+    <!-- 1: account label, 2: the cause, a full sentence -->
+    <string name="mailbox_banner_tls_cause">The secure connection to %1$s failed. %2$s Plico tries again later.</string>
     <string name="mailbox_banner_setup">%1$s: %2$s</string>
     <string name="mailbox_banner_setup_default">%1$s needs attention. Open the account settings.</string>
     <string name="mailbox_account">Account</string>

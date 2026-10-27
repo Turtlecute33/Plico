@@ -12,6 +12,12 @@
     <!-- Errors -->
     <string name="ui_error_tls">The secure connection to the server failed.</string>
     <string name="ui_error_busy">The server is busy. Try again later.</string>
+    <!-- The cause of a failed secure connection, in the mailbox banner and the account settings -->
+    <string name="ui_tls_expired">The server certificate expired.</string>
+    <string name="ui_tls_not_yet_valid">The server certificate is not valid yet.</string>
+    <string name="ui_tls_name">The server certificate is for a different server name.</string>
+    <string name="ui_tls_untrusted">Android does not trust the server certificate.</string>
+    <string name="ui_tls_no_tls">The server did not start an encrypted connection.</string>
 
     <!-- App lock -->
     <string name="ui_lock_title">Plico is locked</string>

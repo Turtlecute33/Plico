@@ -20,8 +20,10 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.security.cert.CertPathValidatorException
+import java.security.cert.CertPathValidatorException.BasicReason
 import java.security.cert.CertificateException
 import java.security.cert.CertificateExpiredException
+import java.security.cert.CertificateNotYetValidException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
@@ -206,6 +208,30 @@ class MailErrorsTest {
         assertIs<MailError.Network>(classify(plaintext))
         // A certificate cause still wins.
         assertIs<MailError.Tls>(classify(TlsHandshakeException(handshake(CertificateException("untrusted")))))
+    }
+
+    @Test
+    fun `a TLS problem keeps its cause`() {
+        fun reason(t: Throwable) = MailErrors.tlsReason(classify(t))
+        val expired = CertPathValidatorException("timestamp check failed", null, null, -1, BasicReason.EXPIRED)
+        assertEquals(TlsReason.EXPIRED, reason(handshake(CertificateException(expired))))
+        assertEquals(TlsReason.EXPIRED, reason(handshake(CertificateExpiredException("expired"))))
+        val early = CertPathValidatorException("timestamp check failed", null, null, -1, BasicReason.NOT_YET_VALID)
+        assertEquals(TlsReason.NOT_YET_VALID, reason(handshake(CertificateException(early))))
+        assertEquals(TlsReason.NOT_YET_VALID, reason(handshake(CertificateNotYetValidException("not yet"))))
+        assertEquals(TlsReason.NAME_MISMATCH, reason(SSLPeerUnverifiedException("Hostname verification failed")))
+        val name = CertificateException("No subjectAltNames on the certificate match")
+        assertEquals(TlsReason.NAME_MISMATCH, reason(IOException("wrapped", handshake(name))))
+        val anchor = CertPathValidatorException("Trust anchor for certification path not found.")
+        assertEquals(TlsReason.UNTRUSTED, reason(handshake(CertificateException(anchor))))
+        assertEquals(TlsReason.NO_TLS, reason(StartTlsException("STARTTLS refused")))
+    }
+
+    @Test
+    fun `a stored TLS reason is read back`() {
+        assertEquals(TlsReason.EXPIRED, TlsReason.of(TlsReason.EXPIRED.name))
+        assertEquals(null, TlsReason.of(null))
+        assertEquals(null, TlsReason.of("something else"))
     }
 
     @Test
