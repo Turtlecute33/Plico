@@ -134,7 +134,7 @@ class MigrationTest {
         assertEquals(listOf(1L), runBlocking { MessageDao(db).observeList(MailView.InFolder(1), 50).first() }.map { it.id })
         val fresh = Db(context, freshName).also(opened::add)
         assertEquals(indexes(fresh), indexes(db))
-        assertTrue(indexes(db).containsAll(listOf("draft_message", "message_date", "message_unread")))
+        assertTrue(indexes(db).containsAll(listOf("draft_message", "message_date", "message_unread", "message_unnotified")))
     }
 
     private fun indexes(db: Db) =

@@ -158,6 +158,8 @@ internal object Schema {
             "CREATE INDEX message_date ON message(date DESC)",
             // unread counts read only the unread rows
             "CREATE INDEX message_unread ON message(id) WHERE seen = 0 AND hidden = 0 AND deleted = 0",
+            // the notification claim reads only the rows that did not notify yet
+            "CREATE INDEX message_unnotified ON message(account_id) WHERE notified = 0",
         ),
     )
 }

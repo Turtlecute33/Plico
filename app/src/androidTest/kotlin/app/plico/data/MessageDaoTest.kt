@@ -413,6 +413,15 @@ class MessageDaoTest : DbFixture() {
     }
 
     @Test
+    fun theNotificationClaimReadsOnlyUnnotifiedRows() {
+        // PLICO-PERF-009: the probe and the UPDATE of claimNotifications, which run in each background cycle.
+        val probe = plan("SELECT 1 FROM message WHERE account_id = ? AND notified = 0 LIMIT 1", riseup)
+        assertTrue("message_unnotified" in probe, probe)
+        val update = plan("UPDATE message SET notified = 1 WHERE account_id = ? AND notified = 0", riseup)
+        assertTrue("message_unnotified" in update, update)
+    }
+
+    @Test
     fun claimNotificationsReturnsEveryRowThatPassesTheRule() {
         val now = 1_800_000_000_000L
         val (fresh, notifyOn) = insert(
