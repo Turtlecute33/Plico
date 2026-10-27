@@ -60,18 +60,21 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -345,7 +348,8 @@ private fun MessageContent(
                 Text(
                     text = revealBidi(view.message.subject).ifBlank { stringResource(R.string.ui_no_subject) },
                     style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(top = 4.dp),
+                    // TalkBack heading navigation goes to the start of the message (PLICO-UX-005).
+                    modifier = Modifier.padding(top = 4.dp).semantics { heading() },
                 )
             }
             if (view.placement.labels.isNotEmpty()) LabelChips(view.placement.labels.map { it.name })
@@ -647,12 +651,11 @@ private fun ReplyBar(view: MessageView, vm: MessageViewModel) {
     val busy by vm.composing.collectAsStateWithLifecycle()
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Box {
-            Row(
-                modifier = Modifier
+            ReplyButtons(
+                Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (view.message.draft) {
                     ReplyButton(Icons.Edit, R.string.message_edit_draft, !busy, primary = true, onClick = vm::editDraft)
@@ -668,8 +671,38 @@ private fun ReplyBar(view: MessageView, vm: MessageViewModel) {
     }
 }
 
+/**
+ * The reply buttons in equal widths: all on one line when each label fits its share, else fewer on each line, so
+ * that a large font size wraps the buttons and does not cut their labels (PLICO-UX-005).
+ */
 @Composable
-private fun RowScope.ReplyButton(
+private fun ReplyButtons(modifier: Modifier, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val gap = 8.dp.roundToPx()
+        val width = constraints.maxWidth
+        val widest = measurables.maxOfOrNull { it.maxIntrinsicWidth(Constraints.Infinity) } ?: 0
+        val perLine = (measurables.size downTo 1).firstOrNull { it * widest + (it - 1) * gap <= width } ?: 1
+        val lines = measurables.chunked(perLine).map { line ->
+            val share = ((width - (line.size - 1) * gap) / line.size).coerceAtLeast(0)
+            line.map { it.measure(constraints.copy(minWidth = share, maxWidth = share, minHeight = 0)) }
+        }
+        val heights = lines.map { line -> line.maxOf { it.height } }
+        layout(width, heights.sum() + (lines.size - 1).coerceAtLeast(0) * gap) {
+            var y = 0
+            lines.forEachIndexed { i, line ->
+                var x = 0
+                for (placeable in line) {
+                    placeable.placeRelative(x, y)
+                    x += placeable.width + gap
+                }
+                y += heights[i] + gap
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReplyButton(
     icon: ImageVector,
     text: Int,
     enabled: Boolean,
@@ -684,9 +717,9 @@ private fun RowScope.ReplyButton(
     // Three buttons share the width: less side padding than the default, so that the labels fit.
     val padding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
     if (primary) {
-        FilledTonalButton(onClick, Modifier.weight(1f), enabled = enabled, contentPadding = padding, content = content)
+        FilledTonalButton(onClick, enabled = enabled, contentPadding = padding, content = content)
     } else {
-        OutlinedButton(onClick, Modifier.weight(1f), enabled = enabled, contentPadding = padding, content = content)
+        OutlinedButton(onClick, enabled = enabled, contentPadding = padding, content = content)
     }
 }
 
