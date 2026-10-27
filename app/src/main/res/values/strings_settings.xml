@@ -99,7 +99,7 @@
     <string name="settings_logo_website_text">Each sender\'s website gets the IP address of your phone and can see when you look at your mail.</string>
     <string name="settings_logo_google">Google</string>
     <string name="settings_logo_google_text">Google gets the domain of each sender and the IP address of your phone.</string>
-    <string name="settings_logos_note">A logo does not prove who sent a message. Plico shows no logos in Spam and no logos for your own mail. With the logo source \"Website of the sender\", Plico gets a logo only for a sender that sent mail to you before.</string>
+    <string name="settings_logos_note">A logo does not prove who sent a message. Plico shows no logos in Spam and no logos for your own mail. With the logo source \"Website of the sender\", Plico gets a logo only for a sender that you sent mail to, whose images you always show, or whose earlier mail you read.</string>
 
     <!-- Push and battery -->
     <string name="settings_push">Push and battery</string>

@@ -158,6 +158,15 @@ class MessageDao(private val db: Db) {
         email, before, exceptId,
     ) != null
 
+    /**
+     * As [hasEarlierFrom], but only a row that the user read (`seen`): a sign that a sender cannot make alone by
+     * sending a second mail (the website logo rule, DESIGN.md §12).
+     */
+    fun hasEarlierSeenFrom(email: String, before: Long, exceptId: Long): Boolean = db.sql.long(
+        "SELECT 1 FROM message WHERE from_email = ? COLLATE NOCASE AND seen = 1 AND date < ? AND id != ? LIMIT 1",
+        email, before, exceptId,
+    ) != null
+
     // ---- Sync writes
 
     /**

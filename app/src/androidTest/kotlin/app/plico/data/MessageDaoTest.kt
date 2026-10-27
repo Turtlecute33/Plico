@@ -299,6 +299,22 @@ class MessageDaoTest : DbFixture() {
     }
 
     @Test
+    fun earlierReadMailFromASender() {
+        val (first, second) = insert(
+            header(riseup, inbox, 1, date = 100).copy(fromEmail = "ann@example.org"),
+            header(riseup, inbox, 2, date = 200).copy(fromEmail = "ann@example.org"),
+        )
+        assertFalse(messages.hasEarlierSeenFrom("ann@example.org", 200, second), "two unread mails are not a sign of the user")
+        val (_, fourth) = insert(
+            header(riseup, archive, 1, date = 100, seen = true).copy(fromEmail = "Bob@Example.org"),
+            header(riseup, archive, 2, date = 200).copy(fromEmail = "bob@example.org"),
+        )
+        assertTrue(messages.hasEarlierSeenFrom("BOB@example.org", 200, fourth))
+        assertFalse(messages.hasEarlierSeenFrom("bob@example.org", 100, fourth), "not earlier")
+        assertFalse(messages.hasEarlierSeenFrom("ann@example.org", 300, first))
+    }
+
+    @Test
     fun saveBodyIgnoresGoneRowsAndReplacesAttachments() {
         messages.saveBody(424242, null, "x", "x", "x", emptyList())
         assertEquals(0, count("SELECT count(*) FROM body"))

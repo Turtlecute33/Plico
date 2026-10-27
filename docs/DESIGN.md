@@ -1470,8 +1470,10 @@ Optional, **off by default** (Settings → Message list, §13). Without them the
   Spam, never Gmail mail without a DMARC pass (`SenderCheck.trust` ≠ NONE). The logo is always the one of
   From. Accepted risk, stated in the setting note: a forged From on a server other than Gmail can show the real
   logo of a known sender.
-- First contact, **website source only**: a fetch only when the sender is a contact or sent mail before (the
-  same data as the first-contact warning, §11.4); a first contact gets only a logo that is already cached.
+- First contact, **website source only**: a fetch only when the user made a sign: the sender is a contact, a
+  trusted sender (§11.4), or the user read an earlier message from it (`hasEarlierSeenFrom`). An earlier received
+  message is not sufficient, because a sender can send two (`PLICO-PRIV-001`). A first contact gets only a logo
+  that is already cached.
   Else the sender's server would see when the user reads a first message (a read receipt) and could track
   per recipient. DuckDuckGo and Google fetch for first contacts too: the sender sees only the service.
 - When: only rows on the screen fetch (metered networks too: at most 256 KiB per URL, cached 30 days). The message

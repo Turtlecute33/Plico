@@ -40,8 +40,10 @@ class SenderLogos(app: PlicoApp) {
         codec = LogoCodec,
         enabled = { app.prefs.senderLogos },
         psl = { Psl.get(app) },
+        // Only signs that the user made: a contact, a trusted sender, or an earlier message that the user read.
         known = { email, before, exceptId ->
-            app.contacts.isKnown(email) || app.messages.hasEarlierFrom(email, before, exceptId)
+            app.contacts.isKnown(email) || app.trustedSenders.isTrusted(email) ||
+                app.messages.hasEarlierSeenFrom(email, before, exceptId)
         },
         fetch = RemoteFetcher::fetch,
         io = Dispatchers.IO,
@@ -52,7 +54,8 @@ class SenderLogos(app: PlicoApp) {
 
     /**
      * The logo of the domain of [email] from the cache or from [source]. [before] and [exceptId] find an earlier
-     * message from the same address (the first-contact rule of the website source). Null when there is none.
+     * message from the same address that the user read (the first-contact rule of the website source). Null when
+     * there is none.
      */
     suspend fun load(email: String, source: Prefs.LogoSource, before: Long, exceptId: Long): ImageBitmap? =
         cache.load(email, source, before, exceptId)
@@ -99,7 +102,8 @@ fun rememberSenderLogo(
  *   `.none`; a [RemoteFetcher.Fetched.Failed] fetch (offline, captive portal) blocks the domain in memory for
  *   [LogoRules.FAILED_TTL_MS] only.
  * - Fetch: never when [enabled] is false. With [Prefs.LogoSource.WEBSITE], only for a sender that is [known] (a
- *   contact, or an earlier message): else the server of the sender would see when a first message is read. One
+ *   contact, a trusted sender, or an earlier message that the user read; never only an earlier received message,
+ *   which a sender can send): else the server of the sender would see when a first message is read. One
  *   fetch per domain at a time, at most [maxFetches] domains at a time, at most [LogoRules.MAX_BYTES] per URL (the
  *   website source tries two URLs).
  * - Threads: everything runs in the coroutine of the caller (the row) on [io]. Memory and disk answers never wait
