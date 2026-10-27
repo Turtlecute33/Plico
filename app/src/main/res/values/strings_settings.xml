@@ -170,6 +170,8 @@
     <string name="settings_identity_address">Address</string>
     <string name="settings_identity_name">Name</string>
     <string name="settings_identity_remove">Remove %1$s</string>
+    <string name="settings_identity_remove_title">Remove %1$s?</string>
+    <string name="settings_identity_remove_text">Replies to mail sent to this address then come from %1$s.</string>
     <string name="settings_identity_invalid">Enter a valid email address.</string>
     <string name="settings_identity_own">This is the address of the account.</string>
     <string name="settings_identity_exists">This address is in the list already.</string>

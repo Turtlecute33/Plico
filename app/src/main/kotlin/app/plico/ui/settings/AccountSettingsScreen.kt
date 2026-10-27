@@ -276,6 +276,8 @@ private fun ColorRow(shapes: ListItemShapes, selected: Int, onSelect: (Int) -> U
 private fun IdentitiesGroup(account: Account, vm: AccountSettingsViewModel) {
     val identities by vm.identities.collectAsStateWithLifecycle()
     var adding by rememberSaveable { mutableStateOf(false) }
+    // A wrong tap must not remove an alias: replies then come from the account address (PLICO-UX-012).
+    var removing by rememberSaveable { mutableStateOf<Long?>(null) }
 
     SettingsGroup(stringResource(R.string.settings_identities)) {
         identities.forEach { identity ->
@@ -286,7 +288,7 @@ private fun IdentitiesGroup(account: Account, vm: AccountSettingsViewModel) {
                     summary = identity.name.ifEmpty { null },
                     trailing = {
                         val remove = stringResource(R.string.settings_identity_remove, identity.email)
-                        IconButton(onClick = { vm.removeIdentity(identity.id) }) {
+                        IconButton(onClick = { removing = identity.id }) {
                             Icon(Icons.Delete, contentDescription = remove)
                         }
                     },
@@ -303,6 +305,16 @@ private fun IdentitiesGroup(account: Account, vm: AccountSettingsViewModel) {
             existing = identities.map { it.email },
             onAdd = vm::addIdentity,
             onDismiss = { adding = false },
+        )
+    }
+    identities.firstOrNull { it.id == removing }?.let { identity ->
+        ConfirmDialog(
+            title = stringResource(R.string.settings_identity_remove_title, identity.email),
+            text = stringResource(R.string.settings_identity_remove_text, account.email),
+            confirmLabel = stringResource(R.string.settings_remove),
+            onConfirm = { vm.removeIdentity(identity.id) },
+            onDismiss = { removing = null },
+            destructive = true,
         )
     }
 }

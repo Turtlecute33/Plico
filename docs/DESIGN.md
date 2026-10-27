@@ -1707,7 +1707,7 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   actions, undo send seconds), Message list, Sign-in clients, Push & battery (§8.2), About.
   - Accounts: add; per account, in this order: header (sign-in method, e.g. "Signs in with Microsoft in the
     browser"), profile (label, sender name, signature, colour), identities (the note by provider: Gmail, Riseup,
-    or "Add only addresses that your mail provider lets you send from"), offline (body days / all offline),
+    or "Add only addresses that your mail provider lets you send from"; Remove asks first, `PLICO-UX-012`), offline (body days / all offline),
     new mail (push mode + poll interval, measured server keepalive and cost; a server without IDLE shows "This
     server cannot tell Plico about new mail immediately …" and the poll interval only), notifications (channel
     link) + Gmail categories, **Servers** (Incoming and Outgoing as `host:port · SSL/TLS|STARTTLS` in ASCII
