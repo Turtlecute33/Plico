@@ -69,6 +69,18 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        resources {
+            // Licence files also in the AndroidX folders (META-INF/androidx/...): the README and About name the
+            // licences. The MIT notice of jsoup (META-INF/jsoup/LICENSE) stays. The *.version files are for tools.
+            excludes += setOf(
+                "META-INF/versions/**", "META-INF/*.md", "META-INF/LICENSE*", "META-INF/NOTICE*",
+                "META-INF/androidx/**/LICENSE*", "META-INF/androidx/**/NOTICE*", "META-INF/*.version",
+                "DebugProbesKt.bin", "kotlin/**",
+            )
+        }
+    }
+
     testOptions {
         // JVM unit tests run against android.jar stubs; Log and friends return defaults instead of throwing.
         unitTests.isReturnDefaultValues = true
@@ -82,8 +94,11 @@ android {
     }
 }
 
+// No native code in the release APK. The only library with some, androidx.graphics.path, loads it only below
+// Android 14 (its own PathIterator); from Android 14 the platform's PathIterator does the work, and minSdk is 35.
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.add("lib/*/libandroidx.graphics.path.so")
         // Without a release key, the release APK stays unsigned. Local values only in the lambda, so that
         // the configuration cache can store it without the build script.
         signingProps?.let { props ->
