@@ -29,7 +29,7 @@ class DbTest : DbFixture() {
             "message_folder_message", "message_ad",
         )
         assertTrue(names.containsAll(expected), "missing: ${expected - names}")
-        assertEquals(3, db.sql.version)
+        assertEquals(Schema.VERSION, db.sql.version)
         // A fresh database also runs the migration statements.
         val accountColumns = db.sql.list("PRAGMA table_info(account)") { it.str(1) }
         val v2 = listOf("imap_host", "imap_port", "imap_tls", "smtp_host", "smtp_port", "smtp_tls", "login", "idle")
