@@ -817,7 +817,8 @@ One engine for both issuers, with the user's own client ID.
   WebView, no Custom Tabs). Both send a `prompt`, so that no grant is ever silent. Microsoft always uses the
   authority `common` (no tenant per account).
 - Before the browser opens: the pending entry `{issuer, state, verifier, email, createdAt}` goes to Prefs (§5).
-  **Redirect hijack check**: the manifest declares `<queries>` for `VIEW` with the app's scheme; `start()` lists
+  **Redirect hijack check**: the manifest declares `<queries>` for `VIEW` with the app's scheme, in two forms (the
+  scheme only for the Google path form, and any host for the Microsoft host form); `start()` lists
   the activities for the redirect URI, and when another package can receive it, setup stops with "Another app on
   this phone can receive the sign-in answer for Plico" (PKCE already stops another app from using the code; this
   stops a chooser that blocks the sign-in).
@@ -1500,8 +1501,8 @@ SCHEDULE_EXACT_ALARM USE_BIOMETRIC`. Never: `GET_ACCOUNTS USE_EXACT_ALARM ACCESS
 REQUEST_INSTALL_PACKAGES`. Components: `MainActivity` (exported: launcher, SEND, SEND_MULTIPLE, SENDTO
 mailto, VIEW mailto BROWSABLE; singleTop), alias `.OpenMessage` (not exported), `OAuthRedirectActivity`
 (exported; both redirect forms, §6.5), `PushService`, `StartReceiver`, `AlarmReceiver`, `ActionReceiver` (all
-not exported), `FileProvider`. `<queries>`: `VIEW` with the app's own scheme, for the redirect hijack check
-(§6.5).
+not exported), `FileProvider`. `<queries>`: `VIEW` with the app's own scheme, with no host and with any host
+(`*`), for the redirect hijack check (§6.5).
 
 ## 13. UI (`ui`)
 Material 3 expressive (`MaterialExpressiveTheme`), dynamic colour, day/night, edge-to-edge, predictive back.

@@ -14,11 +14,16 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Only the apps that can receive the OAuth redirect URI: before a sign-in, Plico checks that no other app
-         can (BrowserOAuth.start). -->
+         can (BrowserOAuth.start). Two forms: the scheme only (the Google path form) and any host (the Microsoft
+         host form; a filter with a host is not visible to the scheme-only query). -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="${applicationId}" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="${applicationId}" android:host="*" />
         </intent>
     </queries>
 
