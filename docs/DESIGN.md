@@ -998,7 +998,9 @@ class AccountSession(...) {
 2. Cheap check: STATUS (or LIST-STATUS when advertised). Skip the mailbox only when UIDNEXT, MESSAGES and
    UIDVALIDITY are unchanged and the flags are unchanged too: a known HIGHESTMODSEQ that is the same
    (`protocol PS10`), or, on a server without CONDSTORE (Exchange), only while no flag check is due (user
-   refresh, folder open, or a sweep 6 h or more after the last flag check). The 6 h count from the last sweep
+   refresh, folder open, or a sweep 6 h or more after the last flag check). The app coming to the foreground
+   runs the STATUS sweep, but it is not a flag check (`PLICO-PERF-002`): else each return to the app would fetch
+   the flags of every local message. The 6 h count from the last sweep
    that checked the flags, not from the last sweep: in poll mode every poll is a sweep. Else every 15-min poll
    would fetch the flags of every message of every folder, or, with the 6 h counted from the last sweep, a polling
    account would never check them. The servers of Riseup and of Gmail have CONDSTORE: no change on them.

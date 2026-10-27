@@ -9,8 +9,8 @@ class Sessions(private val app: PlicoApp) {
 
     /**
      * True while the UI is visible; set by the push engine. Sessions then stay connected for 2 min after work,
-     * run the backfill on any network, and the change to visible syncs every account (a user action). The change
-     * to hidden ends those 2 min.
+     * run the backfill on any network, and the change to visible runs the STATUS sweep of every account, without
+     * the full flag check of a pull to refresh (PLICO-PERF-002). The change to hidden ends those 2 min.
      */
     @Volatile
     var appVisible: Boolean = false
@@ -18,7 +18,7 @@ class Sessions(private val app: PlicoApp) {
             val shown = value && !field
             val hidden = !value && field
             field = value
-            if (shown) all().forEach { it.kick(AccountSession.Reason.USER_REFRESH) }
+            if (shown) all().forEach { it.kick(AccountSession.Reason.APP_VISIBLE) }
             if (hidden) all().forEach(AccountSession::onHidden)
         }
 

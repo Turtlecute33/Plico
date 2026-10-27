@@ -8,8 +8,10 @@ internal data class SyncTrigger(
     val connected: Boolean = false,
     /** IDLE reported a change, or the server announced new mail during other work. */
     val changed: Boolean = false,
-    /** Pull to refresh, or the app became visible. */
+    /** Pull to refresh. */
     val userRefresh: Boolean = false,
+    /** The app came to the foreground: the STATUS sweep, but no full flag check (PLICO-PERF-002). */
+    val appShown: Boolean = false,
     /** A poll of a polling account. */
     val poll: Boolean = false,
     /** A keepalive check that ended IDLE (DESIGN.md §8.3). */
@@ -25,9 +27,10 @@ internal data class SyncPlan(
     /** New mail of the IDLE mailbox (Gmail: All Mail), then its flags and expunges. */
     val fastPath: Boolean,
     /**
-     * A flag check is due (user refresh, 6 h after the last one). Only with [fullSweep]. Without CONDSTORE: the full
-     * local range instead of the newest 200 rows, and the STATUS sweep does not skip unchanged mailboxes (DESIGN
-     * §7.2 step 2). The 6 h count from the last flag check, not from the last sweep: every poll is a sweep.
+     * A flag check is due (user refresh, 6 h after the last one; not app visible). Only with [fullSweep]. Without
+     * CONDSTORE: the full local range instead of the newest 200 rows, and the STATUS sweep does not skip unchanged
+     * mailboxes (DESIGN §7.2 step 2). The 6 h count from the last flag check, not from the last sweep: every poll is
+     * a sweep.
      */
     val fullFlags: Boolean,
     /** Not Gmail: STATUS of the folders with notify = 1 (push PB16). */
@@ -62,7 +65,7 @@ internal data class SyncPlan(
         ): SyncPlan {
             val sweepDue = lastSweepAt == null || now - lastSweepAt >= SWEEP_EVERY_MS
             val flagsDue = lastFlagsAt == null || now - lastFlagsAt >= SWEEP_EVERY_MS
-            val fullSweep = trigger.userRefresh || trigger.poll || sweepDue
+            val fullSweep = trigger.userRefresh || trigger.appShown || trigger.poll || sweepDue
             val fastPath = trigger.connected || trigger.changed || fullSweep
             val refreshWake = trigger.check in SWEEP_CHECKS
             return SyncPlan(

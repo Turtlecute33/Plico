@@ -77,8 +77,11 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         /** Queued work: an op, a send, a request. */
         WORK,
 
-        /** Pull to refresh or app opened: every folder, and one attempt now even during a backoff. */
+        /** Pull to refresh: every folder with the full flag check, and one attempt now even during a backoff. */
         USER_REFRESH,
+
+        /** The app came to the foreground: the STATUS sweep without the full flag check, and one attempt now. */
+        APP_VISIBLE,
 
         /** A wake from the alarm. */
         ALARM,
@@ -169,6 +172,7 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     private val lock = Any()
     private var changed = false
     private var userRefresh = false
+    private var appShown = false
     private var immediate = false
     private var poll = false
     private var reconnect = false
@@ -206,6 +210,10 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             when (reason) {
                 Reason.USER_REFRESH -> {
                     userRefresh = true
+                    immediate = true
+                }
+                Reason.APP_VISIBLE -> {
+                    appShown = true
                     immediate = true
                 }
                 Reason.NETWORK, Reason.OPEN_FOLDER -> immediate = true
@@ -439,8 +447,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         workPending.set(false)
         val now = elapsed()
         refreshWorkDue()
-        val wanted = mode == Mode.IDLE || requests.isNotEmpty() || synchronized(lock) { userRefresh || poll } ||
-            workDueAt?.let { it <= now } == true
+        val wanted = mode == Mode.IDLE || requests.isNotEmpty() ||
+            synchronized(lock) { userRefresh || appShown || poll } || workDueAt?.let { it <= now } == true
         val network = host.network()
         val retryAt = backoff.retryAt
         val error: MailError? = when {
@@ -595,10 +603,11 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     private fun takeTriggers(c: Connection): SyncTrigger = synchronized(lock) {
         workPending.set(false)
-        SyncTrigger(c.fresh, changed, userRefresh, poll, check).also {
+        SyncTrigger(c.fresh, changed, userRefresh, appShown, poll, check).also {
             c.fresh = false
             changed = false
             userRefresh = false
+            appShown = false
             immediate = false
             check = null
         }

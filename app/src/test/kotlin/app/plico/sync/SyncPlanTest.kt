@@ -60,6 +60,18 @@ class SyncPlanTest {
     }
 
     @Test
+    fun appVisibleSweepsWithoutTheFullFlagCheck() {
+        // PLICO-PERF-002: a return to the app is no pull to refresh; without CONDSTORE it must not fetch all flags.
+        val shown = plan(SyncTrigger(appShown = true))
+        assertTrue(shown.fullSweep)
+        assertTrue(shown.fastPath)
+        assertFalse(shown.fullFlags)
+        assertTrue(plan(SyncTrigger(appShown = true), lastSweepAt = now - hour, lastFlagsAt = now - 6 * hour).fullFlags)
+        assertTrue(plan(SyncTrigger(appShown = true), lastFlagsAt = null).fullFlags, "first check of the process")
+        assertTrue(plan(SyncTrigger(appShown = true, userRefresh = true)).fullFlags, "a pull to refresh still checks")
+    }
+
+    @Test
     fun pollModeChecksFlagsEverySixHours() {
         // Every poll is a sweep, so the 6 h count from the last flag check (DESIGN §7.2 step 2), as AccountSession does.
         var lastSweepAt: Long? = null
