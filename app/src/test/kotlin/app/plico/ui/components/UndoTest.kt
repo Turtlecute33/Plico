@@ -26,6 +26,26 @@ class UndoTest {
     }
 
     @Test
+    fun aLongerAccessibilityTimeoutMakesTheWindowsLonger() {
+        try {
+            MailActions.actionTimeoutMs = 30_000
+            assertEquals(30_000, MailActions.undoMs)
+            assertEquals(29_000, UndoWindow.actionLeft(since = 10_000, now = 10_000))
+            assertEquals(30_000, MailActions.sendDelayMs(5))
+            assertEquals(29_000, UndoWindow.sendMs(5))
+            // Undo send off stays off.
+            assertEquals(0, MailActions.sendDelayMs(0))
+            assertTrue(UndoWindow.sendMs(0) <= 0)
+            // A timeout shorter than the default windows changes nothing.
+            MailActions.actionTimeoutMs = 3_000
+            assertEquals(MailActions.UNDO_MS, MailActions.undoMs)
+            assertEquals(10_000, MailActions.sendDelayMs(10))
+        } finally {
+            MailActions.actionTimeoutMs = 0
+        }
+    }
+
+    @Test
     fun theSnackbarGoesWhenItsTimeIsOver() = runTest {
         val host = SnackbarHostState()
         val tapped = async { host.showUndo("Archived", "Undo", 3_000) }

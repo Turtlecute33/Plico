@@ -114,10 +114,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
     // ---- List actions (DESIGN §7.3, §7.4)
 
     /** Gmail removes `\Inbox`; other servers move to the archive folder (created on first use). */
-    fun archive(ids: List<Long>): Undo? = archive(ids, store.now() + UNDO_MS)
+    fun archive(ids: List<Long>): Undo? = archive(ids, store.now() + undoMs)
 
     /** To Trash; inside Trash/Spam use [deleteForever] (the UI confirms). */
-    fun delete(ids: List<Long>): Undo? = delete(ids, store.now() + UNDO_MS)
+    fun delete(ids: List<Long>): Undo? = delete(ids, store.now() + undoMs)
 
     /** `\Deleted` + `UID EXPUNGE`. Gmail: only for messages in Trash or Spam. */
     fun deleteForever(ids: List<Long>) {
@@ -165,7 +165,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
     /** Other servers: move to the mailbox. Gmail: label move from the view's label (DESIGN §7.3). */
     fun moveTo(ids: List<Long>, folderId: Long, fromView: MailView): Undo? {
         val target = store.folders.get(folderId) ?: return null
-        val runAt = store.now() + UNDO_MS
+        val runAt = store.now() + undoMs
         return undoable(ids) {
             when {
                 account.id != target.accountId -> emptyList()
@@ -202,7 +202,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
      * Not spam: MOVE from Spam to INBOX.
      */
     fun spam(ids: List<Long>, isSpam: Boolean): Undo? {
-        val runAt = store.now() + UNDO_MS
+        val runAt = store.now() + undoMs
         return undoable(ids) {
             if (isSpam) {
                 val junk = roleTarget(FolderRole.JUNK, if (account.isGmail) null else SPAM) ?: return@undoable emptyList()
@@ -541,7 +541,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val recipients = DraftMime.addresses(draft)
         val valid = recipients.isNotEmpty() && (recipients.map { it.email } + draft.fromEmail).all(Addresses::isValidAddrSpec)
         if (!valid || DraftMime.estimatedSize(DraftMime.rawSize(draft)) > account.traits.maxMessageBytes) return false
-        if (!store.drafts.queue(draftId, store.now() + host.undoSendSeconds * 1000L)) return false
+        if (!store.drafts.queue(draftId, store.now() + sendDelayMs(host.undoSendSeconds))) return false
         host.kick(account.id)
         return true
     }
@@ -817,10 +817,23 @@ class MailActions internal constructor(private val store: OpStore, private val h
 
     companion object {
         /**
-         * The undo window of archive, delete, move and spam (DESIGN §7.4): the op runs this long after the action.
-         * The Undo snackbar closes 1 s before, so that an Undo tap always comes in time.
+         * The shortest undo window of archive, delete, move and spam (DESIGN §7.4). The Undo snackbar closes 1 s
+         * before the op runs, so that an Undo tap always comes in time.
          */
         const val UNDO_MS = 6_000L
+
+        /**
+         * The Android "Time to take action" setting (accessibility timeout) in ms; 0 = not set. MainActivity reads
+         * it at each start, so that the undo windows give the user that time (PLICO-UX-008).
+         */
+        @Volatile
+        var actionTimeoutMs = 0L
+
+        /** The undo window of archive, delete, move and spam: the op runs this long after the action. */
+        val undoMs: Long get() = maxOf(UNDO_MS, actionTimeoutMs)
+
+        /** The delay of a send that waits [seconds] (Prefs.undoSendSeconds), at least [actionTimeoutMs]; 0 = off. */
+        fun sendDelayMs(seconds: Int): Long = if (seconds <= 0) 0 else maxOf(seconds * 1_000L, actionTimeoutMs)
         private const val BODY_WAIT_MS = 15_000L
         private const val SEEN = "\\Seen"
         private const val FLAGGED = "\\Flagged"

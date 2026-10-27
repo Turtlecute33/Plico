@@ -28,7 +28,7 @@ class OpsFallbackTest : OpFixture() {
     private fun run(ctx: OpContext) = runBlocking { Ops.run(ctx) }
 
     private fun later() {
-        clock += MailActions.UNDO_MS + 1_000
+        clock += MailActions.undoMs + 1_000
     }
 
     private val searchDeleted = Regex("UID SEARCH (CHARSET UTF-8 )?DELETED")

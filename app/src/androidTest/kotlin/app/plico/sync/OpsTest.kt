@@ -25,7 +25,7 @@ class OpsTest : OpFixture() {
 
     /** After the undo window. */
     private fun later() {
-        clock += MailActions.UNDO_MS + 1_000
+        clock += MailActions.undoMs + 1_000
     }
 
     @Test
@@ -37,7 +37,7 @@ class OpsTest : OpFixture() {
         assertTrue(messages.get(id)!!.hidden)
         assertEquals(listOf(riseup), host.kicks)
         assertEquals(listOf(riseup), host.refreshes)
-        assertEquals(clock + MailActions.UNDO_MS, Ops.nextRunAt(store, riseup))
+        assertEquals(clock + MailActions.undoMs, Ops.nextRunAt(store, riseup))
 
         val imap = FakeImap()
         val ctx = session(riseup, imap)
@@ -70,7 +70,7 @@ class OpsTest : OpFixture() {
     fun anUndoAfterTheWindowIsTooLate() {
         val id = row()
         val undo = assertNotNull(actions.delete(listOf(id)))
-        clock += MailActions.UNDO_MS
+        clock += MailActions.undoMs
         // The loop may run the MOVE now: the undo must not show the row that the MOVE takes away.
         assertFalse(actions.undo(undo))
         assertTrue(messages.get(id)!!.hidden)

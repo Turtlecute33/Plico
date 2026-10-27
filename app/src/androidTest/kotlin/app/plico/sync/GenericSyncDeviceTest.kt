@@ -128,7 +128,7 @@ class GenericSyncDeviceTest : OpFixture() {
         start()
         val junkRow = row(folder("Junk"), spam.uid)!!
         actions.spam(listOf(junkRow.id), isSpam = false)
-        clock += MailActions.UNDO_MS + 1_000
+        clock += MailActions.undoMs + 1_000
 
         val imap = FakeImap()
             .select("Junk", uidValidity = 1)
@@ -152,7 +152,7 @@ class GenericSyncDeviceTest : OpFixture() {
         val spam = junk.add(subject = "Not spam after all")
         start()
         actions.spam(listOf(row(folder("Junk"), spam.uid)!!.id), isSpam = false)
-        clock += MailActions.UNDO_MS + 1_000
+        clock += MailActions.undoMs + 1_000
         val imap = FakeImap()
             .select("Junk", uidValidity = 1)
             .expect("UID MOVE ${spam.uid} \"INBOX\"", "OK Done") // no COPYUID

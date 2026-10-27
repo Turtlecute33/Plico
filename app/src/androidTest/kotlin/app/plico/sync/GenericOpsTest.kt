@@ -21,7 +21,7 @@ class GenericOpsTest : OpFixture() {
     private fun run(ctx: OpContext) = runBlocking { Ops.run(ctx) }
 
     private fun later() {
-        clock += MailActions.UNDO_MS + 1_000
+        clock += MailActions.undoMs + 1_000
     }
 
     /** A Courier/cPanel layout without NAMESPACE: every mailbox below `INBOX.`. */

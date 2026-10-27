@@ -10,17 +10,18 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * How long Undo snackbars stay (DESIGN §7.4, §7.5). The change or the send runs when its delay ends, so the
  * snackbar ends [MARGIN_MS] before: an Undo the user can tap always still works. The accessibility timeout
- * of Short and Long snackbars does not apply; it could keep Undo on screen after the change ran.
+ * of Short and Long snackbars does not apply; it could keep Undo on screen after the change ran. The delay
+ * itself follows the accessibility timeout instead ([MailActions.actionTimeoutMs]).
  */
 object UndoWindow {
     const val MARGIN_MS = 1_000L
 
     /** What is left of the Undo of an archive, delete, move or spam that started at [since] (elapsedRealtime). */
     fun actionLeft(since: Long, now: Long = SystemClock.elapsedRealtime()): Long =
-        MailActions.UNDO_MS - MARGIN_MS - (now - since)
+        MailActions.undoMs - MARGIN_MS - (now - since)
 
     /** The Undo time of a send that waits [undoSeconds] (Prefs.undoSendSeconds). */
-    fun sendMs(undoSeconds: Int): Long = undoSeconds * 1_000L - MARGIN_MS
+    fun sendMs(undoSeconds: Int): Long = MailActions.sendDelayMs(undoSeconds) - MARGIN_MS
 }
 
 /**

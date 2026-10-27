@@ -1108,6 +1108,9 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 - `run_at` = now + 6 s for undoable actions (archive, delete, move, spam) so the snackbar can undo
   (undo deletes the op and restores the row). The snackbar closes 1 s before `run_at`; an undo that comes
   after the op started says "Too late to undo". Notification actions and everything else: `run_at = now`.
+  When the Android "Time to take action" setting (accessibility timeout) is longer than 6 s, the delay is that
+  time, so that a TalkBack or switch-access user can reach Undo (`PLICO-UX-008`). MainActivity reads the setting
+  at each start.
 - The loop runs due ops in id order. `nextDueAt()` includes the earliest `run_at`, so the alarm wakes
   the session (`push PB7`, `protocol PS12`, `simplicity EM1`).
 - The runner resolves UIDs from the rows at run time. It SELECTs the folder first; a UIDVALIDITY
@@ -1141,8 +1144,8 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 - Before APPEND, check the size against APPENDLIMIT and `traits.maxMessageBytes` (§6.1).
 
 ### 7.5 Sending (`Sender`) — the draft table is the only outbox
-- Send: `state = 1`, `send_at = now + undo seconds` (Prefs, default 5; 0 = off); the Undo snackbar closes 1 s
-  before `send_at`, and an Undo after the send started says "Too late to undo". Due sends: `state = 2`
+- Send: `state = 1`, `send_at = now + undo seconds` (Prefs, default 5; 0 = off; when on, at least the
+  accessibility timeout of §7.4); the Undo snackbar closes 1 s before `send_at`, and an Undo after the send started says "Too late to undo". Due sends: `state = 2`
   → build MIME (§10) → write `outbox/<id>/message.eml` → SMTP. On the final 250, in one transaction:
   `state = 4`, queue `append` (the Sent copy with Bcc, `\Seen`, see below), `delete_draft` (if `on_server`),
   `flags +\Answered` (source message), update contacts (`protocol PS1`). When no op references the draft

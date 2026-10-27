@@ -5,6 +5,9 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityManager.FLAG_CONTENT_CONTROLS
+import android.view.accessibility.AccessibilityManager.FLAG_CONTENT_TEXT
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import app.plico.data.MailView
+import app.plico.sync.MailActions
 import app.plico.ui.compose.ComposeIntents
 import app.plico.ui.lock.LockScreen
 import app.plico.ui.nav.AppNav
@@ -76,6 +80,9 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         app.appLock.onForeground()
         super.onStart()
+        // The undo windows follow the Android "Time to take action" setting (DESIGN §7.4, PLICO-UX-008).
+        MailActions.actionTimeoutMs = getSystemService(AccessibilityManager::class.java)
+            ?.getRecommendedTimeoutMillis(0, FLAG_CONTENT_TEXT or FLAG_CONTENT_CONTROLS)?.toLong() ?: 0L
         // DESIGN §8.2/§8.3: grants are read again, push starts, and the visible UI is a coalescing point.
         app.push.onAppVisible(true)
     }
