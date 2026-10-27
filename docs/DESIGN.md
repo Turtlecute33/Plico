@@ -1377,7 +1377,8 @@ redirects, a blocked hop).
 
 ### 11.3 Links (`LinkCleaner`, `Idn`, `Psl`)
 - `shouldOverrideUrlLoading` always returns true. Plain-text bodies use the same link sheet (no autoLink).
-- Cleaning: unwrap `google.com/url` (`q`, `url`), `*.safelinks.protection.outlook.com` (`url`),
+- Cleaning: unwrap `google.com/url` (`q`, `url`; the host must be `google.<ICANN suffix>` or `www.` plus it, by the
+  PSL), `*.safelinks.protection.outlook.com` (`url`),
   `urldefense.com/v3/__…__`, `*.awstrack.me` path, Mandrill `track/click`; strip `utm_*` and `gclid gclsrc
   dclid _ga fbclid igshid msclkid mc_cid mc_eid yclid twclid gbraid wbraid _hsenc __hssc __hstc __hsfp
   hsCtaTracking ml_subscriber vero_id oly_anon_id oly_enc_id icid ef_id s_cid`.

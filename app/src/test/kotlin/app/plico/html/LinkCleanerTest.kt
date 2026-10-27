@@ -46,6 +46,21 @@ class LinkCleanerTest {
     }
 
     @Test
+    fun googleSubdomainOfOtherDomainIsNotUnwrapped() {
+        // Anyone can register xqz.de or abc.io and add a "google" label.
+        for (host in listOf("google.xqz.de", "www.google.abc.io")) {
+            val wrapped = "https://$host/url?q=https%3A%2F%2Fexample.com%2F"
+            val link = web(wrapped)
+            assertEquals(wrapped, link.url)
+            assertEquals(host, link.host)
+        }
+        // Real Google hosts still unwrap.
+        for (host in listOf("www.google.com", "google.com", "www.google.co.uk")) {
+            assertEquals("https://example.com/", web("https://$host/url?q=https%3A%2F%2Fexample.com%2F").url)
+        }
+    }
+
+    @Test
     fun outlookSafeLinks() {
         val wrapped = "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com%2Fa%3Futm_source%3Dnews%26id%3D7" +
             "&data=05%7C01%7Cuser%40example.com&sdata=abc%3D&reserved=0"

@@ -87,7 +87,7 @@ class LinkCleaner(private val psl: Psl) {
         val u = WebUrl.parse(url) ?: return null
         val host = u.host
         return when {
-            google.matches(host) && u.path == "/url" -> (u.param("q") ?: u.param("url"))?.let(Percent::decode)
+            isGoogle(host) && u.path == "/url" -> (u.param("q") ?: u.param("url"))?.let(Percent::decode)
             host.endsWith(".safelinks.protection.outlook.com") -> u.param("url")?.let(Percent::decode)
             host == "urldefense.com" && u.path.startsWith("/v3/__") -> urldefense(url)
             host.endsWith(".awstrack.me") -> u.path.split('/').takeIf { it.size > 2 && awsLink.matches(it[1]) }
@@ -96,6 +96,17 @@ class LinkCleaner(private val psl: Psl) {
                 u.param("p")?.let(::mandrill)
             else -> null
         }
+    }
+
+    /**
+     * True for a Google redirector host: `google.<ICANN suffix>` or `www.` plus it. A `google` subdomain of a
+     * registrable domain (`google.example.de`) or of a PRIVATE suffix is not Google.
+     */
+    private fun isGoogle(host: String): Boolean {
+        if (!google.matches(host)) return false
+        val rule = psl.matchedRule(host) ?: return false
+        val reg = psl.registrableDomain(host) ?: return false
+        return !rule.private && (host == reg || host == "www.$reg")
     }
 
     /**
