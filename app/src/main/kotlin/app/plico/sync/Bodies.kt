@@ -93,27 +93,38 @@ object Bodies {
         ctx.client.uidFetch(UidSet.of(byUid.keys), "BODYSTRUCTURE") { item ->
             if (item.uid in byUid) item.bodyStructure?.let { plans[item.uid] = BodyPlan(parseBodyStructure(it)) }
         }
-        val data = HashMap<Long, MutableMap<String, ByteArray>>()
+        var saved = 0
         for ((sections, group) in plans.entries.groupBy { it.value.sections }) {
             if (sections.isEmpty()) continue
             // A server refuses a long command line (Dovecot: 64 KiB), so the items go in lines of about 4 KB.
-            for (run in runs(sections, MAX_ITEM_CHARS) { it.length + ITEM_CHARS }) {
-                val items = run.joinToString(" ") { "BODY.PEEK[$it]" }
-                // A response stays far below the reader's 64 MiB limit, which would otherwise fail on every retry.
-                for (uids in runs(group, MAX_FETCH_BYTES) { it.value.bytes }) {
-                    ctx.client.uidFetch(UidSet.of(uids.map { it.key }), items) { item ->
-                        if (item.uid in plans) data.getOrPut(item.uid) { HashMap() }.putAll(item.sections)
+            val lines = runs(sections, MAX_ITEM_CHARS) { it.length + ITEM_CHARS }.map { run ->
+                run.joinToString(" ") { "BODY.PEEK[$it]" }
+            }
+            // A response stays far below the reader's 64 MiB limit, which would otherwise fail on every retry.
+            // Each run is saved before the next one downloads: at most about 8 MB of raw text in memory
+            // (PLICO-PERF-005).
+            for (run in runs(group, MAX_FETCH_BYTES) { it.value.bytes }) {
+                val uids = run.mapTo(HashSet()) { it.key }
+                val data = HashMap<Long, MutableMap<String, ByteArray>>()
+                for (items in lines) {
+                    ctx.client.uidFetch(UidSet.of(uids), items) { item ->
+                        if (item.uid in uids) data.getOrPut(item.uid) { HashMap() }.putAll(item.sections)
                     }
                 }
+                for ((uid, plan) in run) saved += save(ctx, byUid.getValue(uid), plan, data[uid].orEmpty())
             }
         }
-        var saved = 0
         for ((uid, plan) in plans) {
-            val body = plan.assemble(data[uid].orEmpty()) ?: continue
-            ctx.store.messages.saveBody(byUid.getValue(uid).id, body.html, body.text, body.text, body.snippet, body.attachments)
-            saved++
+            if (plan.sections.isEmpty()) saved += save(ctx, byUid.getValue(uid), plan, emptyMap())
         }
         return saved
+    }
+
+    /** Assembles and stores one body; 1 when saved, 0 when none of its text parts arrived. */
+    private fun save(ctx: OpContext, row: MessageRef, plan: BodyPlan, data: Map<String, ByteArray>): Int {
+        val body = plan.assemble(data) ?: return 0
+        ctx.store.messages.saveBody(row.id, body.html, body.text, body.text, body.snippet, body.attachments)
+        return 1
     }
 }
 

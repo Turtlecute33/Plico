@@ -10,6 +10,7 @@ import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Bodies, attachments, server search and the reply/forward drafts that use them, on a scripted server. */
@@ -84,6 +85,33 @@ class BodiesFetchTest : OpFixture() {
         assertEquals("Hi", messages.body(good)?.text)
         // The third connection gets past the body step.
         assertEquals(0, Bodies.fetchWindow(session(riseup, FakeImap()), folders.get(inbox)!!, 25, skips))
+    }
+
+    @Test
+    fun eachRunOfLargeBodiesIsSavedBeforeTheNextOneDownloads() {
+        // PLICO-PERF-005: 4.5 MB of text in each message, so the two go in two runs of at most 8 MB.
+        val (first, second) = insert(header(riseup, inbox, 7, date = clock), header(riseup, inbox, 8, date = clock - 1_000))
+        val part = """("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 1500000 1)"""
+        val large = "($part$part$part \"mixed\")"
+        val items = "BODY.PEEK[1] BODY.PEEK[2] BODY.PEEK[3]"
+        fun texts(uid: Int, n: Int) = "* $n FETCH (UID $uid BODY[1] ${literal("one")} BODY[2] ${literal("two")} BODY[3] ${literal("three")})"
+        val imap = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 7:8 (UID BODYSTRUCTURE)", "* 1 FETCH (UID 7 BODYSTRUCTURE $large)", "* 2 FETCH (UID 8 BODYSTRUCTURE $large)")
+            .expect("UID FETCH 7 (UID $items)", texts(7, 1))
+            // More than the 1 MiB line limit of the reader, which then closes the connection.
+            .expect("UID FETCH 8 (UID $items)", "* 2 FETCH (UID 8 X-JUNK ${"x".repeat(1_100_000)})")
+        assertFailsWith<ImapProtocolException> { Bodies.fetchWindow(session(riseup, imap), folders.get(inbox)!!, 25) }
+        imap.finish()
+        assertTrue(messages.body(first)?.text.orEmpty().contains("three"), "the first run is saved before the second")
+        assertNull(messages.body(second))
+        val next = FakeImap()
+            .select("INBOX")
+            .expect("UID FETCH 8 (UID BODYSTRUCTURE)", "* 2 FETCH (UID 8 BODYSTRUCTURE $large)")
+            .expect("UID FETCH 8 (UID $items)", texts(8, 2))
+        assertEquals(1, Bodies.fetchWindow(session(riseup, next), folders.get(inbox)!!, 25))
+        next.finish()
+        assertTrue(messages.body(second)?.text.orEmpty().contains("three"))
     }
 
     @Test
