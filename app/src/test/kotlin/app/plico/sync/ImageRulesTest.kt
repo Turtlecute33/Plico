@@ -102,6 +102,17 @@ class ImageRulesTest {
     }
 
     @Test
+    fun videoNamesWithStampsBecomeNumbered() {
+        assertEquals("video-1.mp4", ImageRules.videoName("VID_20260101_120000.mp4", "video/mp4", emptyList()))
+        assertEquals("video-2.MOV", ImageRules.videoName("PXL_20261016_101523123.MOV", "video/quicktime", listOf("VIDEO-1.mov")))
+        // No usable extension in the name: the MIME subtype, else none.
+        assertEquals("video-1.webm", ImageRules.videoName("clip.2026-10-16", "video/webm", emptyList()))
+        assertEquals("video-1", ImageRules.videoName("VID_20260101", "video/quicktime", emptyList()))
+        // Names without a stamp stay the same.
+        assertEquals("holiday.mp4", ImageRules.videoName("holiday.mp4", "video/mp4", emptyList()))
+    }
+
+    @Test
     fun reencodedFilesGetTheirNewExtension() {
         assertEquals("photo.jpg", ImageRules.fileName("photo.heic", "image/heic", Output.JPEG, emptyList()))
         assertEquals("photo.JPEG", ImageRules.fileName("photo.JPEG", "image/jpeg", Output.JPEG, emptyList()))

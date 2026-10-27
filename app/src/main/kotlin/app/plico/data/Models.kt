@@ -270,8 +270,9 @@ object DraftState {
 }
 
 /**
- * A draft attachment; [file] is a safe name inside filesDir/outbox/<draftId>/. [metadataKept]: an image that
- * goes out as it is, with its metadata (DESIGN §10: GIF, animations, other types, "Original quality").
+ * A draft attachment; [file] is a safe name inside filesDir/outbox/<draftId>/. [metadataKept]: an image or a video
+ * that goes out as it is, with its metadata (DESIGN §10: GIF, animations, other types, "Original quality", videos,
+ * forwarded images and videos).
  */
 data class DraftAttachment(
     val file: String,

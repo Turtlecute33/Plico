@@ -8,7 +8,8 @@ import kotlin.math.sqrt
 /**
  * Rules for outgoing images from every source (DESIGN.md §10, privacy PS17, apis AF14): camera formats become
  * JPEG of at most 2560 px, PNG stays PNG and static WebP becomes lossless WebP, which drops their metadata.
- * GIF and animations stay as they are. Names with a date stamp become `image-N.<ext>`. Pure.
+ * GIF and animations stay as they are. Names with a date stamp become `image-N.<ext>` (videos: `video-N.<ext>`).
+ * Pure.
  */
 internal object ImageRules {
     const val MAX_SIDE = 2560
@@ -90,12 +91,29 @@ internal object ImageRules {
             else -> output.extension
         }
         val suffix = if (newExt.isEmpty()) "" else ".$newExt"
-        if (hasDateStamp(name)) {
-            val used = taken.mapTo(HashSet()) { it.lowercase(Locale.ROOT) }
-            return generateSequence(1) { it + 1 }.map { "image-$it$suffix" }.first { it.lowercase(Locale.ROOT) !in used }
-        }
-        return base + suffix
+        return if (hasDateStamp(name)) numbered("image", suffix, taken) else base + suffix
     }
+
+    /**
+     * The attachment name of a video of type [mime]: a name with a date stamp becomes `video-N.<ext>`, as
+     * [fileName] does for images. The extension comes from [name], else from [mime].
+     */
+    fun videoName(name: String, mime: String, taken: Collection<String>): String {
+        if (!hasDateStamp(name)) return name
+        val dot = name.lastIndexOf('.')
+        val ext = (if (dot > 0) name.substring(dot + 1) else "").takeIf(::isExtension)
+            ?: mime.substringAfter("video/", "").takeIf(::isExtension)
+        return numbered("video", ext?.let { ".$it" }.orEmpty(), taken)
+    }
+
+    /** `<prefix>-N<suffix>` with the lowest N that is not [taken] (any case). */
+    private fun numbered(prefix: String, suffix: String, taken: Collection<String>): String {
+        val used = taken.mapTo(HashSet()) { it.lowercase(Locale.ROOT) }
+        return generateSequence(1) { it + 1 }.map { "$prefix-$it$suffix" }.first { it.lowercase(Locale.ROOT) !in used }
+    }
+
+    /** A short extension of letters and digits; a longer part after the dot can be a date stamp. */
+    private fun isExtension(text: String) = text.length in 1..5 && text.all(Char::isLetterOrDigit)
 
     private fun ByteArray.startsWith(vararg bytes: Int) =
         size >= bytes.size && bytes.indices.all { (this[it].toInt() and 0xFF) == bytes[it] }

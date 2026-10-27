@@ -755,7 +755,9 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 withContext(Dispatchers.IO) {
                     val file = store.files.newOutboxFile(draftId, a.name)
                     cached.copyTo(file, overwrite = true)
-                    DraftAttachment(file.name, a.name, a.mime, file.length())
+                    // Forwarded as it is: an image or a video keeps the metadata of the original (PLICO-PRIV-002).
+                    val media = listOf("image/", "video/").any { a.mime.startsWith(it, ignoreCase = true) }
+                    DraftAttachment(file.name, a.name, a.mime, file.length(), metadataKept = media)
                 }
             }
             withContext(Dispatchers.IO) {

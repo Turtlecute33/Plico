@@ -1320,6 +1320,9 @@ class MessageBuilder(val from: Address, val to: List<Address>, val cc: List<Addr
   animations and other image types unchanged with a "metadata kept" note. An image that cannot be re-encoded
   is not attached (it would keep its location data). Names with camera/screenshot date stamps become
   `image-N.<ext>`. "Original quality" per item.
+- Videos are sent unchanged with a "metadata kept" note; a name with a date stamp becomes `video-N.<ext>`.
+  Forward copies the attachments of the original unchanged: images and videos get the "metadata kept" note
+  (`PLICO-PRIV-002`).
 
 ## 11. Reading mail safely (`html`)
 

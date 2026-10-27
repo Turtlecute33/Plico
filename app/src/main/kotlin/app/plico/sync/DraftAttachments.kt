@@ -13,7 +13,8 @@ import java.util.Locale
 
 /**
  * Files from other apps for a draft (DESIGN.md §10, §11.6, privacy PS2/PS17): only allowed content URIs, copied
- * at once into the draft's outbox dir with the provider's size cap; images re-encoded without metadata.
+ * at once into the draft's outbox dir with the provider's size cap; images re-encoded without metadata; date-stamped
+ * image and video names replaced.
  */
 internal object DraftAttachments {
     private const val SNIFF_BYTES = 4096
@@ -42,12 +43,19 @@ internal object DraftAttachments {
             val head = raw.inputStream().use { it.readNBytes(SNIFF_BYTES) }
             val type = ImageRules.sniff(head) ?: declared?.takeIf { it.isNotEmpty() && it != OCTET_STREAM }
             val image = type?.startsWith("image/") == true
+            val video = type?.startsWith("video/") == true
             val output = if (image && !originalQuality) ImageRules.output(type, head) else null
-            val shown = if (image) ImageRules.fileName(name, type, output, draft.attachments.map { it.name }) else name
+            val taken = draft.attachments.map { it.name }
+            val shown = when {
+                image -> ImageRules.fileName(name, type, output, taken)
+                video -> ImageRules.videoName(name, type, taken)
+                else -> name
+            }
             val file = if (output == null) raw else cleaned(store, draftId, raw, shown, output).also(created::add)
             val mime = output?.mime ?: type ?: OCTET_STREAM
             if (file.length() > limit) throw tooLarge(store, limit)
-            val attachment = DraftAttachment(file.name, shown, mime, file.length(), image && output == null)
+            // A video goes out as it is: it keeps its metadata (PLICO-PRIV-002).
+            val attachment = DraftAttachment(file.name, shown, mime, file.length(), (image && output == null) || video)
             if (!store.updateDraft(draftId) { it.copy(attachments = it.attachments + attachment) }) {
                 throw ActionError(store.text(R.string.ops_error_draft_locked))
             }
