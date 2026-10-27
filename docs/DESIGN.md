@@ -87,7 +87,7 @@ The code stays pure Kotlin with no Android imports (`apis AF13`).
   app.plico.sync         AccountSession, MailboxSync, GmailSync, FolderRules, Ops, Sender, Drafts, Bodies,
                          Search
   app.plico.push         PushService, PushEngine, KeepalivePolicy, PushModes, Scheduler, AlarmReceiver,
-                         NetworkWatcher, Power, StartReceiver
+                         NetworkWatcher, Power, StartReceiver, QueueJob
   app.plico.notify       Notifier, ActionReceiver
   app.plico.html         HtmlSanitizer, LinkCleaner, Idn, Psl, SenderCheck, RemoteFetcher, Mailto,
                          ListUnsubscribe, SenderLogos, LogoRules
@@ -1285,6 +1285,24 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   Mail STATUS). A change runs that folder's sync; the stored UIDNEXT is never below the STATUS value (§7.2
   step 4).
 
+### 8.4 Queue job (push does not run)
+Without the service there is no alarm, and Android can freeze or kill the cached process before an undo window
+ends. A send or an undo action just before the user leaves the app then waited for the next app start
+(PLICO-UX-003). While push does not run (paused, stopped from the Task Manager, or not started yet), `reschedule()`
+schedules one platform `JobScheduler` job (`QueueJob`, not exported, `BIND_JOB_SERVICE`) in place of the alarm:
+- Due time: the earliest `AccountSession.workAt()`: op `run_at` or draft `send_at`, not before the backoff
+  retry; none when nothing is queued or the user must sign in. A session in mode OFF also calls `reschedule()`
+  before it connects for due work.
+- Work due within 1 min (also overdue work): an expedited job at once (a regular job when the expedited quota is
+  used up); later work: a regular job with `setMinimumLatency`. Both need a network (`NETWORK_TYPE_ANY`). Not
+  persisted.
+- The job kicks every session that does not work already (after a process start no session exists), then checks
+  each second and ends when no session holds its wake lock: a session holds it while it connects, sends, or waits
+  for work due within 1 min. Due work that no session could run (no connection) → `jobFinished(reschedule = true)` (the system backoff);
+  later work → a new job at its time. `onStopJob` → reschedule.
+- A schedule with the ID of a running job stops that job, so the engine schedules nothing while the job runs; the
+  job schedules the next one at its end. The service start cancels the job.
+
 ## 9. Notifications (`notify`)
 - Channels: `service` (LOW), `mail_<accountId>` (DEFAULT; named after the account label; the user turns
   an account's notifications off here — the app skips posting when the channel importance is NONE),
@@ -1531,9 +1549,9 @@ FOREGROUND_SERVICE_SPECIAL_USE RECEIVE_BOOT_COMPLETED WAKE_LOCK REQUEST_IGNORE_B
 SCHEDULE_EXACT_ALARM USE_BIOMETRIC`. Never: `GET_ACCOUNTS USE_EXACT_ALARM ACCESS_LOCAL_NETWORK READ_MEDIA_*
 REQUEST_INSTALL_PACKAGES`. Components: `MainActivity` (exported: launcher, SEND, SEND_MULTIPLE, SENDTO
 mailto, VIEW mailto BROWSABLE; singleTop), alias `.OpenMessage` (not exported), `OAuthRedirectActivity`
-(exported; both redirect forms, §6.5), `PushService`, `StartReceiver`, `AlarmReceiver`, `ActionReceiver` (all
-not exported), `FileProvider`. `<queries>`: `VIEW` with the app's own scheme, with no host and with any host
-(`*`), for the redirect hijack check (§6.5).
+(exported; both redirect forms, §6.5), `PushService`, `StartReceiver`, `AlarmReceiver`, `ActionReceiver`,
+`QueueJob` (`BIND_JOB_SERVICE`, §8.4) (all not exported), `FileProvider`. `<queries>`: `VIEW` with the app's own
+scheme, with no host and with any host (`*`), for the redirect hijack check (§6.5).
 
 ## 13. UI (`ui`)
 Material 3 expressive (`MaterialExpressiveTheme`), dynamic colour, day/night, edge-to-edge, predictive back.
@@ -1721,7 +1739,7 @@ sign-in method with this server …". The connection test and `AccountSession.fa
   - `SmtpClientTest`: STARTTLS with the second EHLO (extensions only after TLS), 454/502 → no AUTH, injection
     after 220, both AUTH line forms, AUTH LOGIN, no usable mechanism, XOAUTH2 at the 510-octet limit, no secret
     before TLS, `PlaintextTimeoutException` only before TLS.
-- `:app` JVM tests: KeepalivePolicy (also the scope per server), Scheduler due-time math, LinkCleaner, Idn, Psl
+- `:app` JVM tests: KeepalivePolicy (also the scope per server), Scheduler due-time math, QueueJobs (§8.4), LinkCleaner, Idn, Psl
   (also the PRIVATE section and `matchedRule`), HtmlSanitizer, SenderCheck, Files (`safeName`, logo paths),
   notification rule, IncomingUri/mailto parsing, Schema (v1 and the migration block as written here). Also:
   - account: `ProviderTableTest` (domains, MX suffixes, pinned host sets, mixed pairs, refusals, typo check incl.

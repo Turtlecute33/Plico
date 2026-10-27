@@ -18,6 +18,9 @@ interface WakeHolder {
     /** Acquires or extends the lock for [timeoutMs]. Call on every server response and progress step. */
     fun renew(timeoutMs: Long = 60_000)
     fun release()
+
+    /** True until [release] or the timeout. */
+    val isHeld: Boolean
 }
 
 /** What the push engine provides to every [AccountSession] (DESIGN.md §7.1, §8.3). */

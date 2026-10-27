@@ -187,6 +187,19 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     internal val isWorkPending: Boolean get() = workPending.get()
 
+    /** True while the session works or waits for work due within 1 min: it holds its wake lock (QueueJob). */
+    internal val holdsWakeLock: Boolean get() = wakeLock.isHeld
+
+    /**
+     * When queued work (an op run_at, a send_at) can run, as elapsedRealtime: not before the backoff retry; a
+     * past time means now. Null when nothing is queued or the user must sign in first. No I/O (QueueJob, §8.4).
+     */
+    internal fun workAt(): Long? {
+        val due = workDueAt ?: return null
+        if (authStopped || closed) return null
+        return maxOf(due, backoff.retryAt ?: due)
+    }
+
     /** Marks work pending and ends IDLE soon. Never writes to a socket on the caller's thread. */
     fun kick(reason: Reason = Reason.WORK) {
         synchronized(lock) {
@@ -440,6 +453,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
                     _status.value = Status.Waiting(retryAt)
                     MailError.Network(IOException("Waiting to retry"))
                 } else if (backoff.onAttempt(byUser)) {
+                    // Without push (mode OFF) the queue job keeps the process running for due work (§8.4).
+                    if (mode == Mode.OFF) host.reschedule()
                     try {
                         // The socket goes out on the default network of now; the debounced one may be gone already.
                         connect(account, host.currentNetwork() ?: network)

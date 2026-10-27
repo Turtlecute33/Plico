@@ -62,5 +62,6 @@ class NetworkWatcherTest {
     private object NoLock : WakeHolder {
         override fun renew(timeoutMs: Long) = Unit
         override fun release() = Unit
+        override val isHeld = false
     }
 }

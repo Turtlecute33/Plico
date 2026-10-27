@@ -23,7 +23,7 @@ class Power(context: Context) {
             setReferenceCounted(false)
         }
 
-        internal val isHeld: Boolean get() = lock.isHeld
+        override val isHeld: Boolean get() = lock.isHeld
 
         // A non-refcounted acquire replaces the pending timeout, so this is also the renewal.
         override fun renew(timeoutMs: Long) {

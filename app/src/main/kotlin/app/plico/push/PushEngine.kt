@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Owns the foreground service, the alarm, the network watcher and the sessions' modes (DESIGN §8), and is
  * the [SessionHost] of every session. Push runs while [PushService] runs: at least one account, not paused.
+ * While it does not run, [QueueJob] takes the place of the alarm for queued sends and ops (§8.4).
  */
 class PushEngine(private val app: PlicoApp) : SessionHost {
     // A failure in one task must not end push; only the class name is logged (DESIGN §12).
@@ -51,6 +52,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         },
     )
     private val scheduler = Scheduler(app)
+    internal val queue = QueueJobs(app)
     private val watcher = NetworkWatcher(app, app.power.holder("net"), scope, ::onNetwork)
     private val tls = TlsAlerts()
     private val tlsErrors = ConcurrentHashMap<Long, MailError.Tls>()
@@ -217,6 +219,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         app.notifier.clearPushStopped()
         if (!running) {
             synchronized(serviceLock) { running = true }
+            queue.cancel()
             watcher.start()
             startTextUpdates()
         }
@@ -252,10 +255,13 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
 
     internal fun cancelAlarm() = scheduler.cancel()
 
-    /** Arms the alarm for the earliest due time of the sessions and the TLS alerts. */
+    /** Arms the alarm for the earliest due time of the sessions and the TLS alerts; without push, the queue job. */
     @Synchronized
     private fun armNow() {
-        if (!running) return
+        if (!running) {
+            queue.schedule(DueTimes.min(app.sessions.all().map { it.workAt() }))
+            return
+        }
         val dues = app.sessions.all().map { it.nextDueAt() } + tls.nextDueAt()
         scheduler.arm(DueTimes.alarmAt(SystemClock.elapsedRealtime(), dues, network() != null))
     }

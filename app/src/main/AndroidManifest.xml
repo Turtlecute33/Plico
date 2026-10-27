@@ -112,6 +112,12 @@
             android:name=".push.AlarmReceiver"
             android:exported="false" />
 
+        <!-- Runs queued sends and ops while push does not run (DESIGN §8.4). Only the system can bind it. -->
+        <service
+            android:name=".push.QueueJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <receiver
             android:name=".push.StartReceiver"
             android:exported="false">
