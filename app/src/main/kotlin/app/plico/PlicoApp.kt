@@ -2,6 +2,7 @@ package app.plico
 
 import android.app.Application
 import android.content.Context
+import android.os.StrictMode
 import app.plico.account.BrowserOAuth
 import app.plico.data.AccountDao
 import app.plico.data.ContactDao
@@ -60,6 +61,7 @@ class PlicoApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.DEBUG) enableStrictMode()
         // On the main thread, so that it cannot race with a sign-in that the UI starts at once.
         BrowserOAuth.dropStale(prefs)
         notifier.watchSendFailures()
@@ -73,6 +75,15 @@ class PlicoApp : Application() {
             // DESIGN §12: expired logos go; all of them when logos are off or no account is left.
             logos.prune(prefs.senderLogos, accounts.all().isNotEmpty())
         }
+    }
+
+    /**
+     * Debug builds log each disk, network or slow call on the main thread and each leak (PLICO-PERF-011), for the
+     * UI and the push service. The small Prefs reads on the main thread are planned.
+     */
+    private fun enableStrictMode() {
+        StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build())
+        StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().detectAll().penaltyLog().build())
     }
 }
 

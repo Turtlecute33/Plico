@@ -93,7 +93,8 @@ The code stays pure Kotlin with no Android imports (`apis AF13`).
                          ListUnsubscribe, SenderLogos, LogoRules
   app.plico.ui           theme, nav, setup, mailbox, message, compose, settings, components
 ```
-One process. The foreground service and the UI share the singletons in `PlicoApp`.
+One process. The foreground service and the UI share the singletons in `PlicoApp`. Debug builds turn on
+StrictMode (all thread and VM checks, log only) in `PlicoApp.onCreate` (`PLICO-PERF-011`).
 
 ## 4. `:mail` module
 
@@ -1235,7 +1236,8 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
 3. If refused: `SCHEDULE_EXACT_ALARM` (Settings intent).
 4. Status rows: each grant; `isBackgroundRestricted` → "Push off: battery usage is Restricted" with a
    button to app settings (`apis AF15`); with neither 2 nor 3: "Push stops if Android closes the app".
-   Grants are re-checked at app start and when the screen opens (`push PB23`).
+   Grants are re-checked at app start and when the screen opens (`push PB23`), off the main thread when
+   the app comes to the foreground (`PLICO-PERF-011`).
 
 ### 8.3 Engine
 - `PushEngine`: `SupervisorJob + Dispatchers.IO`. Starts each session's loop. Mode per account from

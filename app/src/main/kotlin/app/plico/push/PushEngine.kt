@@ -141,7 +141,9 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         // The change to visible syncs every account (a user action); hidden ends the linger and backfill rule.
         app.sessions.appVisible = visible
         if (!visible) return
-        refreshStatus()
+        // The grant reads are binder calls: not on the main thread (PLICO-PERF-011). The UI holds no wake lock
+        // that the alarm must be armed before (push PB4).
+        scope.launch { refreshStatus() }
         ensureStarted()
         onWake()
     }
