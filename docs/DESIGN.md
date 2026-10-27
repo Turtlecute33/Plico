@@ -1193,7 +1193,9 @@ search goes in windows of 50,000 UIDs from UIDNEXT down (`UID SEARCH UID a:b TEX
 `CHARSET UTF-8` for non-ASCII. Hits not yet local are fetched, newest first, at most 200 per search (headers,
 and the bodies of 25 for the local index); they do not notify, except new mail at or above the folder's UIDNEXT
 (§9 rule). The list shows the local hits plus the server hits (at most 1,000). The UI shows "Searching on
-server…" with Cancel; Cancel closes the socket (normal reconnect) (`simplicity EM15`).
+server…" with Cancel; Cancel closes the socket (normal reconnect) (`simplicity EM15`). The button and the
+result name the searched mailbox ("Search Inbox on server"; Gmail: All mail), so that the user knows that other
+folders are not searched (`PLICO-UX-004`).
 
 ### 7.8 Attachments
 `loadAttachment`: `UID FETCH <uid> (BODY.PEEK[<section>]<offset.1048576>)` in a loop into a temp file

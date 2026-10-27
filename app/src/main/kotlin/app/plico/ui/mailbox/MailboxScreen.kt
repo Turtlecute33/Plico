@@ -69,6 +69,7 @@ import app.plico.data.Account
 import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.Folder
+import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.data.MailView
 import app.plico.data.MessageSummary
@@ -402,7 +403,12 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                     }
                     if (vm.searching && listView != null) {
                         item(key = "server") {
-                            ServerSearchRow(serverSearch, onSearch = vm::searchServer, onCancel = vm::cancelServerSearch)
+                            ServerSearchRow(
+                                state = serverSearch,
+                                scope = serverSearchScope(vm.view, folder, accounts),
+                                onSearch = vm::searchServer,
+                                onCancel = vm::cancelServerSearch,
+                            )
                         }
                     }
                     if (!vm.searching) {
@@ -612,9 +618,31 @@ private fun MailboxBannerItem(
     }
 }
 
-/** "Search on server" with its progress, result or error (DESIGN §7.7). */
+/**
+ * The name of what "Search on server" searches from [view] (DESIGN §7.7): All mail on Gmail; on other servers the
+ * open mailbox [folder] or Inbox. A view over both kinds of accounts gets "Inbox and All mail".
+ */
 @Composable
-private fun ServerSearchRow(state: ServerSearch, onSearch: () -> Unit, onCancel: () -> Unit) {
+private fun serverSearchScope(view: MailView, folder: Folder?, accounts: List<Account>): String {
+    val resources = LocalResources.current
+    val open = folder?.takeIf { it.kind == FolderKind.MAILBOX }?.let { folderName(it) }
+    return remember(view, folder, accounts, open, resources) {
+        val inScope = when (view) {
+            is MailView.InFolder -> accounts.filter { it.id == folder?.accountId }
+            is MailView.Starred -> accounts.filter { view.accountId == null || it.id == view.accountId }
+            else -> accounts
+        }
+        val inbox = resources.getString(R.string.mailbox_folder_inbox)
+        inScope.map { if (it.isGmail) resources.getString(R.string.mailbox_folder_all) else open ?: inbox }
+            .distinct()
+            .reduceOrNull { a, b -> resources.getString(R.string.mailbox_search_scope_both, a, b) }
+            ?: inbox
+    }
+}
+
+/** "Search on server" with its progress, result or error (DESIGN §7.7); [scope] names the searched mailboxes. */
+@Composable
+private fun ServerSearchRow(state: ServerSearch, scope: String, onSearch: () -> Unit, onCancel: () -> Unit) {
     val modifier = Modifier
         .fillMaxWidth()
         .heightIn(min = 56.dp)
@@ -624,7 +652,7 @@ private fun ServerSearchRow(state: ServerSearch, onSearch: () -> Unit, onCancel:
             FilledTonalButton(onClick = onSearch, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) {
                 Icon(Icons.Search, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                 Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                Text(stringResource(R.string.mailbox_search_server))
+                Text(stringResource(R.string.mailbox_search_server, scope))
             }
         }
         ServerSearch.Running -> Column(modifier, verticalArrangement = Arrangement.Center) {
@@ -641,9 +669,9 @@ private fun ServerSearchRow(state: ServerSearch, onSearch: () -> Unit, onCancel:
         is ServerSearch.Done -> Row(modifier, verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (state.ids.isEmpty()) {
-                    stringResource(R.string.mailbox_search_server_none)
+                    stringResource(R.string.mailbox_search_server_none, scope)
                 } else {
-                    pluralStringResource(R.plurals.mailbox_search_server_done, state.ids.size, state.ids.size)
+                    pluralStringResource(R.plurals.mailbox_search_server_done, state.ids.size, state.ids.size, scope)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

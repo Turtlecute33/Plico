@@ -9,13 +9,15 @@
     <string name="mailbox_search_start">Search subjects, people and text of the mail on this phone.</string>
     <string name="mailbox_search_empty">No messages found</string>
     <string name="mailbox_search_empty_text">Search on the server to find older mail.</string>
-    <string name="mailbox_search_server">Search on server</string>
+    <string name="mailbox_search_server">Search %1$s on server</string>
     <string name="mailbox_searching_server">Searching on server…</string>
-    <string name="mailbox_search_server_none">The server found no more messages.</string>
+    <string name="mailbox_search_server_none">The server found no more messages in %1$s.</string>
     <plurals name="mailbox_search_server_done">
-        <item quantity="one">The server found %d message.</item>
-        <item quantity="other">The server found %d messages.</item>
+        <item quantity="one">The server found %1$d message in %2$s.</item>
+        <item quantity="other">The server found %1$d messages in %2$s.</item>
     </plurals>
+    <!-- Two mailboxes that a server search covers, for example "Inbox and All mail". -->
+    <string name="mailbox_search_scope_both">%1$s and %2$s</string>
     <string name="mailbox_try_again">Try again</string>
 
     <!-- Drawer -->
