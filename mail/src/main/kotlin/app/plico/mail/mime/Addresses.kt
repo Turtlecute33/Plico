@@ -12,9 +12,10 @@ object Addresses {
     /**
      * Parses an address list: groups, comments, quoted names, encoded words, missing angle brackets. Lenient.
      * Group names are dropped; their members are kept. Names pass [HeaderSafety.clean]; empty names are null.
-     * Entries without an address are skipped.
+     * Emails pass [HeaderSafety.revealHidden]. Entries without an address are skipped.
      */
-    fun parseList(value: String): List<Address> = segments(tokenize(value)).flatMap(::mailboxes)
+    fun parseList(value: String): List<Address> =
+        segments(tokenize(value)).flatMap(::mailboxes).map { it.copy(email = HeaderSafety.revealHidden(it.email)) }
 
     /**
      * Comma-separated header value. Names and emails pass [HeaderSafety.clean] first; a name is quoted when it

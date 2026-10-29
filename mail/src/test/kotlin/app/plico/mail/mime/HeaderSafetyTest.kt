@@ -28,6 +28,21 @@ class HeaderSafetyTest {
     }
 
     @Test
+    fun revealHiddenReplacesEachHiddenCharacter() {
+        val bmp = "\u0000\u001B\u0085\u00AD\u034F\u17B4\u17B5\u1806\u180B\u180E\u200B\u200D\u200E\u202E\u2060\u2065" +
+            "\u2066\uFE0F\uFEFF\uFFF0\uFFF8"
+        for (c in bmp) {
+            assertEquals("a\uFFFDb", HeaderSafety.revealHidden("a${c}b"))
+        }
+        // Plane 14 (tag characters, variation selectors, unassigned): one U+FFFD for each code point.
+        assertEquals("a\uFFFD\uFFFDb", HeaderSafety.revealHidden("a\uDB40\uDC61\uDB40\uDD00b"))
+        for (c in listOf("\uDB40\uDC00", "\uDB40\uDC80", "\uDB40\uDDF0", "\uDB43\uDFFF")) {
+            assertEquals("a\uFFFDb", HeaderSafety.revealHidden("a${c}b"))
+        }
+        assertEquals("jörg@exämple.de", HeaderSafety.revealHidden("jörg@exämple.de"))
+    }
+
+    @Test
     fun messageIds() {
         assertEquals(
             listOf("<CAFx3=first@mail.gmail.com>", "<CAFx3=prev@mail.gmail.com>"),

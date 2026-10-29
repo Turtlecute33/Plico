@@ -209,6 +209,20 @@ class AddressesTest {
     }
 
     @Test
+    fun hiddenCharactersInEmailsAreShown() {
+        assertEquals(listOf(Address("PayPal", "support@pay\uFFFDmoc.lap")), parse("PayPal <support@pay\u202Emoc.lap>"))
+        assertEquals(listOf(Address(null, "support@pay\uFFFDpal.com")), parse("support@pay\u200Bpal.com"))
+        assertEquals(listOf(Address(null, "support@pay\uFFFDpal.com")), parse("<support@pay\uFE0Fpal.com>"))
+        // Only the email changes; the name is shown with its own rules.
+        assertEquals(listOf(Address("A\u200BB", "\"a\uFFFDb\"@x.example")), parse("\"A\u200BB\" <\"a\u0085b\"@x.example>"))
+        // A supplementary character becomes one U+FFFD.
+        assertEquals(listOf(Address(null, "a\uFFFD@x.example")), parse("a\uDB40\uDC61@x.example"))
+        for (email in listOf("jörg@exämple.de", "用户@例子.广告", "संपर्क@डाटामेल.भारत", "user@مثال.إختبار")) {
+            assertEquals(listOf(Address(null, email)), parse(email))
+        }
+    }
+
+    @Test
     fun formatSimple() {
         assertEquals("a@x.example", Address(null, "a@x.example").format())
         assertEquals("a@x.example", Address("", "a@x.example").format())
