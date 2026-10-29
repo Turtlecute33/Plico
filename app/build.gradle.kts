@@ -30,8 +30,8 @@ android {
         applicationId = "app.plico"
         minSdk = 35
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.2.5"
+        versionCode = 8
+        versionName = "0.2.6"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Release builds never contain an OAuth client ID (privacy PS9); debug builds may preset them.
