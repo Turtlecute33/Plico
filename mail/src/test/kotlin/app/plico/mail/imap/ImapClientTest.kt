@@ -842,7 +842,7 @@ class ImapClientTest {
         assertFailsWith<ImapProtocolException> { client.uidSearch(Command.raw("ALL")) }
         // The tagged OK is still unread: the connection is closed, not reused.
         assertTrue(fake.closed)
-        assertFailsWith<java.io.IOException> { client.noop() }
+        assertFailsWith<java.io.IOException> { client.conn.execute(Command.raw("NOOP")) }
     }
 
     @Test
@@ -1135,7 +1135,7 @@ class ImapClientTest {
         }
         assertEquals("TOOBIG", e.code?.name)
         fake.client("A3 NOOP").server("A3 OK Success")
-        client.noop()
+        client.conn.execute(Command.raw("NOOP"))
         fake.finish()
     }
 
@@ -1174,9 +1174,9 @@ class ImapClientTest {
     fun noopAndBye() {
         gmail()
         fake.client("A2 NOOP").server("* 3 EXISTS", "A2 OK Success")
-        client.noop()
+        client.conn.execute(Command.raw("NOOP"))
         fake.client("A3 NOOP").server("* BYE Session expired, please login again.")
-        assertFailsWith<ImapByeException> { client.noop() }
+        assertFailsWith<ImapByeException> { client.conn.execute(Command.raw("NOOP")) }
         fake.finish()
     }
 

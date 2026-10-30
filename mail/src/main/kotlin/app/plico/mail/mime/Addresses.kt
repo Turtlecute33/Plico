@@ -1,10 +1,7 @@
 package app.plico.mail.mime
 
 /** One mailbox. [name] is decoded (RFC 2047) and unquoted. */
-data class Address(val name: String?, val email: String) {
-    /** RFC 5322 form for headers: `"Name" <a@b>` (name quoted when needed, 2047-encoded when non-ASCII) or `a@b`. */
-    fun format(): String = Addresses.format(listOf(this))
-}
+data class Address(val name: String?, val email: String)
 
 object Addresses {
     private const val SPECIALS = "()<>[]:;@\\,.\""

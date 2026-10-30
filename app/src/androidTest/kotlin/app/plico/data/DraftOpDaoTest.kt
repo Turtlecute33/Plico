@@ -113,7 +113,6 @@ class DraftOpDaoTest : DbFixture() {
 
         assertEquals(listOf(now), ops.due(acc, 1_000).map { it.id })
         assertEquals(listOf(later, now), ops.due(acc, 4_000).map { it.id })
-        assertEquals(1_000, ops.nextRunAt(acc))
         assertEquals(setOf(m1, m2), ops.referencedMessageIds(acc))
 
         val op = ops.get(later)!!
@@ -123,10 +122,8 @@ class DraftOpDaoTest : DbFixture() {
 
         ops.retryLater(now, 2, 30_000, "[UNAVAILABLE]")
         ops.get(now)!!.let { assertEquals(listOf(2, 30_000L, "[UNAVAILABLE]"), listOf(it.attempts, it.runAt, it.error)) }
-        assertEquals(4_000, ops.nextRunAt(acc))
         ops.delete(later)
         ops.delete(now)
-        assertNull(ops.nextRunAt(acc))
         assertEquals(emptySet(), ops.referencedMessageIds(acc))
     }
 }

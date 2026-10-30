@@ -25,9 +25,6 @@ class OpDao(private val db: Db) {
         accountId, now, row = ::opOf,
     )
 
-    /** The earliest run_at of the account's ops; null when none is queued. */
-    fun nextRunAt(accountId: Long): Long? = db.sql.long("SELECT min(run_at) FROM op WHERE account_id = ?", accountId)
-
     fun delete(id: Long): Unit = db.tx(Tables.OP) {
         write("DELETE FROM op WHERE id = ?", id)
     }

@@ -351,10 +351,6 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         return quota
     }
 
-    fun noop() {
-        conn.execute(Command.raw("NOOP"))
-    }
-
     /** One IDLE on the selected mailbox; see [ImapConnection.idle]. */
     fun idle(hooks: IdleHooks, onEvent: (IdleEvent) -> Unit): Unit = conn.idle(hooks, onEvent)
 

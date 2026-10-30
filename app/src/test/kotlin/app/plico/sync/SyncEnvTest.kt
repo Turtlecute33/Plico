@@ -47,7 +47,7 @@ class SyncEnvTest {
         assertEquals(0, newMail, "EXISTS of the SELECT is not new mail")
         assertSame(first, selection.ensure("INBOX"), "no second SELECT")
 
-        client.noop()
+        client.conn.execute(Command.raw("NOOP"))
         assertEquals(6, selection.current("INBOX")!!.exists)
         assertEquals(1, newMail, "4 after the EXPUNGE, then 6")
 

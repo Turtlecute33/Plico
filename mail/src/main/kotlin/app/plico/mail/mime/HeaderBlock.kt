@@ -3,7 +3,6 @@ package app.plico.mail.mime
 /** Unfolded header fields in order. Names compare case-insensitively. Values are raw (not 2047-decoded). */
 class HeaderBlock(val fields: List<Pair<String, String>>) {
     operator fun get(name: String): String? = fields.firstOrNull { it.first.equals(name, ignoreCase = true) }?.second
-    fun all(name: String): List<String> = fields.filter { it.first.equals(name, ignoreCase = true) }.map { it.second }
 
     companion object {
         /**

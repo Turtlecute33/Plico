@@ -224,28 +224,28 @@ class AddressesTest {
 
     @Test
     fun formatSimple() {
-        assertEquals("a@x.example", Address(null, "a@x.example").format())
-        assertEquals("a@x.example", Address("", "a@x.example").format())
-        assertEquals("a@x.example", Address("  \r\n ", "a@x.example").format())
-        assertEquals("John Doe <jdoe@x.example>", Address("John Doe", "jdoe@x.example").format())
+        assertEquals("a@x.example", Addresses.format(listOf(Address(null, "a@x.example"))))
+        assertEquals("a@x.example", Addresses.format(listOf(Address("", "a@x.example"))))
+        assertEquals("a@x.example", Addresses.format(listOf(Address("  \r\n ", "a@x.example"))))
+        assertEquals("John Doe <jdoe@x.example>", Addresses.format(listOf(Address("John Doe", "jdoe@x.example"))))
         assertEquals("a@x.example, B <b@x.example>", Addresses.format(listOf(Address(null, "a@x.example"), Address("B", "b@x.example"))))
         assertEquals("", Addresses.format(emptyList()))
     }
 
     @Test
     fun formatQuotesSpecials() {
-        assertEquals("\"Doe, John\" <j@x.example>", Address("Doe, John", "j@x.example").format())
-        assertEquals("\"Joe Q. Public\" <j@x.example>", Address("Joe Q. Public", "j@x.example").format())
-        assertEquals("\"Giant; \\\"Big\\\" Box\" <s@x.example>", Address("Giant; \"Big\" Box", "s@x.example").format())
-        assertEquals("\"back\\\\slash\" <s@x.example>", Address("back\\slash", "s@x.example").format())
-        for (c in "()<>[]:;@\\,.\"") assertTrue(Address("a${c}b", "s@x.example").format().startsWith("\""))
+        assertEquals("\"Doe, John\" <j@x.example>", Addresses.format(listOf(Address("Doe, John", "j@x.example"))))
+        assertEquals("\"Joe Q. Public\" <j@x.example>", Addresses.format(listOf(Address("Joe Q. Public", "j@x.example"))))
+        assertEquals("\"Giant; \\\"Big\\\" Box\" <s@x.example>", Addresses.format(listOf(Address("Giant; \"Big\" Box", "s@x.example"))))
+        assertEquals("\"back\\\\slash\" <s@x.example>", Addresses.format(listOf(Address("back\\slash", "s@x.example"))))
+        for (c in "()<>[]:;@\\,.\"") assertTrue(Addresses.format(listOf(Address("a${c}b", "s@x.example"))).startsWith("\""))
     }
 
     @Test
     fun formatEncodesNonAscii() {
-        assertEquals("=?UTF-8?B?SmFuIE5vdsOhaw==?= <jan@x.example>", Address("Jan Novák", "jan@x.example").format())
+        assertEquals("=?UTF-8?B?SmFuIE5vdsOhaw==?= <jan@x.example>", Addresses.format(listOf(Address("Jan Novák", "jan@x.example"))))
         // Non-ASCII with specials: encoded word, never inside quotes.
-        val f = Address("Novák, Jan", "jan@x.example").format()
+        val f = Addresses.format(listOf(Address("Novák, Jan", "jan@x.example")))
         assertFalse(f.startsWith("\""))
         assertEquals(listOf(Address("Novák, Jan", "jan@x.example")), parse(f))
     }

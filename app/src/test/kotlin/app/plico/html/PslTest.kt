@@ -13,13 +13,11 @@ class PslTest {
     @Test
     fun icannSuffixes() {
         assertEquals("example.com", psl.registrableDomain("www.example.com"))
-        assertEquals("com", psl.publicSuffix("www.example.com"))
         assertEquals("example.co.uk", psl.registrableDomain("www.example.co.uk"))
-        assertEquals("co.uk", psl.publicSuffix("a.b.example.co.uk"))
+        assertEquals("example.co.uk", psl.registrableDomain("a.b.example.co.uk"))
         assertEquals("bbc.co.uk", psl.registrableDomain("news.bbc.co.uk"))
         assertNull(psl.registrableDomain("co.uk"))
         assertNull(psl.registrableDomain("com"))
-        assertEquals("co.uk", psl.publicSuffix("co.uk"))
     }
 
     @Test
@@ -35,7 +33,6 @@ class PslTest {
     @Test
     fun wildcardRules() {
         // *.ck
-        assertEquals("foo.ck", psl.publicSuffix("foo.ck"))
         assertNull(psl.registrableDomain("foo.ck"))
         assertEquals("a.foo.ck", psl.registrableDomain("www.a.foo.ck"))
         // *.kawasaki.jp
@@ -46,17 +43,15 @@ class PslTest {
     @Test
     fun exceptionRules() {
         // !www.ck with *.ck
-        assertEquals("ck", psl.publicSuffix("www.ck"))
         assertEquals("www.ck", psl.registrableDomain("www.ck"))
         assertEquals("www.ck", psl.registrableDomain("a.www.ck"))
         // !city.kawasaki.jp with *.kawasaki.jp
-        assertEquals("kawasaki.jp", psl.publicSuffix("city.kawasaki.jp"))
+        assertEquals("city.kawasaki.jp", psl.registrableDomain("city.kawasaki.jp"))
         assertEquals("city.kawasaki.jp", psl.registrableDomain("www.city.kawasaki.jp"))
     }
 
     @Test
     fun unlistedTldUsesTheDefaultRule() {
-        assertEquals("notatld", psl.publicSuffix("www.example.notatld"))
         assertEquals("example.notatld", psl.registrableDomain("www.example.notatld"))
         assertFalse(psl.hasListedSuffix("example.notatld"))
         assertTrue(psl.hasListedSuffix("example.com"))
@@ -78,7 +73,7 @@ class PslTest {
         assertNull(psl.registrableDomain("[::1]"))
         assertNull(psl.registrableDomain(""))
         assertNull(psl.registrableDomain("a..b.com"))
-        assertNull(psl.publicSuffix("bad host.com"))
+        assertNull(psl.registrableDomain("bad host.com"))
     }
 
     @Test
@@ -94,11 +89,11 @@ class PslTest {
             """.trimIndent(),
         )
         assertEquals("a.com", small.registrableDomain("x.a.com"))
-        assertEquals("tokyo.jp", small.publicSuffix("a.tokyo.jp"))
+        assertEquals("a.tokyo.jp", small.registrableDomain("a.tokyo.jp"))
         assertEquals("a.tokyo.jp", small.registrableDomain("b.a.tokyo.jp"))
         assertEquals("pref.jp", small.registrableDomain("x.pref.jp"))
         assertEquals("a.co.uk", small.registrableDomain("x.a.co.uk"))
-        assertEquals("org", small.publicSuffix("a.org"))
+        assertEquals("a.org", small.registrableDomain("a.org"))
     }
 
     @Test

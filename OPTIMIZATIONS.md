@@ -19,7 +19,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-02 | Ship only the English resources (localeFilters) | minimalism | S | low | applied |
 | PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | applied |
 | PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | applied |
-| PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | approved |
+| PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | applied |
 | PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | approved |
 | PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | approved |
 | PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | approved |
@@ -92,7 +92,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: No production path calls these functions, so behaviour does not change. Psl matching (registrableDomain, matchedRule, domainsIn), header parsing and the op queue stay as they are. No security-review line. No storage, schema, preference key or key handling.
 - **Verification**: Most test edits are rewrites, not deletions. Verify with :mail:testDebugUnitTest, :app:testDebugUnitTest, and connectedDebugAndroidTest on emulator-5554 for DraftOpDaoTest.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about -17 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:compileDebugAndroidTestKotlin` passed. Not checked: connectedDebugAndroidTest (DraftOpDaoTest) did not run, because no emulator was used; no release build, so the APK size effect is not measured; no run-time check of the UI on a device or emulator.
+- **Status**: applied
 
 ### PLICO-OPT-06: Keep notification updates alive after one update fails
 

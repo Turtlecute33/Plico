@@ -38,12 +38,6 @@ class Psl(text: String) {
         }
     }
 
-    /** `co.uk` for `www.example.co.uk`. Null for IP addresses and invalid names. */
-    fun publicSuffix(host: String): String? {
-        val labels = labels(host) ?: return null
-        return labels.takeLast(match(labels).size).joinToString(".")
-    }
-
     /**
      * `example.co.uk` for `www.example.co.uk`. Null when [host] is itself a public suffix, an IP address or
      * invalid.

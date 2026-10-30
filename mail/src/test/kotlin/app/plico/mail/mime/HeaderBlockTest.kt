@@ -45,7 +45,6 @@ class HeaderBlockTest {
                 "\r\n" +
                 "Body: not a header\r\n",
         )
-        assertEquals(2, h.all("received").size)
         assertEquals(
             "from mx0.riseup.net (mx0-pn.riseup.net [10.0.1.42])\tby fews01-sea.riseup.net (Postfix) with ESMTPS id " +
                 "4cXyZ1abcdz9tQ\tfor <user@riseup.net>; Fri, 16 Oct 2026 09:14:05 +0000 (UTC)",
@@ -53,7 +52,6 @@ class HeaderBlockTest {
         )
         assertEquals("Hello", h["subject"])
         assertNull(h["body"])
-        assertEquals(emptyList(), h.all("cc"))
     }
 
     @Test

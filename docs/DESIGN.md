@@ -267,7 +267,6 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable { 
     fun append(mailbox: String, flags: List<String>, message: ByteArray): Long?   // APPENDUID, else null
     fun create(mailbox: String)                                // ALREADYEXISTS is success
     fun quota(mailbox: String = "INBOX"): Quota?
-    fun noop()
     fun idle(hooks: IdleHooks, onEvent: (IdleEvent) -> Unit)
     fun stopIdle()                                             // = conn.done()
     fun logout()
@@ -369,10 +368,10 @@ data class DisplayParts(val html: List<MimePart>, val plain: List<MimePart>,
 
 ### 4.6 `mime` utilities
 ```kotlin
-class HeaderBlock(val fields: List<Pair<String, String>>) { operator fun get(name: String): String?; fun all(name: String): List<String>
+class HeaderBlock(val fields: List<Pair<String, String>>) { operator fun get(name: String): String?
     companion object { fun parse(bytes: ByteArray): HeaderBlock } }   // unfold; raw 8-bit: UTF-8 else ISO-8859-1
 object EncodedWords { fun decode(value: String): String; fun encode(value: String): String }
-data class Address(val name: String?, val email: String) { fun format(): String }
+data class Address(val name: String?, val email: String)
 object Addresses { fun parseList(value: String): List<Address>; fun format(list: List<Address>, encode: Boolean = true): String
     fun isValidAddrSpec(s: String): Boolean /* = AddrSpec.isValid */ }
 data class ContentTypeValue(val type: String, val subtype: String, val params: Map<String, String>)
