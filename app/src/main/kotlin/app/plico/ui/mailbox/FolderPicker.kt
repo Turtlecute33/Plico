@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,7 +89,7 @@ fun FolderPicker(
     val folders by remember(accountId) { app.folders.observeVisible(accountId) }.collectAsStateWithLifecycle(emptyList())
     val sheet = rememberBottomSheetState(SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
     val scope = rememberCoroutineScope()
-    var states by remember(labels) { mutableStateOf(labels) }
+    var states by rememberSaveable(labels, stateSaver = LabelStatesSaver) { mutableStateOf(labels) }
     var creating by rememberSaveable { mutableStateOf(false) }
     val gmail = account?.isGmail == true
 
@@ -247,3 +248,11 @@ private fun NewFolderDialog(
         },
     )
 }
+
+/** Keeps the label ticks across a configuration change, as ids and ordinals (types that a Bundle holds). */
+private val LabelStatesSaver = Saver<Map<Long, ToggleableState>, List<Any>>(
+    save = { listOf(it.keys.toLongArray(), it.values.map(ToggleableState::ordinal).toIntArray()) },
+    restore = { (ids, ordinals) ->
+        (ids as LongArray).zip((ordinals as IntArray).map(ToggleableState.entries::get)).toMap()
+    },
+)

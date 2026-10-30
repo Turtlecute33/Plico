@@ -25,6 +25,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | applied |
 | PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | applied |
 | PLICO-OPT-10 | Make the keyboard Done key save in TextFieldDialog | ui-ux | S | low | applied |
+| PLICO-OPT-11 | Keep the label ticks in the Labels sheet across a rotation | ui-ux | S | low | applied |
 
 ### PLICO-OPT-01: Give the Compose FAB a TalkBack label
 
@@ -160,6 +161,19 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Verification**: Users open these dialogs rarely, so the impact stays low. Verify on emulator-5554: edit the account label and push Done. The value saves and the dialog closes. An invalid value shows the same error as Save.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +4 (estimate).
 - **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). javap on foundation-android 1.12.1 (the version of the BOM): in a single-line field, hardware Enter runs the IME action. Emulator (2026-10-30): in the four dialogs, Done and hardware Enter save a valid value, and an invalid value shows the same error as Save; the signature dialog is unchanged. Not checked: no unit test, because the change is in a Compose dialog.
+- **Status**: applied
+
+
+### PLICO-OPT-11: Keep the label ticks in the Labels sheet across a rotation
+
+- **What**: The emulator check of PLICO-OPT-08 found that the Labels sheet stays open after a rotation, but the ticks that the user made are lost: FolderPicker keeps them in remember.
+- **Where**: app/src/main/kotlin/app/plico/ui/mailbox/FolderPicker.kt (FolderPicker, `states`)
+- **Change**: rememberSaveable with a Saver that stores the ticks as a LongArray of ids and an IntArray of ToggleableState ordinals (types that a Bundle holds, as in PLICO-OPT-08). The reset when `labels` changes stays.
+- **Benefit**: A rotation, theme or font change does not undo the label ticks of an open Labels sheet.
+- **Safety**: In-memory saved-instance state only. No storage format, schema, preference key or security-review line. No dependency.
+- **Effort**: S. **Risk**: low.
+- **Owner decision**: New item from the owner (2026-10-31), after the device checks.
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (883 tests) and `:app:lintDebug` pass. Not checked: the rotation on a device.
 - **Status**: applied
 
 ## Areas in good shape
