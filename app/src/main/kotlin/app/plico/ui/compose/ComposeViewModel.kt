@@ -1,6 +1,7 @@
 package app.plico.ui.compose
 
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
@@ -118,6 +119,10 @@ internal class ComposeViewModel(
     var sending by mutableStateOf(false)
         private set
     var undoSeconds = 0
+        private set
+
+    /** elapsedRealtime when the send was queued here; the Undo time counts from it. */
+    var queuedAt = 0L
         private set
 
     /** The question that Send asks now; null when it asks nothing. */
@@ -328,6 +333,7 @@ internal class ComposeViewModel(
             val queued = result.await()
             sending = false
             if (queued) {
+                queuedAt = SystemClock.elapsedRealtime()
                 phase = Phase.QUEUED
                 failure = null
                 mayHaveBeenSent = false

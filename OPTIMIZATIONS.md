@@ -23,7 +23,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | applied |
 | PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | applied |
 | PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | applied |
-| PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | approved |
+| PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | applied |
 | PLICO-OPT-10 | Make the keyboard Done key save in TextFieldDialog | ui-ux | S | low | approved |
 
 ### PLICO-OPT-01: Give the Compose FAB a TalkBack label
@@ -145,7 +145,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Changes line 138 (01d4312) and adds one ViewModel field. Undo.kt and the haptic lines from PLICO-UX-011 stay unchanged. No change to storage, schema, preferences, keys or the send delay. No dependency.
 - **Verification**: The confirm haptic still fires again on recreation. That line is from PLICO-UX-011 and stays. Verify on emulator-5554: set Undo send to 10 s, send, rotate after about 5 s. The snackbar shows for about 5 s more and Undo works.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +2 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Not checked: no run-time check on a device or emulator (set Undo send to 10 s, send, rotate after about 5 s, and make sure that the snackbar shows for about 5 s more and Undo works); no unit test, because the change is in a Compose effect and ComposeViewModel needs PlicoApp. queuedAt is set when the queued result comes back, a little after send_at is calculated; the 1 s margin of UndoWindow covers this, as before.
+- **Status**: applied
 
 ### PLICO-OPT-10: Make the keyboard Done key save in TextFieldDialog
 

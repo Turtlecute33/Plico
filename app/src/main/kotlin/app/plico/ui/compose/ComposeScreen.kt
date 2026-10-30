@@ -1,6 +1,7 @@
 package app.plico.ui.compose
 
 import android.content.ActivityNotFoundException
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -135,7 +136,9 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
             // The send is queued (PLICO-UX-011); the system touch-feedback setting applies.
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             snackbar.currentSnackbarData?.dismiss()
-            if (!snackbar.showUndo(sending, undo, UndoWindow.sendMs(vm.undoSeconds))) {
+            // A recreated screen runs this again: show only the Undo time that is left.
+            val left = UndoWindow.sendMs(vm.undoSeconds) - (SystemClock.elapsedRealtime() - vm.queuedAt)
+            if (!snackbar.showUndo(sending, undo, left)) {
                 nav.back()
                 return@LaunchedEffect
             }
