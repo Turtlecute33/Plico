@@ -21,7 +21,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | applied |
 | PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | applied |
 | PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | applied |
-| PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | approved |
+| PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | applied |
 | PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | approved |
 | PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | approved |
 | PLICO-OPT-10 | Make the keyboard Done key save in TextFieldDialog | ui-ux | S | low | approved |
@@ -118,7 +118,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: The check goes in editServerDraft (7d41d79, no Report line). bodyText (7dca5da, PLICO-PERF-004) and the reply cap (329e11b, PLICO-PERF-007) do not change. The draft table, its columns and stored data do not change. One new string in values/. No preference or key change, no dependency.
 - **Verification**: The trigger is rare: a draft from another client with more than about 2 MB of visible text. This closes only the server-draft path. Typing or repeated paste in Compose has no length limit. Verify with a unit test on editServerDraft and :app:testDebugUnitTest.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +5 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` passed; apkanalyzer shows the new string ops_error_draft_too_large in the release APK. Not checked: no unit test, because editServerDraft needs the SQLite store and only the instrumented tests (OpFixture) can make one; no instrumented test ran, because no emulator or device was used; no run-time check with a large server draft. The mailbox and the message view map an ActionError to their generic error text ('That did not work. Try again.', 'The message could not be loaded.'), so the new string does not show at this time.
+- **Status**: applied
 
 ### PLICO-OPT-08: Keep confirm dialogs and the folder picker open across a configuration change
 

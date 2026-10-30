@@ -1187,7 +1187,9 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
   APPEND creates it and no revision is deleted.
 - A draft created by a share intent is local until the user edits it.
 - Opening a server draft (a row in the Drafts view) copies it into a local draft with its
-  `message_id`, text and attachments (downloaded into `outbox/`).
+  `message_id`, text and attachments (downloaded into `outbox/`). A server draft with more than 500,000
+  characters of text gives an error and stays on the server only: the draft row reads the body in one piece, and
+  a row larger than one CursorWindow (2 MB) fails at each read.
 
 ### 7.7 Search
 Local first: FTS4 over subject, people, body. "Search on server": Gmail `X-GM-RAW` in All Mail;

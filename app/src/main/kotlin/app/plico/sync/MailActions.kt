@@ -449,6 +449,8 @@ class MailActions internal constructor(private val store: OpStore, private val h
         val draftId = withContext(Dispatchers.IO) {
             val message = detail.message
             val (account, identities) = sourceOf(detail)
+            val body = bodyText(detail)
+            if (body.length > MAX_DRAFT_CHARS) throw ActionError(store.text(R.string.ops_error_draft_too_large))
             val id = store.drafts.create(
                 NewDraft(
                     accountId = account.id,
@@ -458,7 +460,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
                     ccList = message.ccList,
                     bccList = message.bccList,
                     subject = message.subject,
-                    body = bodyText(detail),
+                    body = body,
                     inReplyTo = message.inReplyTo,
                     refs = message.refs,
                     sourceMessage = message.inReplyTo?.let { store.messages.byMessageId(account.id, it).firstOrNull()?.id },
@@ -835,6 +837,13 @@ class MailActions internal constructor(private val store: OpStore, private val h
         /** The delay of a send that waits [seconds] (Prefs.undoSendSeconds), at least [actionTimeoutMs]; 0 = off. */
         fun sendDelayMs(seconds: Int): Long = if (seconds <= 0) 0 else maxOf(seconds * 1_000L, actionTimeoutMs)
         private const val BODY_WAIT_MS = 15_000L
+
+        /**
+         * The most characters of text in a server draft that Plico copies into a local draft: at most 1.5 MB of
+         * UTF-8. The draft table reads the body in one piece, and a row larger than one CursorWindow (2 MB) fails
+         * at each read.
+         */
+        private const val MAX_DRAFT_CHARS = 500_000
         private const val SEEN = "\\Seen"
         private const val FLAGGED = "\\Flagged"
         private const val IMPORTANT = "\\Important"
