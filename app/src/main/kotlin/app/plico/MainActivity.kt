@@ -15,6 +15,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -50,6 +51,9 @@ class MainActivity : ComponentActivity() {
         applyWindowPrivacy()
         lifecycleScope.launch { app.prefs.changes().collect { applyWindowPrivacy() } }
 
+        // A new Navigator after process death starts again from the mailbox, so the saved state of the old
+        // screens must not come back: a dialog that was open would open again with no tap.
+        val oldScreens = savedInstanceState != null && nav.backStack.isEmpty()
         nav.start(app)
         // After a configuration change or process death this intent was handled already.
         if (savedInstanceState == null) Entry.of(intent)?.let { nav.open(app, it, intent, fresh = true) }
@@ -60,6 +64,7 @@ class MainActivity : ComponentActivity() {
                 val locked by app.appLock.locked.collectAsStateWithLifecycle()
                 // Keeps the screens' saved state while the lock removes them from the composition.
                 val screens = rememberSaveableStateHolder()
+                if (oldScreens) remember { screens.removeState("screens") }
                 Surface(Modifier.fillMaxSize()) {
                     if (locked) {
                         LockScreen(onUnlocked = app.appLock::unlock)
