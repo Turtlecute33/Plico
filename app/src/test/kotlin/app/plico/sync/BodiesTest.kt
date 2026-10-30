@@ -96,6 +96,17 @@ class BodiesTest {
     }
 
     @Test
+    fun textAfterEightMegabytesIsAnAttachment() {
+        // Four parts of 2 MB make the 8 MB total; the fifth and sixth parts are attachments.
+        val part = """("text" "plain" ("charset" "utf-8") NIL NIL "7bit" ${BodyPlan.MAX_TEXT_PART} 1)"""
+        val plan = BodyPlan(structure("(" + part.repeat(6) + " \"mixed\")"))
+        assertEquals(listOf("1", "2", "3", "4"), plan.sections)
+        assertEquals(4 * BodyPlan.MAX_TEXT_PART, plan.bytes)
+        val body = assertNotNull(plan.assemble(plan.sections.associateWith { "Hi $it".toByteArray() }))
+        assertEquals(listOf("5", "6"), body.attachments.map { it.section })
+    }
+
+    @Test
     fun failedBatchGoesAloneThenSkips() {
         val rows = (1L..30L).map { MessageRef(it, 1, 100 + it) }
         val skips = BodySkips()

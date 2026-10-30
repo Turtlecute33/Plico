@@ -197,8 +197,14 @@ internal data class StoredBody(val html: String?, val text: String, val snippet:
 internal class BodyPlan(root: MimePart) {
     private val parts = root.displayParts()
 
-    /** Text parts small enough to download, at most [MAX_TEXT_PARTS]; the others are listed as attachments. */
-    private val texts = parts.textParts.filter { it.size <= MAX_TEXT_PART }.take(MAX_TEXT_PARTS)
+    /**
+     * Text parts small enough to download, at most [MAX_TEXT_PARTS] and at most [MAX_FETCH_BYTES] in total, so that
+     * one message also keeps the run bound (PLICO-PERF-005); the others are listed as attachments.
+     */
+    private val texts = parts.textParts.filter { it.size <= MAX_TEXT_PART }.take(MAX_TEXT_PARTS).let { small ->
+        var sum = 0L
+        small.takeWhile { sum += it.size; sum <= MAX_FETCH_BYTES }
+    }
 
     /** IMAP sections to fetch, in document order. */
     val sections: List<String> = texts.map { it.section }

@@ -1052,11 +1052,12 @@ class AccountSession(...) {
    on it wait). The folder shows a banner "Many messages are gone on the server · Resync". Resync drops
    the rows, resets uidvalidity/uidnext/modseq/backfill and clears the guard.
 7. **Bodies** for rows in the window (`date ≥ now − body_days`, or all when `body_days = 0`):
-   `BODYSTRUCTURE`, then the first 50 display text parts (`BODY.PEEK[<section>]`, each ≤ 2 MB; larger
-   and later text parts are shown as an attachment), batches of 25. The items go in FETCH lines of about
-   4 KB, below the line limit of the server (Dovecot: 64 KiB). A batch downloads in runs of at most about 8 MB
-   of text, and each run is saved before the next one downloads (`PLICO-PERF-005`), so that a batch of large
-   messages does not stay in memory. Inline images and attachments on demand.
+   `BODYSTRUCTURE`, then the first 50 display text parts (`BODY.PEEK[<section>]`, each ≤ 2 MB, and at most
+   8 MB of text per message; larger and later text parts are shown as an attachment), batches of 25. The
+   items go in FETCH lines of about 4 KB, below the line limit of the server (Dovecot: 64 KiB). A batch
+   downloads in runs of at most about 8 MB of text, and each run is saved before the next one downloads
+   (`PLICO-PERF-005`), so that a batch of large messages does not stay in memory. Inline images and
+   attachments on demand.
    A batch that gets NO or BAD is tried again one message at a time on the same connection; a batch that
    the reader refuses (a line > 1 MiB) closes the connection, and the next one tries it one message at a
    time. A message that fails alone is skipped until the process restarts (`BodySkips`), so that it cannot

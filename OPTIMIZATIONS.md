@@ -17,7 +17,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 |---|---|---|---|---|---|
 | PLICO-OPT-01 | Give the Compose FAB a TalkBack label | ui-ux | S | low | applied |
 | PLICO-OPT-02 | Ship only the English resources (localeFilters) | minimalism | S | low | applied |
-| PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | approved |
+| PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | applied |
 | PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | approved |
 | PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | approved |
 | PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | approved |
@@ -66,7 +66,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Effort**: S. **Risk**: low. **Impact**: medium. **Net lines**: about +4 (estimate).
 - **Owner check**: This item edits the BodyPlan limit from PLICO-SEC-001 and the documented PLICO-PERF-005 bound. Confirm that a stricter per-message total of 8 MB of text is acceptable, and that the extra text parts can show as attachments.
 - **Owner decision**: The owner approved the stricter limit of 8 MB of text per message on the PLICO-SEC-001 line and the DESIGN section 7.2 edit (2026-10-30).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests with the new BodiesTest case textAfterEightMegabytesIsAnAttachment, and 461 mail tests, 0 failures). Not checked: no `connectedDebugAndroidTest` run of BodiesFetchTest (no emulator or device was used), no run-time check with a crafted mail, no OOM measurement.
+- **Status**: applied
 
 ### PLICO-OPT-04: Delete code that nothing references
 
