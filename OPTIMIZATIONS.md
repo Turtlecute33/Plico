@@ -22,7 +22,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | applied |
 | PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | applied |
 | PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | applied |
-| PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | approved |
+| PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | applied |
 | PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | approved |
 | PLICO-OPT-10 | Make the keyboard Done key save in TextFieldDialog | ui-ux | S | low | approved |
 
@@ -131,7 +131,9 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: In-memory saved-instance state (Bundle) of message, folder and draft ids only. This is not a storage format, schema or preference key. No security-review line. No dependency.
 - **Verification**: Same root cause as PLICO-OPT-09 (activity recreation), different code. Verify on emulator-5554: open each dialog, rotate, and make sure that it stays open and acts on the same items.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +3 (estimate).
-- **Status**: approved
+- **Owner check**: Limit found after the change, from the code and the navigation3 1.2.0 bytecode, not on a device. The Navigator is not saved, so after process death the app starts again on the unified inbox. But MainActivity saves the 'screens' state holder, and it keeps the state of each old nav entry under its route key (defaultContentKey). That state comes back only when the user opens the same route again. Then a dialog that was open at process death opens again with no tap: 'Empty Trash?' when the user opens Trash from the drawer, or 'Delete forever?', 'Unsubscribe?' or the Move/Labels picker on the same message. 'Delete N forever?' comes back with the old ids, but the selection is empty, so the user cannot see which messages Confirm deletes. Before this item, these flags were in remember and did not come back. ComposeScreen (confirmDiscard, confirmSend) and AccountSettingsScreen (removing) have this problem already. This item does not fix it. Proposed follow-up item: in MainActivity, when savedInstanceState is not null and the Navigator is new (its back stack is empty at onCreate), call screens.removeState("screens") before the first AppNav composition. Another option is to save the Navigator back stack across process death. Approve a follow-up item, or accept this limit.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Not checked: no run-time check on a device or emulator (open each dialog, rotate, and make sure that it stays open and acts on the same items); no process-death check (see Owner check); no unit test, because the change is Compose state in two screens. The folder picker of the mailbox selection stays in remember, as the item says.
+- **Status**: applied
 
 ### PLICO-OPT-09: Show only the remaining Undo time after the Compose screen is recreated
 

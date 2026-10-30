@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -68,7 +69,6 @@ import app.plico.R
 import app.plico.account.TlsReason
 import app.plico.app
 import app.plico.data.Account
-import app.plico.data.Draft
 import app.plico.data.DraftState
 import app.plico.data.Folder
 import app.plico.data.FolderKind
@@ -192,9 +192,11 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
-    var confirmDelete by remember { mutableStateOf<List<Long>?>(null) }
-    var confirmEmpty by remember { mutableStateOf<Folder?>(null) }
-    var confirmRetry by remember { mutableStateOf<Draft?>(null) }
+    // Saved state keeps these dialogs open after a configuration change. It holds only Bundle types: ids and
+    // flags. The picker request has a label map, so it stays in remember.
+    var confirmDelete by rememberSaveable { mutableStateOf<LongArray?>(null) }
+    var confirmEmpty by rememberSaveable { mutableStateOf(false) }
+    var confirmRetry by rememberSaveable { mutableStateOf<Long?>(null) }
     var picker by remember { mutableStateOf<PickerRequest?>(null) }
 
     /**
@@ -217,7 +219,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     }
 
     fun act(ids: List<Long>, action: RowAction) {
-        if (action == RowAction.DELETE_FOREVER) confirmDelete = ids else vm.apply(action, ids)
+        if (action == RowAction.DELETE_FOREVER) confirmDelete = ids.toLongArray() else vm.apply(action, ids)
     }
 
     fun actOnSelection(action: RowAction) {
@@ -338,7 +340,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                         searchBar = searchBar,
                         title = viewName,
                         account = viewAccount ?: accounts.singleOrNull(),
-                        menu = emptyFolderMenu(folder) { confirmEmpty = it },
+                        menu = emptyFolderMenu(folder) { confirmEmpty = true },
                         onEndSearch = ::endSearch,
                         onMenu = { scope.launch { drawerState.open() } },
                         onAccount = {
@@ -431,7 +433,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                                 date = dates.list(draft.updated),
                                 onOpen = { nav.go(Route.Compose(draft.id)) },
                                 onRetry = {
-                                    if (draft.mayHaveBeenSent) confirmRetry = draft else vm.retrySend(draft.id)
+                                    if (draft.mayHaveBeenSent) confirmRetry = draft.id else vm.retrySend(draft.id)
                                 },
                                 modifier = Modifier.animateItem(),
                             )
@@ -479,12 +481,12 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
             title = pluralStringResource(R.plurals.mailbox_delete_forever_title, ids.size, ids.size),
             text = stringResource(R.string.mailbox_cannot_undo),
             confirmLabel = stringResource(R.string.mailbox_action_delete_forever),
-            onConfirm = { vm.apply(RowAction.DELETE_FOREVER, ids) },
+            onConfirm = { vm.apply(RowAction.DELETE_FOREVER, ids.toList()) },
             onDismiss = { confirmDelete = null },
             destructive = true,
         )
     }
-    confirmEmpty?.let { target ->
+    folder?.takeIf { confirmEmpty }?.let { target ->
         ConfirmDialog(
             title = stringResource(
                 if (target.role == FolderRole.JUNK) R.string.mailbox_empty_spam_title else R.string.mailbox_empty_trash_title,
@@ -492,11 +494,11 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
             text = stringResource(R.string.mailbox_empty_text),
             confirmLabel = stringResource(R.string.mailbox_empty_confirm),
             onConfirm = { vm.emptyFolder(target.id) },
-            onDismiss = { confirmEmpty = null },
+            onDismiss = { confirmEmpty = false },
             destructive = true,
         )
     }
-    confirmRetry?.let { draft ->
+    confirmRetry?.let { id -> drafts.find { it.id == id } }?.let { draft ->
         SendAgainDialog(draft, onConfirm = { vm.retrySend(draft.id) }, onDismiss = { confirmRetry = null })
     }
     picker?.let { request ->

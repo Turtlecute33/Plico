@@ -122,9 +122,9 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
     val pendingOpen by vm.pendingOpen.collectAsStateWithLifecycle()
     val darkEmail by rememberPref(initial = true) { darkEmail }
     var showOriginal by rememberSaveable { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var confirmUnsubscribe by remember { mutableStateOf(false) }
-    var picker by remember { mutableStateOf<FolderPickerMode?>(null) }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
+    var picker by rememberSaveable { mutableStateOf<FolderPickerMode?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
