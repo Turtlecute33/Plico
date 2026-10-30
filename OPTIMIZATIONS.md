@@ -1,7 +1,7 @@
 # Optimizations
 
 Review of Plico on 2026-10-30, at commit b8bb01b on branch main.
-Status: review only. No change is applied yet. The owner selects the items to apply.
+Status: the owner approved all ten items, and all ten are applied on branch optimize. See Results.
 
 Rules for this list: the security-review changes (the audit of 2026-10-27: the commits with a 'Report: <ID>' line, run `git log --grep='Report:' --format='%h %s'`; /Users/user/Documents/Github/android/NEXT-STEPS.md has the status of each item in sections 5 and 6 and in the appendix section for this app) stay as they are. No change to storage formats, database schemas, preference keys or encryption. Each applied item is one commit, so that you can revert it alone.
 
@@ -173,3 +173,24 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - Dependencies and resources: each runtime library is used and has a reason in DESIGN section 2. :mail has no runtime dependencies. The code references all 725 strings and both drawables.
 - UI: one Undo model that follows the accessibility timeout, confirmations only on irreversible actions, full empty, loading and error states, consistent Back, and thorough TalkBack work (except the FAB).
 - Lifecycle: collectAsStateWithLifecycle, ViewModels scoped to nav entries, and the Compose draft saved at ON_STOP and in onCleared.
+
+## Results
+
+Final check on 2026-10-30 at 7c41d6d (branch optimize, not pushed). No adb, emulator or device was used.
+
+- **Size**: release APK 0.2.6 (versionCode 8), signed with the release key (APK Signature Scheme v2; apksigner verify passed). Before: 4,523,110 B (b8bb01b). After: 4,125,530 B. It is 397,580 B (about 8.8%) smaller. Most of this comes from PLICO-OPT-02 (resources.arsc from 483,900 B to 86,496 B); PLICO-OPT-04 removed 852 B. README.md now gives about 4.1 MB (estimate).
+- **Checks**: each command ran alone, with JAVA_HOME=/opt/homebrew/opt/openjdk@21.
+  - `./gradlew :app:testDebugUnitTest :mail:test`: passed. 883 app tests and 461 mail tests, 0 failures, 0 skipped. Gradle found both test tasks up to date, so they ran again with --rerun: same result.
+  - `./gradlew :app:lintDebug`: passed. 0 errors, 5 warnings. The warnings only tell that newer versions are available: Gradle 9.8.2, AGP 9.5.0 (application and library plugin), material3 1.5.0-beta02 and webkit 1.18.0. No commit of this branch changed these versions.
+  - `./gradlew :app:assembleDebug`: passed.
+  - `./gradlew :app:assembleRelease`: passed (lintVitalRelease included).
+- **Items not applied**: none.
+- **Owner checks by hand**: run the instrumented tests only on emulator-5554, not on the phone, because a test run can delete the app data.
+  - PLICO-OPT-01: run uiautomator dump on the mailbox screen. The Compose FAB must have content-desc "Compose". Listen to it with TalkBack.
+  - PLICO-OPT-02: do a cold start. With a system language that is not English, the library labels (for example "Close sheet") must be in English. The owner decision also covers MegaGlass-Android, but that change (it reverts the choice of eb730fa, MEGAGLASS-PERF-006) is not done.
+  - PLICO-OPT-03, PLICO-OPT-05 and PLICO-OPT-06: `ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.plico.sync.BodiesFetchTest,app.plico.data.DraftOpDaoTest,app.plico.notify.NotifierTest`.
+  - PLICO-OPT-07: edit a server draft with more than 500,000 characters of text. The app must show an error and must not crash. The error is the generic text, not the new string (see the Verified line). Decide if a follow-up item maps ActionError to its message.
+  - PLICO-OPT-08: open each dialog and the Move and Labels picker, rotate, and make sure that each stays open and acts on the same items. Approve the process-death follow-up item, or accept the limit (see the Owner check).
+  - PLICO-OPT-09: set Undo send to 10 s, send, and rotate after about 5 s. The snackbar must show for about 5 s more, and Undo must work.
+  - PLICO-OPT-10: in the four dialogs, push Done and hardware Enter. A valid value must save and close the dialog. An invalid value must show the same error as Save.
+  - Windows: no check is necessary. Plico builds and runs only on Android, and no change is specific to a platform.
