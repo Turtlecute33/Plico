@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -55,6 +56,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.plico.R
@@ -275,7 +277,8 @@ internal fun <T> ChoiceDialog(
 
 /**
  * Edits one text value. [check] returns an error text for an input that cannot be saved. [message]
- * is shown above the field. The keyboard follows the incognito setting.
+ * is shown above the field. The keyboard follows the incognito setting. A single-line field also saves
+ * on the keyboard Done key.
  */
 @Composable
 internal fun TextFieldDialog(
@@ -293,6 +296,14 @@ internal fun TextFieldDialog(
     var showError by remember { mutableStateOf(false) }
     val error = check(text)
     val focus = remember { FocusRequester() }
+    fun save() {
+        if (error == null) {
+            onSave(text)
+            onDismiss()
+        } else {
+            showError = true
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -318,7 +329,8 @@ internal fun TextFieldDialog(
                         supportingText = if (showError && error != null) ({ Text(error) }) else null,
                         singleLine = singleLine,
                         minLines = if (singleLine) 1 else 4,
-                        keyboardOptions = keyboardOptions,
+                        keyboardOptions = if (singleLine) keyboardOptions.copy(imeAction = ImeAction.Done) else keyboardOptions,
+                        keyboardActions = if (singleLine) KeyboardActions(onDone = { save() }) else KeyboardActions.Default,
                     )
                 }
                 // In the dialog's own composition, so that the field is attached when focus is requested.
@@ -326,16 +338,7 @@ internal fun TextFieldDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    if (error == null) {
-                        onSave(text)
-                        onDismiss()
-                    } else {
-                        showError = true
-                    }
-                },
-            ) { Text(stringResource(R.string.ui_save)) }
+            TextButton(onClick = { save() }) { Text(stringResource(R.string.ui_save)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) } },
     )

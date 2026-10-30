@@ -24,7 +24,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | applied |
 | PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | applied |
 | PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | applied |
-| PLICO-OPT-10 | Make the keyboard Done key save in TextFieldDialog | ui-ux | S | low | approved |
+| PLICO-OPT-10 | Make the keyboard Done key save in TextFieldDialog | ui-ux | S | low | applied |
 
 ### PLICO-OPT-01: Give the Compose FAB a TalkBack label
 
@@ -158,7 +158,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Keyboard handling in one dialog component. The saved values, their preference keys and the check() validation do not change. No dependency.
 - **Verification**: Users open these dialogs rarely, so the impact stays low. Verify on emulator-5554: edit the account label and push Done. The value saves and the dialog closes. An invalid value shows the same error as Save.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +4 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). javap on foundation-android 1.12.1 (the version of the BOM): in a single-line field, hardware Enter runs the IME action. Not checked: no run-time check on a device or emulator (Done and hardware Enter in the four dialogs, and the error text for an invalid value); no unit test, because the change is in a Compose dialog.
+- **Status**: applied
 
 ## Areas in good shape
 
