@@ -36,7 +36,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Changes the semantics of one Icon only. No storage, schema, preference key, key handling or security-review line. No dependency.
 - **Verification**: Not tested with TalkBack. After the change, run uiautomator dump on emulator-5554. The FAB content-desc must be "Compose".
 - **Effort**: S. **Risk**: low. **Impact**: medium. **Net lines**: about 0 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (882 app tests and 461 mail tests, 0 failures). Not checked: no TalkBack or uiautomator check of the FAB label on a device or emulator.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (882 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): uiautomator shows content-desc "Compose" on the FAB, expanded and collapsed. Not checked: no TalkBack or Switch Access check.
 - **Status**: applied
 
 ### PLICO-OPT-02: Ship only the English resources (localeFilters)
@@ -51,7 +51,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Effort**: S. **Risk**: low. **Impact**: medium. **Net lines**: about +4 (estimate).
 - **Owner check**: MegaGlass-Android commit eb730fa (Report: MEGAGLASS-PERF-006) kept the string locales on purpose, so that library text and TalkBack labels stay in the device language. This item does the opposite. Choose one rule for all apps before you approve it.
 - **Owner decision**: English-only library strings in all apps, MegaGlass included (2026-10-30). Apply it.
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (882 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` passed. In the release APK, `apkanalyzer resources configs --type string` shows only 'default'. resources.arsc (stored) went from 483,900 B to 86,496 B. The APK went from 4,523,110 B to 4,125,710 B (about 8.8% smaller). Not checked: no cold start or TalkBack check on a device or emulator. The README size line is not changed in this commit.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (882 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` passed. In the release APK, `apkanalyzer resources configs --type string` shows only 'default'. resources.arsc (stored) went from 483,900 B to 86,496 B. The APK went from 4,523,110 B to 4,125,710 B (about 8.8% smaller). Emulator (2026-10-30): cold start in it-IT passes, and the library labels are in English. Not checked: no TalkBack check. The README size line is not changed in this commit.
 - **Status**: applied
 
 ### PLICO-OPT-03: Cap the total text that one message downloads
@@ -66,7 +66,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Effort**: S. **Risk**: low. **Impact**: medium. **Net lines**: about +4 (estimate).
 - **Owner check**: This item edits the BodyPlan limit from PLICO-SEC-001 and the documented PLICO-PERF-005 bound. Confirm that a stricter per-message total of 8 MB of text is acceptable, and that the extra text parts can show as attachments.
 - **Owner decision**: The owner approved the stricter limit of 8 MB of text per message on the PLICO-SEC-001 line and the DESIGN section 7.2 edit (2026-10-30).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests with the new BodiesTest case textAfterEightMegabytesIsAnAttachment, and 461 mail tests, 0 failures). Not checked: no `connectedDebugAndroidTest` run of BodiesFetchTest (no emulator or device was used), no run-time check with a crafted mail, no OOM measurement.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests with the new BodiesTest case textAfterEightMegabytesIsAnAttachment, and 461 mail tests, 0 failures). Emulator (2026-10-30): BodiesFetchTest passed (8/8). Not checked: no run-time check with a crafted mail, no OOM measurement.
 - **Status**: applied
 
 ### PLICO-OPT-04: Delete code that nothing references
@@ -79,7 +79,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: No security-review line. No storage, schema, preference key or key handling. coroutines-core stays a transitive dependency of coroutines-android, so verification-metadata.xml does not change.
 - **Verification**: Related to PLICO-OPT-05 (dead code), but a separate commit, because it needs no test edits. Verify with testDebugUnitTest, lintDebug and assembleRelease.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about -11 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` and `./gradlew :app:lintDebug` passed. The release APK changed, against the estimate: R8 kept the path strings of Icons.Link and Icons.Undo in classes.dex before. classes.dex went from 3,926,776 B to 3,925,924 B and the APK from 4,125,774 B to 4,124,922 B (852 B smaller). Not checked: no run-time check of the UI on a device or emulator.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` and `./gradlew :app:lintDebug` passed. The release APK changed, against the estimate: R8 kept the path strings of Icons.Link and Icons.Undo in classes.dex before. classes.dex went from 3,926,776 B to 3,925,924 B and the APK from 4,125,774 B to 4,124,922 B (852 B smaller). Emulator (2026-10-30): smoke test passed; About lists the connections with no crash.
 - **Status**: applied
 
 ### PLICO-OPT-05: Delete main-code functions that only tests call
@@ -92,7 +92,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: No production path calls these functions, so behaviour does not change. Psl matching (registrableDomain, matchedRule, domainsIn), header parsing and the op queue stay as they are. No security-review line. No storage, schema, preference key or key handling.
 - **Verification**: Most test edits are rewrites, not deletions. Verify with :mail:testDebugUnitTest, :app:testDebugUnitTest, and connectedDebugAndroidTest on emulator-5554 for DraftOpDaoTest.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about -17 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:compileDebugAndroidTestKotlin` passed. Not checked: connectedDebugAndroidTest (DraftOpDaoTest) did not run, because no emulator was used; no release build, so the APK size effect is not measured; no run-time check of the UI on a device or emulator.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:compileDebugAndroidTestKotlin` passed. Emulator (2026-10-30): DraftOpDaoTest passed (5/5). Not checked: no release build, so the APK size effect is not measured.
 - **Status**: applied
 
 ### PLICO-OPT-06: Keep notification updates alive after one update fails
@@ -105,7 +105,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Error handling in notification batching only. hideContent, public versions and other privacy rules do not change. No storage, schema, preference or key change. No dependency.
 - **Verification**: No real update() failure was seen. The trigger is rare, but the effect lasts for the full process life. Verify with connectedDebugAndroidTest (NotifierTest) on emulator-5554.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +4 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Not checked: connectedDebugAndroidTest (NotifierTest) did not run, because no emulator or device was used; no run-time check with a failed update; no unit test, because Notifier needs the Android app object.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): NotifierTest passed (5/5) on clean app data. Not checked: no run-time check with a failed update; no unit test, because Notifier needs the Android app object.
 - **Status**: applied
 
 ### PLICO-OPT-07: Refuse to copy a server draft that is too large for a draft row
@@ -118,7 +118,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: The check goes in editServerDraft (7d41d79, no Report line). bodyText (7dca5da, PLICO-PERF-004) and the reply cap (329e11b, PLICO-PERF-007) do not change. The draft table, its columns and stored data do not change. One new string in values/. No preference or key change, no dependency.
 - **Verification**: The trigger is rare: a draft from another client with more than about 2 MB of visible text. This closes only the server-draft path. Typing or repeated paste in Compose has no length limit. Verify with a unit test on editServerDraft and :app:testDebugUnitTest.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +5 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` passed; apkanalyzer shows the new string ops_error_draft_too_large in the release APK. Not checked: no unit test, because editServerDraft needs the SQLite store and only the instrumented tests (OpFixture) can make one; no instrumented test ran, because no emulator or device was used; no run-time check with a large server draft. The mailbox and the message view map an ActionError to their generic error text ('That did not work. Try again.', 'The message could not be loaded.'), so the new string does not show at this time.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` passed; apkanalyzer shows the new string ops_error_draft_too_large in the release APK. Emulator (2026-10-30): server drafts of 600,012 and 2,520,000 characters show the generic error and do not crash; a small draft still opens. Not checked: no unit test, because editServerDraft needs the SQLite store and only the instrumented tests (OpFixture) can make one; the server fetch path, because the body was already stored. The mailbox and the message view map an ActionError to their generic error text ('That did not work. Try again.', 'The message could not be loaded.'), so the new string does not show at this time.
 - **Status**: applied
 
 ### PLICO-OPT-08: Keep confirm dialogs and the folder picker open across a configuration change
@@ -133,7 +133,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +3 (estimate).
 - **Owner check**: Limit found after the change, from the code and the navigation3 1.2.0 bytecode, not on a device. The Navigator is not saved, so after process death the app starts again on the unified inbox. But MainActivity saves the 'screens' state holder, and it keeps the state of each old nav entry under its route key (defaultContentKey). That state comes back only when the user opens the same route again. Then a dialog that was open at process death opens again with no tap: 'Empty Trash?' when the user opens Trash from the drawer, or 'Delete forever?', 'Unsubscribe?' or the Move/Labels picker on the same message. 'Delete N forever?' comes back with the old ids, but the selection is empty, so the user cannot see which messages Confirm deletes. Before this item, these flags were in remember and did not come back. ComposeScreen (confirmDiscard, confirmSend) and AccountSettingsScreen (removing) have this problem already. This item does not fix it. Proposed follow-up item: in MainActivity, when savedInstanceState is not null and the Navigator is new (its back stack is empty at onCreate), call screens.removeState("screens") before the first AppNav composition. Another option is to save the Navigator back stack across process death. Approve a follow-up item, or accept this limit.
 - **Owner decision**: Follow-up approved (2026-10-30), after the emulator showed the limit: when the Navigator is new after process death, MainActivity drops the saved state of the old screens before the first composition. This also fixes the same problem in ComposeScreen and AccountSettingsScreen. A separate commit with the same Optimization line.
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Not checked: no run-time check on a device or emulator (open each dialog, rotate, and make sure that it stays open and acts on the same items); no process-death check (see Owner check); no unit test, because the change is Compose state in two screens. The folder picker of the mailbox selection stays in remember, as the item says.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): each dialog and the Move and Labels picker stay open after a rotation or a locale change and act on the same items. Process death, after the follow-up commit 3ea8442: with 'Empty Trash?' open, the process was killed and the same activity relaunched; Trash then opens with no dialog (before the fix it did). A rotation still keeps the dialog open. No crash. Not checked: no unit test, because the change is Compose state in two screens. The folder picker of the mailbox selection stays in remember, as the item says.
 - **Status**: applied
 
 ### PLICO-OPT-09: Show only the remaining Undo time after the Compose screen is recreated
@@ -146,7 +146,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Changes line 138 (01d4312) and adds one ViewModel field. Undo.kt and the haptic lines from PLICO-UX-011 stay unchanged. No change to storage, schema, preferences, keys or the send delay. No dependency.
 - **Verification**: The confirm haptic still fires again on recreation. That line is from PLICO-UX-011 and stays. Verify on emulator-5554: set Undo send to 10 s, send, rotate after about 5 s. The snackbar shows for about 5 s more and Undo works.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +2 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Not checked: no run-time check on a device or emulator (set Undo send to 10 s, send, rotate after about 5 s, and make sure that the snackbar shows for about 5 s more and Undo works); no unit test, because the change is in a Compose effect and ComposeViewModel needs PlicoApp. queuedAt is set when the queued result comes back, a little after send_at is calculated; the 1 s margin of UndoWindow covers this, as before.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): after a rotation the snackbar shows only the remaining time, and Undo still works. Not checked: the exact 'about 5 s more', because the emulator takes about 4 s to recreate the screen; no unit test, because the change is in a Compose effect and ComposeViewModel needs PlicoApp. queuedAt is set when the queued result comes back, a little after send_at is calculated; the 1 s margin of UndoWindow covers this, as before.
 - **Status**: applied
 
 ### PLICO-OPT-10: Make the keyboard Done key save in TextFieldDialog
@@ -159,7 +159,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Keyboard handling in one dialog component. The saved values, their preference keys and the check() validation do not change. No dependency.
 - **Verification**: Users open these dialogs rarely, so the impact stays low. Verify on emulator-5554: edit the account label and push Done. The value saves and the dialog closes. An invalid value shows the same error as Save.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +4 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). javap on foundation-android 1.12.1 (the version of the BOM): in a single-line field, hardware Enter runs the IME action. Not checked: no run-time check on a device or emulator (Done and hardware Enter in the four dialogs, and the error text for an invalid value); no unit test, because the change is in a Compose dialog.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). javap on foundation-android 1.12.1 (the version of the BOM): in a single-line field, hardware Enter runs the IME action. Emulator (2026-10-30): in the four dialogs, Done and hardware Enter save a valid value, and an invalid value shows the same error as Save; the signature dialog is unchanged. Not checked: no unit test, because the change is in a Compose dialog.
 - **Status**: applied
 
 ## Areas in good shape
@@ -186,12 +186,45 @@ Final check on 2026-10-30 at 7c41d6d (branch optimize, not pushed). No adb, emul
   - `./gradlew :app:assembleDebug`: passed.
   - `./gradlew :app:assembleRelease`: passed (lintVitalRelease included).
 - **Items not applied**: none.
-- **Owner checks by hand**: run the instrumented tests only on emulator-5554, not on the phone, because a test run can delete the app data.
-  - PLICO-OPT-01: run uiautomator dump on the mailbox screen. The Compose FAB must have content-desc "Compose". Listen to it with TalkBack.
-  - PLICO-OPT-02: do a cold start. With a system language that is not English, the library labels (for example "Close sheet") must be in English. The owner decision also covers MegaGlass-Android, but that change (it reverts the choice of eb730fa, MEGAGLASS-PERF-006) is not done.
-  - PLICO-OPT-03, PLICO-OPT-05 and PLICO-OPT-06: `ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.plico.sync.BodiesFetchTest,app.plico.data.DraftOpDaoTest,app.plico.notify.NotifierTest`.
-  - PLICO-OPT-07: edit a server draft with more than 500,000 characters of text. The app must show an error and must not crash. The error is the generic text, not the new string (see the Verified line). Decide if a follow-up item maps ActionError to its message.
-  - PLICO-OPT-08: open each dialog and the Move and Labels picker, rotate, and make sure that each stays open and acts on the same items. Approve the process-death follow-up item, or accept the limit (see the Owner check).
-  - PLICO-OPT-09: set Undo send to 10 s, send, and rotate after about 5 s. The snackbar must show for about 5 s more, and Undo must work.
-  - PLICO-OPT-10: in the four dialogs, push Done and hardware Enter. A valid value must save and close the dialog. An invalid value must show the same error as Save.
+- **Owner checks by hand**: the emulator did most of them on 2026-10-30. See Device checks. The open checks are in 'Still for the owner'.
   - Windows: no check is necessary. Plico builds and runs only on Android, and no change is specific to a platform.
+
+### Device checks (2026-10-30)
+
+Method: the debug build 0.2.6 of branch optimize (code of 7c41d6d; 3ea8442 for the process-death check) ran on emulator-5554 (API 37, Android 17), with no real account or server. A test account in the app database points to 127.0.0.1, so each sync and send gets "connection refused". The instrumented tests use their own fake server.
+
+| Item | Check | Result |
+|---|---|---|
+| PLICO-OPT-01 | uiautomator: the expanded FAB has content-desc "Compose" | pass |
+| PLICO-OPT-01 | uiautomator: the collapsed FAB keeps the label | pass |
+| PLICO-OPT-01 | Listen to the FAB with TalkBack | not possible (no audio on the emulator) |
+| PLICO-OPT-02 | The APK has no locale string configs | pass |
+| PLICO-OPT-02 | Cold start in it-IT: library labels are in English | pass |
+| PLICO-OPT-03 | Instrumented BodiesFetchTest | pass (8/8) |
+| PLICO-OPT-03 | Open a crafted mail with more than 8 MB of text | not possible (needs a server) |
+| PLICO-OPT-04 | Smoke test of the main screens and About | pass |
+| PLICO-OPT-05 | Instrumented DraftOpDaoTest | pass (5/5) |
+| PLICO-OPT-06 | Instrumented NotifierTest | pass (5/5, clean app data only) |
+| PLICO-OPT-06 | Updates continue after one update() fails | not possible (needs an injected fault and a server) |
+| PLICO-OPT-07 | Edit a server draft of more than 500,000 characters | pass (generic error, no crash) |
+| PLICO-OPT-08 | Move and Labels picker stay open across a configuration change | pass |
+| PLICO-OPT-08 | 'Unsubscribe?', 'Delete forever?', 'Delete 1 message forever?', 'Empty Trash?' and 'Send again?' stay open across a rotation and act on the same items | pass |
+| PLICO-OPT-08 | Process death at 7c41d6d: a dialog must not open again with no tap | fail (the limit in the Owner check; 3ea8442 fixes it) |
+| PLICO-OPT-08 | Process death at 3ea8442: Trash opens with no dialog; a rotation keeps the dialog | pass |
+| PLICO-OPT-09 | Undo send 10 s, rotate: the snackbar shows only the remaining time | pass |
+| PLICO-OPT-09 | Undo after the recreation still works | pass |
+| PLICO-OPT-10 | Done and hardware Enter in the four dialogs; same error as Save | pass |
+| PLICO-OPT-10 | The multi-line signature dialog is unchanged | pass |
+
+Crashes and ANRs: none for app.plico.debug. The only process end is the kill for the process-death check.
+
+Still for the owner:
+
+- Run the instrumented tests only on emulator-5554, not on the phone, because a test run can delete the app data.
+- PLICO-OPT-01: on the phone, listen to the FAB with TalkBack and use Switch Access.
+- PLICO-OPT-02: the owner decision also covers MegaGlass-Android. That change (it reverts the choice of eb730fa, MEGAGLASS-PERF-006) is not done.
+- PLICO-OPT-03: with a test mailbox only, send a crafted mail (for example about 18 text parts of 1.9 MB). On the phone, push must not stop and the open must not crash.
+- PLICO-OPT-06: a check with a failed update() needs a code change or a server. NotifierTest fails in its cleanup when the app has an account, so run it on clean app data.
+- PLICO-OPT-07: with a test mailbox only, make a server draft of more than 2 MB in webmail and open it in Plico on the phone. This also tests the server fetch path. Decide if a follow-up item maps ActionError to its message.
+- PLICO-OPT-08: outside the item, the Labels sheet loses ticks made before a rotation (FolderPicker keeps them in remember). Decide if this needs an item.
+- PLICO-OPT-09: on the phone, do the 10 s Undo check again. The phone recreates the screen fast, so the "about 5 s more" case and the confirm haptic show at real speed.
