@@ -20,7 +20,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | applied |
 | PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | applied |
 | PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | applied |
-| PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | approved |
+| PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | applied |
 | PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | approved |
 | PLICO-OPT-08 | Keep confirm dialogs and the folder picker open across a configuration change | ui-ux | S | low | approved |
 | PLICO-OPT-09 | Show only the remaining Undo time after the Compose screen is recreated | stability | S | low | approved |
@@ -105,7 +105,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Error handling in notification batching only. hideContent, public versions and other privacy rules do not change. No storage, schema, preference or key change. No dependency.
 - **Verification**: No real update() failure was seen. The trigger is rare, but the effect lasts for the full process life. Verify with connectedDebugAndroidTest (NotifierTest) on emulator-5554.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +4 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Not checked: connectedDebugAndroidTest (NotifierTest) did not run, because no emulator or device was used; no run-time check with a failed update; no unit test, because Notifier needs the Android app object.
+- **Status**: applied
 
 ### PLICO-OPT-07: Refuse to copy a server draft that is too large for a draft row
 

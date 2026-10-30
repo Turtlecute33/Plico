@@ -260,7 +260,12 @@ class Notifier(private val app: PlicoApp) {
                         null
                     }
                 } ?: return@launch
-                update(accountId, again)
+                // A failed update must not end this job: its entry in jobs stops all later updates of the account.
+                try {
+                    update(accountId, again)
+                } catch (e: RuntimeException) {
+                    Log.e(LOG_TAG, "notify: ${e.javaClass.simpleName}")
+                }
             }
         }
     }
