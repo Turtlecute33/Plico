@@ -16,7 +16,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | ID | Finding | Area | Effort | Risk | Status |
 |---|---|---|---|---|---|
 | PLICO-OPT-01 | Give the Compose FAB a TalkBack label | ui-ux | S | low | applied |
-| PLICO-OPT-02 | Ship only the English resources (localeFilters) | minimalism | S | low | approved |
+| PLICO-OPT-02 | Ship only the English resources (localeFilters) | minimalism | S | low | applied |
 | PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | approved |
 | PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | approved |
 | PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | approved |
@@ -51,7 +51,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Effort**: S. **Risk**: low. **Impact**: medium. **Net lines**: about +4 (estimate).
 - **Owner check**: MegaGlass-Android commit eb730fa (Report: MEGAGLASS-PERF-006) kept the string locales on purpose, so that library text and TalkBack labels stay in the device language. This item does the opposite. Choose one rule for all apps before you approve it.
 - **Owner decision**: English-only library strings in all apps, MegaGlass included (2026-10-30). Apply it.
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (882 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` passed. In the release APK, `apkanalyzer resources configs --type string` shows only 'default'. resources.arsc (stored) went from 483,900 B to 86,496 B. The APK went from 4,523,110 B to 4,125,710 B (about 8.8% smaller). Not checked: no cold start or TalkBack check on a device or emulator. The README size line is not changed in this commit.
+- **Status**: applied
 
 ### PLICO-OPT-03: Cap the total text that one message downloads
 
