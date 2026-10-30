@@ -15,7 +15,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 
 | ID | Finding | Area | Effort | Risk | Status |
 |---|---|---|---|---|---|
-| PLICO-OPT-01 | Give the Compose FAB a TalkBack label | ui-ux | S | low | approved |
+| PLICO-OPT-01 | Give the Compose FAB a TalkBack label | ui-ux | S | low | applied |
 | PLICO-OPT-02 | Ship only the English resources (localeFilters) | minimalism | S | low | approved |
 | PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | approved |
 | PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | approved |
@@ -36,7 +36,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Changes the semantics of one Icon only. No storage, schema, preference key, key handling or security-review line. No dependency.
 - **Verification**: Not tested with TalkBack. After the change, run uiautomator dump on emulator-5554. The FAB content-desc must be "Compose".
 - **Effort**: S. **Risk**: low. **Impact**: medium. **Net lines**: about 0 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (882 app tests and 461 mail tests, 0 failures). Not checked: no TalkBack or uiautomator check of the FAB label on a device or emulator.
+- **Status**: applied
 
 ### PLICO-OPT-02: Ship only the English resources (localeFilters)
 

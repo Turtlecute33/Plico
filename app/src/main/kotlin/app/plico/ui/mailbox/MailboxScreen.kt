@@ -353,7 +353,7 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                     val expanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
                     ExtendedFloatingActionButton(
                         text = { Text(stringResource(R.string.ui_compose)) },
-                        icon = { Icon(Icons.Edit, contentDescription = null) },
+                        icon = { Icon(Icons.Edit, contentDescription = stringResource(R.string.ui_compose)) },
                         onClick = vm::compose,
                         expanded = expanded,
                     )
