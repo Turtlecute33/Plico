@@ -317,14 +317,6 @@ internal fun connections(
     }
 }
 
-/** [connections] with the values of [prefs]. */
-internal fun connections(accounts: List<Account>, prefs: Prefs): List<Connection> = connections(
-    accounts,
-    prefs.googleClientId,
-    prefs.microsoftClientId,
-    prefs.logoSource.takeIf { prefs.senderLogos },
-)
-
 private fun OAuthIssuer.signInHosts() = listOfNotNull(authUrl, tokenUrl, revokeUrl).map { URI(it).host }.distinct()
 
 /** Certificate Transparency checks of the network security config work from Android 16 (API 36; apis AF10). */

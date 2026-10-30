@@ -18,7 +18,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 | PLICO-OPT-01 | Give the Compose FAB a TalkBack label | ui-ux | S | low | applied |
 | PLICO-OPT-02 | Ship only the English resources (localeFilters) | minimalism | S | low | applied |
 | PLICO-OPT-03 | Cap the total text that one message downloads | stability | S | low | applied |
-| PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | approved |
+| PLICO-OPT-04 | Delete code that nothing references | minimalism | S | low | applied |
 | PLICO-OPT-05 | Delete main-code functions that only tests call | minimalism | S | low | approved |
 | PLICO-OPT-06 | Keep notification updates alive after one update fails | stability | S | low | approved |
 | PLICO-OPT-07 | Refuse to copy a server draft that is too large for a draft row | stability | S | low | approved |
@@ -79,7 +79,8 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: No security-review line. No storage, schema, preference key or key handling. coroutines-core stays a transitive dependency of coroutines-android, so verification-metadata.xml does not change.
 - **Verification**: Related to PLICO-OPT-05 (dead code), but a separate commit, because it needs no test edits. Verify with testDebugUnitTest, lintDebug and assembleRelease.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about -11 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). `./gradlew :app:assembleRelease` and `./gradlew :app:lintDebug` passed. The release APK changed, against the estimate: R8 kept the path strings of Icons.Link and Icons.Undo in classes.dex before. classes.dex went from 3,926,776 B to 3,925,924 B and the APK from 4,125,774 B to 4,124,922 B (852 B smaller). Not checked: no run-time check of the UI on a device or emulator.
+- **Status**: applied
 
 ### PLICO-OPT-05: Delete main-code functions that only tests call
 

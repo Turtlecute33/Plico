@@ -14,7 +14,6 @@ json = "20260814"
 test-runner = "1.7.0"
 
 [libraries]
-kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
