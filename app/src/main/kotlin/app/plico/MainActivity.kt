@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
                 val locked by app.appLock.locked.collectAsStateWithLifecycle()
                 // Keeps the screens' saved state while the lock removes them from the composition.
                 val screens = rememberSaveableStateHolder()
-                if (oldScreens) remember { screens.removeState("screens") }
+                remember { oldScreens.also { if (it) screens.removeState("screens") } }
                 Surface(Modifier.fillMaxSize()) {
                     if (locked) {
                         LockScreen(onUnlocked = app.appLock::unlock)
