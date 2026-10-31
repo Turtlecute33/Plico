@@ -134,7 +134,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +3 (estimate).
 - **Owner check**: Limit found after the change, from the code and the navigation3 1.2.0 bytecode, not on a device. The Navigator is not saved, so after process death the app starts again on the unified inbox. But MainActivity saves the 'screens' state holder, and it keeps the state of each old nav entry under its route key (defaultContentKey). That state comes back only when the user opens the same route again. Then a dialog that was open at process death opens again with no tap: 'Empty Trash?' when the user opens Trash from the drawer, or 'Delete forever?', 'Unsubscribe?' or the Move/Labels picker on the same message. 'Delete N forever?' comes back with the old ids, but the selection is empty, so the user cannot see which messages Confirm deletes. Before this item, these flags were in remember and did not come back. ComposeScreen (confirmDiscard, confirmSend) and AccountSettingsScreen (removing) have this problem already. This item does not fix it. Proposed follow-up item: in MainActivity, when savedInstanceState is not null and the Navigator is new (its back stack is empty at onCreate), call screens.removeState("screens") before the first AppNav composition. Another option is to save the Navigator back stack across process death. Approve a follow-up item, or accept this limit.
 - **Owner decision**: Follow-up approved (2026-10-30), after the emulator showed the limit: when the Navigator is new after process death, MainActivity drops the saved state of the old screens before the first composition. This also fixes the same problem in ComposeScreen and AccountSettingsScreen. A separate commit with the same Optimization line.
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): each dialog and the Move and Labels picker stay open after a rotation or a locale change and act on the same items. Process death, after the follow-up commit 3ea8442: with 'Empty Trash?' open, the process was killed and the same activity relaunched; Trash then opens with no dialog (before the fix it did). A rotation still keeps the dialog open. No crash. Not checked: no unit test, because the change is Compose state in two screens. The folder picker of the mailbox selection stays in remember, as the item says.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): each dialog and the Move and Labels picker stay open after a rotation or a locale change and act on the same items. Process death, after the follow-up commit 3ea8442: with 'Empty Trash?' open, the process was killed and the same activity relaunched; Trash then opens with no dialog (before the fix it did). A rotation still keeps the dialog open. No crash. Lint found the error RememberReturnType in 3ea8442. 412440b fixes it: an unconditional remember now returns the flag. The behaviour is the same. Phone (2026-10-31, release build): the 'Empty Trash?' dialog stays open across a rotation. Not checked: no unit test, because the change is Compose state in two screens. The folder picker of the mailbox selection stays in remember, as the item says.
 - **Status**: applied
 
 ### PLICO-OPT-09: Show only the remaining Undo time after the Compose screen is recreated
@@ -147,7 +147,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Changes line 138 (01d4312) and adds one ViewModel field. Undo.kt and the haptic lines from PLICO-UX-011 stay unchanged. No change to storage, schema, preferences, keys or the send delay. No dependency.
 - **Verification**: The confirm haptic still fires again on recreation. That line is from PLICO-UX-011 and stays. Verify on emulator-5554: set Undo send to 10 s, send, rotate after about 5 s. The snackbar shows for about 5 s more and Undo works.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +2 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): after a rotation the snackbar shows only the remaining time, and Undo still works. Not checked: the exact 'about 5 s more', because the emulator takes about 4 s to recreate the screen; no unit test, because the change is in a Compose effect and ComposeViewModel needs PlicoApp. queuedAt is set when the queued result comes back, a little after send_at is calculated; the 1 s margin of UndoWindow covers this, as before.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). Emulator (2026-10-30): after a rotation the snackbar shows only the remaining time, and Undo still works. Phone (2026-10-31, release build): after a rotation the Undo time is correct. Not checked: the exact 'about 5 s more', because the emulator takes about 4 s to recreate the screen; no unit test, because the change is in a Compose effect and ComposeViewModel needs PlicoApp. queuedAt is set when the queued result comes back, a little after send_at is calculated; the 1 s margin of UndoWindow covers this, as before.
 - **Status**: applied
 
 ### PLICO-OPT-10: Make the keyboard Done key save in TextFieldDialog
@@ -160,7 +160,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: Keyboard handling in one dialog component. The saved values, their preference keys and the check() validation do not change. No dependency.
 - **Verification**: Users open these dialogs rarely, so the impact stays low. Verify on emulator-5554: edit the account label and push Done. The value saves and the dialog closes. An invalid value shows the same error as Save.
 - **Effort**: S. **Risk**: low. **Impact**: low. **Net lines**: about +4 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). javap on foundation-android 1.12.1 (the version of the BOM): in a single-line field, hardware Enter runs the IME action. Emulator (2026-10-30): in the four dialogs, Done and hardware Enter save a valid value, and an invalid value shows the same error as Save; the signature dialog is unchanged. Not checked: no unit test, because the change is in a Compose dialog.
+- **Verified**: `./gradlew :app:testDebugUnitTest :mail:test :app:assembleDebug` passed (883 app tests and 461 mail tests, 0 failures). javap on foundation-android 1.12.1 (the version of the BOM): in a single-line field, hardware Enter runs the IME action. Emulator (2026-10-30): in the four dialogs, Done and hardware Enter save a valid value, and an invalid value shows the same error as Save; the signature dialog is unchanged. Phone (2026-10-31, release build): the Done key saves. Not checked: no unit test, because the change is in a Compose dialog.
 - **Status**: applied
 
 
@@ -173,7 +173,7 @@ Plico is in good shape. Cold start, push and battery, sync, the database and the
 - **Safety**: In-memory saved-instance state only. No storage format, schema, preference key or security-review line. No dependency.
 - **Effort**: S. **Risk**: low.
 - **Owner decision**: New item from the owner (2026-10-31), after the device checks.
-- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (883 tests) and `:app:lintDebug` pass. Not checked: the rotation on a device.
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (883 tests) and `:app:lintDebug` pass. Phone (2026-10-31, release build): the label ticks stay across a rotation.
 - **Status**: applied
 
 ## Areas in good shape
@@ -232,13 +232,21 @@ Method: the debug build 0.2.6 of branch optimize (code of 7c41d6d; 3ea8442 for t
 
 Crashes and ANRs: none for app.plico.debug. The only process end is the kill for the process-death check.
 
-Still for the owner:
+### Phone session (2026-10-31)
 
-- Run the instrumented tests only on emulator-5554, not on the phone, because a test run can delete the app data.
-- PLICO-OPT-01: on the phone, listen to the FAB with TalkBack and use Switch Access.
-- PLICO-OPT-02: the owner decision also covers MegaGlass-Android. That change (it reverts the choice of eb730fa, MEGAGLASS-PERF-006) is not done.
+Phone session on 2026-10-31 with the owner, on the owner Pixel 9 Pro XL (GrapheneOS, Android 17). Claude built the release APK of branch optimize. Claude checked that its signing certificate is the same as the installed release. Claude installed it over the installed release with `adb install -r`, so the app data stayed. The owner did the steps on the phone and reported them as good. Claude read logcat after each step: no crash and no ANR for the app.
+
+- Build: release 0.2.6 (versionCode 8), with the follow-ups 3ea8442, 412440b and PLICO-OPT-11 (1eaf424).
+- Certificate: 2625a6b9...06c3, the same as the installed release. The APK went over it, and the accounts stayed.
+- Inboxes and push: good.
+- PLICO-OPT-08: the 'Empty Trash?' dialog stays open across a rotation.
+- PLICO-OPT-11: the label ticks stay across a rotation.
+- PLICO-OPT-09: after a rotation, the Undo time is correct.
+- PLICO-OPT-10: the Done key saves.
+- PLICO-OPT-01: TalkBack on Compose was optional.
+
+Still for the owner (all optional):
+
 - PLICO-OPT-03: with a test mailbox only, send a crafted mail (for example about 18 text parts of 1.9 MB). On the phone, push must not stop and the open must not crash.
-- PLICO-OPT-06: a check with a failed update() needs a code change or a server. NotifierTest fails in its cleanup when the app has an account, so run it on clean app data.
+- PLICO-OPT-06: a check with a failed update() needs a code change or a server. NotifierTest fails in its cleanup when the app has an account, so run it on clean app data, on emulator-5554 only.
 - PLICO-OPT-07: with a test mailbox only, make a server draft of more than 2 MB in webmail and open it in Plico on the phone. This also tests the server fetch path. Decide if a follow-up item maps ActionError to its message.
-- PLICO-OPT-08: outside the item, the Labels sheet loses ticks made before a rotation (FolderPicker keeps them in remember). Decide if this needs an item.
-- PLICO-OPT-09: on the phone, do the 10 s Undo check again. The phone recreates the screen fast, so the "about 5 s more" case and the confirm haptic show at real speed.
