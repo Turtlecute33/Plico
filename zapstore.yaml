@@ -21,5 +21,8 @@ license: GPL-3.0-only
 tags: [email, imap, privacy]
 icon: ./docs/icon.png
 images:
+  - ./docs/screenshots/inbox.png
+  - ./docs/screenshots/message.png
+  - ./docs/screenshots/link.png
   - ./docs/banner.png
 metadata_sources: []
