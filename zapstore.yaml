@@ -1,0 +1,25 @@
+# Zapstore listing. The Zapstore indexer reads this file and publishes each new GitHub release.
+repository: https://github.com/Turtlecute33/Plico
+summary: Fast push for IMAP mail without Google. Private, minimal and secure.
+description: |
+  Plico is an email app for IMAP accounts. You type your address, and Plico finds the servers.
+  New mail arrives in seconds through IMAP IDLE. Plico uses no Firebase and no server of its own.
+  No trackers, no Google Play Services.
+
+  Plico has its own IMAP, SMTP and MIME code, and only a few libraries. It reads untrusted mail
+  with JavaScript off and with no network access, and it shows the true target of each link before
+  it opens.
+
+  - **Any IMAP account**: SSL/TLS or STARTTLS. Plico never connects without encryption.
+  - **Fast push**: IMAP IDLE with one connection for each account.
+  - **Unified inbox**, folders and labels, swipe actions, local and server search.
+  - **Gmail, Outlook.com and Microsoft 365, Riseup**: sign-in in the browser or with an app
+    password.
+  - **Offline**: the mail of the last 30 days stays on the phone.
+  - **Compose**: plain text, attachments, Undo send.
+license: GPL-3.0-only
+tags: [email, imap, privacy]
+icon: ./docs/icon.png
+images:
+  - ./docs/banner.png
+metadata_sources: []
