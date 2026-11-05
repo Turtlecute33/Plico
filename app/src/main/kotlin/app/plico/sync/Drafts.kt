@@ -1,6 +1,7 @@
 package app.plico.sync
 
 import app.plico.R
+import app.plico.account.traits
 import app.plico.data.DraftState
 import app.plico.data.Folder
 import app.plico.data.FolderRole
@@ -62,6 +63,12 @@ internal object Drafts {
         if (draft.accountId != ctx.account.id || draft.state != DraftState.EDITING && !DraftState.failed(draft.state)) return
         val mailbox = store.mailbox(ctx.account.id, FolderRole.DRAFTS)
         if (mailbox == null && ctx.account.isGmail) return
+        // Refuse before the build, with the estimate that Send uses: the full message in memory can be larger
+        // than the heap. The exact APPENDLIMIT check stays after the build.
+        val max = ctx.account.traits.maxMessageBytes
+        if (DraftMime.estimatedSize(DraftMime.rawSize(draft)) > max) {
+            throw OpRefused(store.text(R.string.ops_error_too_large, Ops.formatSize(store, max)))
+        }
         val bytes = try {
             DraftMime.builder(store, ctx.account, draft, strict = false, date = store.now()).build(includeBcc = true)
         } catch (_: IOException) {

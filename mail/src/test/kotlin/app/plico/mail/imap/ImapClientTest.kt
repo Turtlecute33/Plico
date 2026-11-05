@@ -162,6 +162,16 @@ class ImapClientTest {
     }
 
     @Test
+    fun enableRefusedKeepsTheSession() {
+        dovecot()
+        fake.client("A2 ENABLE CONDSTORE").server("A2 NO Not now.")
+        assertEquals(emptySet(), client.enable("CONDSTORE"))
+        fake.client("A3 ENABLE CONDSTORE").server("A3 BAD Unknown.")
+        assertEquals(emptySet(), client.enable("CONDSTORE"))
+        fake.finish()
+    }
+
+    @Test
     fun enableSendsNothingWithoutEnable() {
         fake.server("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN SASL-IR] ready")
         client.conn.greeting()
@@ -517,6 +527,17 @@ class ImapClientTest {
         ImapClient(ImapConnection(plain)).apply { conn.greeting() }.compress()
         assertEquals(0, plain.compressions)
         plain.finish()
+    }
+
+    @Test
+    fun compressRefusedKeepsTheStreamUncompressed() {
+        dovecot()
+        fake.client("A2 COMPRESS DEFLATE").server("A2 NO [COMPRESSIONACTIVE] Already compressed.")
+        client.compress()
+        fake.client("A3 COMPRESS DEFLATE").server("A3 BAD Unknown.")
+        client.compress()
+        assertEquals(0, fake.compressions)
+        fake.finish()
     }
 
     @Test

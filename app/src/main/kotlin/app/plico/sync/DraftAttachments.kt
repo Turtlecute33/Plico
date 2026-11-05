@@ -53,7 +53,8 @@ internal object DraftAttachments {
             }
             val file = if (output == null) raw else cleaned(store, draftId, raw, shown, output).also(created::add)
             val mime = output?.mime ?: type ?: OCTET_STREAM
-            if (file.length() > limit) throw tooLarge(store, limit)
+            // The files already in the draft count too: a message larger than the limit cannot be sent.
+            if (draft.attachments.sumOf { it.size } + file.length() > limit) throw tooLarge(store, limit)
             // A video goes out as it is: it keeps its metadata (PLICO-PRIV-002).
             val attachment = DraftAttachment(file.name, shown, mime, file.length(), (image && output == null) || video)
             if (!store.updateDraft(draftId) { it.copy(attachments = it.attachments + attachment) }) {

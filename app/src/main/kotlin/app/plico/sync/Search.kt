@@ -48,7 +48,7 @@ object Search {
         val known = store.messages.idsByUid(mailbox.id, hits)
         val missing = hits.filter { it !in known }.take(MAX_NEW)
         val added = if (missing.isEmpty()) emptyMap() else fetchHeaders(ctx, mailbox, missing)
-        Bodies.fetch(ctx, added.values.take(MAX_BODIES))
+        Bodies.fetch(ctx, missing.mapNotNull(added::get).take(MAX_BODIES))
         val ids = known + added
         return hits.mapNotNull { ids[it] }
     }

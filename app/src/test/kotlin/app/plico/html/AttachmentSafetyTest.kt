@@ -35,6 +35,8 @@ class AttachmentSafetyTest {
         assertEquals("image/gif", AttachmentSafety.sniff(bytes("GIF89a\u0001\u0000")))
         assertEquals("image/gif", AttachmentSafety.sniff(bytes("GIF87a")))
         assertEquals("image/webp", AttachmentSafety.sniff(bytes("RIFF\u0010\u0000\u0000\u0000WEBPVP8 ")))
+        assertEquals("image/avif", AttachmentSafety.sniff(bytes("\u0000\u0000\u0000\u001CftypavifX")))
+        assertEquals("image/bmp", AttachmentSafety.sniff(bytes("BM\u0036\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0036\u0000\u0000\u0000\u0028\u0000\u0000\u0000")))
         assertEquals("application/zip", AttachmentSafety.sniff(zip))
         assertEquals("application/zip", AttachmentSafety.sniff(bytes("PK\u0005\u0006")))
         assertEquals("application/vnd.android.package-archive", AttachmentSafety.sniff(apk))
@@ -55,6 +57,8 @@ class AttachmentSafetyTest {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(1)\">" to "image/svg+xml",
             "<?xml version=\"1.0\"?>\n<!-- x -->\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"x\"><svg>" to "image/svg+xml",
             "<?xml version=\"1.0\"?><svg/>" to "image/svg+xml",
+            "<?xml version=\"1.0\"?><x:html xmlns:x=\"http://www.w3.org/1999/xhtml\"><x:script>" to "application/xhtml+xml",
+            "<?xml version=\"1.0\"?><s:svg xmlns:s=\"http://www.w3.org/2000/svg\">" to "image/svg+xml",
             "From: <Saved by Blink>\r\nSubject: x\r\nMIME-Version: 1.0\r\nContent-Type: multipart/related;\r\n" to "multipart/related",
         )
         for ((text, type) in cases) assertEquals(type, AttachmentSafety.sniff(bytes(text)), text)
@@ -65,7 +69,7 @@ class AttachmentSafetyTest {
 
     @Test
     fun sniffUnknown() {
-        for (text in listOf("", "Hello world", "<pre-tag", "<?xml version=\"1.0\"?><note/>", "MZ is a company", "a<html>")) {
+        for (text in listOf("", "Hello world", "<pre-tag", "<?xml version=\"1.0\"?><note/>", "MZ is a company", "a<html>", "BMW text, 40 lines long")) {
             assertNull(AttachmentSafety.sniff(bytes(text)), text)
         }
         // "MZ" without the PE signature at the offset in the header.

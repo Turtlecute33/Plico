@@ -140,6 +140,9 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     private val psl = viewModelScope.async(Dispatchers.IO) { Psl.get(app) }
     private val budget = RemoteFetcher.Budget()
 
+    /** Fetched remote images: a WebView reload (rotation, colours) makes no new request and spends no more budget. */
+    private val fetched = ConcurrentHashMap<String, RemoteFetcher.Resource>()
+
     private val detail = app.messages.observeDetail(messageId).shareIn(viewModelScope, SharingStarted.Eagerly, 1)
     private val fixed = viewModelScope.async(Dispatchers.IO) { detail.first()?.let { fixedOf(it) } }
 
@@ -262,7 +265,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     /** A remote image, only while the body on screen allows remote content. Blocking; WebView worker thread. */
     override fun remoteImage(url: String): Served? {
         if ((body.value as? BodyState.Html)?.remote != true) return null
-        val resource = RemoteFetcher.image(url, budget) ?: return null
+        val resource = fetched[url] ?: RemoteFetcher.image(url, budget)?.also { fetched[url] = it } ?: return null
         return Served(resource.mimeType, ByteArrayInputStream(resource.bytes))
     }
 

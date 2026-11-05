@@ -32,7 +32,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -64,6 +63,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.plico.R
 import app.plico.account.TlsReason
@@ -92,6 +92,7 @@ import app.plico.ui.components.tlsCause
 import app.plico.ui.message.MessageUndo
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
@@ -189,8 +190,10 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     }
     if (atTop) listState.requestScrollToItem(0)
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val snackbar = remember { SnackbarHostState() }
+    val snackbar = vm.snackbar
     val scope = rememberCoroutineScope()
+    // The texts without Undo that show or wait in the snackbar.
+    val texts = remember { mutableListOf<Job>() }
     val resources = LocalResources.current
     // Saved state keeps these dialogs open after a configuration change. It holds only Bundle types: ids and
     // flags. The picker request has a label map, so it stays in remember.
@@ -200,20 +203,28 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     var picker by remember { mutableStateOf<PickerRequest?>(null) }
 
     /**
-     * A result in the snackbar. An Undo replaces what shows now and stays until 1 s before its change runs
-     * ([UndoWindow]); other texts wait their turn, so that they never cut an Undo short.
+     * A result in the snackbar. An Undo replaces what shows now and what waits, and stays until 1 s before its
+     * change runs ([UndoWindow]); later texts wait their turn, so that they never cut an Undo short. An Undo runs
+     * in the ViewModel, so that a rotation does not stop it; texts stop when the screen leaves.
      */
     fun notify(text: String, undo: (() -> Unit)? = null, since: Long = 0, long: Boolean = false) {
-        scope.launch {
-            if (undo == null) {
+        if (undo == null) {
+            texts.removeAll { it.isCompleted }
+            texts += scope.launch {
                 snackbar.showSnackbar(
                     text,
                     withDismissAction = long,
                     duration = if (long) SnackbarDuration.Long else SnackbarDuration.Short,
                 )
-            } else {
+            }
+        } else {
+            // The snackbar queue is first in, first out: a text that waits would use the Undo window.
+            texts.forEach(Job::cancel)
+            texts.clear()
+            val label = resources.getString(R.string.ui_undo)
+            vm.viewModelScope.launch {
                 snackbar.currentSnackbarData?.dismiss()
-                if (snackbar.showUndo(text, resources.getString(R.string.ui_undo), UndoWindow.actionLeft(since))) undo()
+                if (snackbar.showUndo(text, label, UndoWindow.actionLeft(since))) undo()
             }
         }
     }
@@ -224,7 +235,8 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
 
     fun actOnSelection(action: RowAction) {
         act(selected.toList(), action)
-        vm.clearSelection()
+        // Delete forever keeps the selection until the user confirms, so that Cancel loses nothing.
+        if (action != RowAction.DELETE_FOREVER) vm.clearSelection()
     }
 
     fun open(row: MessageSummary) {
@@ -238,7 +250,11 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     fun openView(target: MailView) {
         scope.launch {
             drawerState.close()
-            if (target != view) nav.replaceTop(Route.Mailbox(target))
+            // All inboxes stays at the bottom, so that Back from a folder is a real (predictive) pop.
+            when {
+                view == MailView.Unified -> nav.go(Route.Mailbox(target))
+                target != view -> nav.replaceTop(Route.Mailbox(target))
+            }
         }
     }
 
@@ -276,10 +292,6 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
         }.distinctUntilChanged().collect { vm.loadMore(it, rows.size) }
     }
 
-    val isRoot = nav.backStack.size == 1
-    BackHandler(enabled = isRoot && vm.view != MailView.Unified && !drawerState.isOpen) {
-        nav.replaceTop(Route.Mailbox(MailView.Unified))
-    }
     BackHandler(enabled = vm.searching && !drawerState.isOpen, onBack = ::endSearch)
     BackHandler(enabled = selection != null && !drawerState.isOpen, onBack = vm::clearSelection)
 
@@ -481,7 +493,10 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
             title = pluralStringResource(R.plurals.mailbox_delete_forever_title, ids.size, ids.size),
             text = stringResource(R.string.mailbox_cannot_undo),
             confirmLabel = stringResource(R.string.mailbox_action_delete_forever),
-            onConfirm = { vm.apply(RowAction.DELETE_FOREVER, ids.toList()) },
+            onConfirm = {
+                vm.apply(RowAction.DELETE_FOREVER, ids.toList())
+                vm.clearSelection()
+            },
             onDismiss = { confirmDelete = null },
             destructive = true,
         )

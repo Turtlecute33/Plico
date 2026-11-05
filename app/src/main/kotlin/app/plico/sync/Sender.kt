@@ -95,6 +95,9 @@ object Sender {
             return fail(ctx, draft, store.text(R.string.ops_error_invalid_address))
         } catch (_: IOException) {
             return fail(ctx, draft, store.text(R.string.ops_error_attachment_missing))
+        } catch (e: RuntimeException) {
+            // No byte is sent yet: the row must not stay in SENDING (DESIGN §7.5).
+            return refused(ctx, draft, e)
         }
         val recipients = DraftMime.recipients(draft)
         if (recipients.isEmpty()) return fail(ctx, draft, store.text(R.string.ops_error_no_recipient))
@@ -185,9 +188,9 @@ object Sender {
     /**
      * Runs an [OpArg.Append] of a Sent copy (Riseup and other servers). When the server may have saved its own copy
      * (`traits.checkSentCopy`), the newest messages of Sent are checked for the Message-ID first, and a match skips
-     * the APPEND; this also makes a retried APPEND safe.
+     * the APPEND. A retry ([attempts] > 0) does the check on every server: the earlier try can have stored the copy.
      */
-    internal fun uploadSentCopy(ctx: OpContext, arg: OpArg.Append) {
+    internal fun uploadSentCopy(ctx: OpContext, arg: OpArg.Append, attempts: Int) {
         val store = ctx.store
         val name = arg.file ?: return
         val file = Files.inside(store.files.outboxDir(arg.draftId), name)
@@ -195,7 +198,7 @@ object Sender {
         val bytes = file.readBytes()
         Ops.checkAppendSize(ctx, bytes.size)
         val sent = store.mailbox(ctx.account.id, FolderRole.SENT)
-        if (sent != null && ctx.account.traits.checkSentCopy && hasCopy(ctx, sent, messageIdOf(store, arg.draftId, bytes))) return
+        if (sent != null && (ctx.account.traits.checkSentCopy || attempts > 0) && hasCopy(ctx, sent, messageIdOf(store, arg.draftId, bytes))) return
         val path = sent?.path ?: Ops.defaultPath(ctx, DEFAULT_SENT)
         ctx.progress(uploadMs(bytes.size))
         Ops.creating(ctx, path, FolderRole.SENT) { ctx.client.append(path, listOf(SEEN), bytes) }

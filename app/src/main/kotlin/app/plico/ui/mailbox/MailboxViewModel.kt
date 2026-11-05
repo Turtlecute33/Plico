@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.annotation.PluralsRes
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -234,6 +235,9 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
 
     private val _events = Channel<MailboxEvent>(Channel.BUFFERED)
     val events: Flow<MailboxEvent> = _events.receiveAsFlow()
+
+    /** The screen's snackbar. It is here, so that an Undo stays for the rest of its window after a rotation. */
+    val snackbar = SnackbarHostState()
 
     private val opener = OneAtATime(viewModelScope)
 

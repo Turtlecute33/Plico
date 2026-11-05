@@ -29,14 +29,15 @@ object ComposeIntents {
     /**
      * The new draft id, or null when the intent has nothing usable or no account exists. The draft belongs to
      * the first account. Files from `EXTRA_STREAM` and `ClipData` are copied at once, and only when
-     * [IncomingUris.allowed]; a toast tells the user about files that were not attached.
+     * [IncomingUris.allowed] and not in [denied] (the sender cannot read them); a toast tells the user about files
+     * that were not attached.
      */
-    suspend fun draftFromIntent(app: PlicoApp, intent: Intent): Long? {
+    suspend fun draftFromIntent(app: PlicoApp, intent: Intent, denied: Set<Uri>): Long? {
         val (shared, streams) = read(intent) ?: return null
         val prefill = prefill(shared)
         var failed = 0
         val draftId = withContext(Dispatchers.IO) {
-            val allowed = streams.filter { IncomingUris.allowed(app, it) }
+            val allowed = streams.filter { it !in denied && IncomingUris.allowed(app, it) }
             failed = streams.size - allowed.size
             val accountId = app.accounts.all().firstOrNull()?.id
             if (accountId == null || shared.mailto == null && isEmpty(prefill) && allowed.isEmpty()) {

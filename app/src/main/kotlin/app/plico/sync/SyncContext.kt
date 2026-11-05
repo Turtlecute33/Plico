@@ -20,7 +20,8 @@ import app.plico.mail.smtp.SmtpClient
  */
 internal class SyncContext(
     app: PlicoApp,
-    override val account: Account,
+    /** The current settings: [AccountSession] sets it at the start of each cycle, so edits need no reconnect. */
+    @Volatile override var account: Account,
     override val client: ImapClient,
     private val credentials: Credentials,
     private val session: AccountSession,

@@ -165,9 +165,15 @@ class Notifier(private val app: PlicoApp) {
 
     /** "Message not sent" for the account while the app is not on screen (DESIGN §7.5). Blocking (database). */
     fun sendFailed(accountId: Long) {
-        if (app.push.appVisible) return
         val account = app.accounts.get(accountId) ?: return
+        // Checked after the database read: the app can come on screen (and clear the alerts) during it.
+        if (app.push.appVisible) return
         postAlert(UNSENT_PREFIX + account.id, account, R.string.push_unsent_title, R.string.push_unsent_text, openApp)
+    }
+
+    /** The app is on screen: the mailbox shows failed sends from now on, so "Message not sent" goes (DESIGN §7.5). */
+    fun clearUnsent() {
+        for (sbn in nm.activeNotifications) if (sbn.tag?.startsWith(UNSENT_PREFIX) == true) nm.cancel(sbn.tag, sbn.id)
     }
 
     /** The foreground-service notification with a privacy-neutral [text]. */

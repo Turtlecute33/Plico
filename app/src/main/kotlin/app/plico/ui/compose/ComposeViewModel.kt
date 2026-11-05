@@ -26,6 +26,7 @@ import app.plico.mail.mime.Address
 import app.plico.sync.DraftMime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -225,14 +226,24 @@ internal class ComposeViewModel(
     }
 
     fun attach(uris: List<Uri>) {
-        if (!editing) return
+        if (!editing || uris.isEmpty()) return
+        // A pick is an edit: when the user leaves, the draft is saved, not discarded (DraftRules.leave).
+        edited = true
         for (uri in uris) {
             val key = nextKey++
+            // Shown at once, so that send() waits also during the name query.
+            adding += PendingAttachment(key, null)
+            // Detached and queued for the lock now: the copy finishes when the user leaves at once,
+            // in order before the save or discard of onCleared.
+            val copy = detached.async(start = CoroutineStart.UNDISPATCHED) {
+                write { app.mail.addAttachment(draftId, uri) }
+            }
             viewModelScope.launch {
-                val pending = PendingAttachment(key, withContext(Dispatchers.IO) { displayName(uri) })
-                adding += pending
                 try {
-                    val added = write { app.mail.addAttachment(draftId, uri) }
+                    val name = withContext(Dispatchers.IO) { displayName(uri) }
+                    val i = adding.indexOfFirst { it.key == key }
+                    if (i >= 0) adding[i] = PendingAttachment(key, name)
+                    val added = copy.await()
                     sources[added.file] = Source(uri, original = false)
                     if (attachments.none { it.file == added.file }) attachments = attachments + added
                     changed()
@@ -242,7 +253,7 @@ internal class ComposeViewModel(
                     failed("attach", e)
                     noticeChannel.trySend(Notice.ATTACH_FAILED)
                 } finally {
-                    adding -= pending
+                    adding.removeAll { it.key == key }
                 }
             }
         }
@@ -385,9 +396,16 @@ internal class ComposeViewModel(
             DraftRules.Leave.DISCARD -> background { app.mail.discardDraft(draftId) }
             DraftRules.Leave.SAVE -> {
                 Toast.makeText(app, R.string.compose_draft_saved, Toast.LENGTH_SHORT).show()
+                // Only picks that were still copying: this runs after them (the lock is FIFO). When all failed,
+                // the draft is empty and goes.
+                val onlyPicks = content.isEmpty() && attachments.isEmpty()
                 background {
-                    save(content)
-                    app.mail.leaveDraft(draftId)
+                    if (onlyPicks && fresh && app.drafts.get(draftId)?.attachments.isNullOrEmpty()) {
+                        app.mail.discardDraft(draftId)
+                    } else {
+                        save(content)
+                        app.mail.leaveDraft(draftId)
+                    }
                 }
             }
         }

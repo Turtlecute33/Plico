@@ -58,8 +58,11 @@ object AttachmentSafety {
         "image/jpg" to "image/jpeg", "image/pjpeg" to "image/jpeg", "image/x-png" to "image/png",
         "application/x-pdf" to "application/pdf", "application/x-zip-compressed" to ZIP, "application/x-zip" to ZIP,
         "application/vnd.microsoft.portable-executable" to EXE, "application/x-dosexec" to EXE,
-        "application/x-msdos-program" to EXE,
+        "application/x-msdos-program" to EXE, "image/x-ms-bmp" to "image/bmp", "image/x-bmp" to "image/bmp",
     )
+
+    /** BITMAPCOREHEADER to BITMAPV5HEADER sizes; "BM" alone also starts plain text. */
+    private val bmpHeaderSizes = setOf(12, 40, 52, 56, 108, 124)
 
     /** Declared types whose files are ZIP containers. */
     private val zipFamily = listOf(
@@ -108,6 +111,9 @@ object AttachmentSafety {
         head.startsWith("\u00FF\u00D8\u00FF") -> "image/jpeg"
         head.startsWith("GIF87a") || head.startsWith("GIF89a") -> "image/gif"
         head.startsWith("RIFF") && head.startsWith("WEBP", 8) -> "image/webp"
+        head.startsWith("ftyp", 4) && (head.startsWith("avif", 8) || head.startsWith("avis", 8)) -> "image/avif"
+        head.startsWith("BM") && head.size > 17 && head[14].toInt() in bmpHeaderSizes &&
+            head.startsWith("\u0000\u0000\u0000", 15) -> "image/bmp"
         head.startsWith("PK\u0003\u0004") || head.startsWith("PK\u0005\u0006") -> {
             val names = String(head, Charsets.ISO_8859_1)
             if ("AndroidManifest.xml" in names || "classes.dex" in names) APK else ZIP
@@ -136,7 +142,10 @@ object AttachmentSafety {
         else -> false
     }
 
-    /** HTML, XHTML, SVG or MHTML from the first tag after an XML prolog, comments and a doctype. */
+    /**
+     * HTML, XHTML, SVG or MHTML from the first tag after an XML prolog, comments and a doctype. After a
+     * prolog, also from the namespace, so that a prefixed root (`<x:html xmlns:x=…>`) is not missed.
+     */
     private fun markup(text: String): String? {
         var s = text.trimStart().lowercase()
         val xml = s.startsWith("<?xml")
@@ -154,6 +163,8 @@ object AttachmentSafety {
             isTag(s, "svg") -> SVG
             isTag(s, "html") -> if (xml) XHTML else HTML
             !xml && htmlTags.any { isTag(s, it) } -> HTML
+            xml && "http://www.w3.org/1999/xhtml" in s -> XHTML
+            xml && "http://www.w3.org/2000/svg" in s -> SVG
             headerLine.containsMatchIn(s) && "multipart/related" in s -> MHTML
             else -> null
         }

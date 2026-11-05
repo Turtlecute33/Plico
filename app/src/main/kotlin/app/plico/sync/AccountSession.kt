@@ -528,6 +528,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
 
     /** One pass of the work order of DESIGN.md §7.1. */
     private suspend fun cycle(c: Connection, account: Account) {
+        // Sender name and body days take effect without a reconnect.
+        c.ctx.account = account
         val trigger = takeTriggers(c)
         _status.value = Status.Syncing
         val now = elapsed()

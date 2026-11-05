@@ -1,6 +1,9 @@
 package app.plico
 
+import android.app.ComponentCaller
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.ViewTreeObserver
@@ -50,13 +53,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         applyWindowPrivacy()
         lifecycleScope.launch { app.prefs.changes().collect { applyWindowPrivacy() } }
+        // No overlay of another app can draw a fake field over a password entry (DESIGN §12). Only on these
+        // routes, so that screen dimmers stay visible on all other screens (apis AF8).
+        lifecycleScope.launch {
+            snapshotFlow { nav.current.let { it is Route.Setup || it is Route.Reauth } }
+                .collect { window.setHideOverlayWindows(it) }
+        }
 
         // A new Navigator after process death starts again from the mailbox, so the saved state of the old
         // screens must not come back: a dialog that was open would open again with no tap.
         val oldScreens = savedInstanceState != null && nav.backStack.isEmpty()
-        nav.start(app)
         // After a configuration change or process death this intent was handled already.
-        if (savedInstanceState == null) Entry.of(intent)?.let { nav.open(app, it, intent, fresh = true) }
+        val entry = if (savedInstanceState == null) Entry.of(intent) else null
+        // A share that starts the activity is the first route: the splash stays during the copy, so the inbox
+        // does not show first, and Back returns to the sharing app.
+        val share = intent.takeIf { entry == Entry.Compose }
+        nav.start(app, share, share?.let { unreadable(it, initialCaller) }.orEmpty())
+        if (entry != null && share == null) nav.open(app, entry, intent)
         keepSplashUntilStarted()
 
         setContent {
@@ -76,11 +89,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
+    override fun onNewIntent(intent: Intent, caller: ComponentCaller) {
+        super.onNewIntent(intent, caller)
         setIntent(intent)
-        Entry.of(intent)?.let { nav.open(app, it, intent, fresh = false) }
+        Entry.of(intent)?.let { nav.open(app, it, intent, unreadable(intent, caller)) }
     }
+
+    /**
+     * The shared URIs that [caller] cannot read itself. Plico does not copy them: else a sender could get a file
+     * through Plico's own picker grants (confused deputy, DESIGN §11.6). Checked here, while [caller] is valid.
+     */
+    private fun unreadable(intent: Intent, caller: ComponentCaller): Set<Uri> =
+        ComposeIntents.read(intent)?.second.orEmpty().filterTo(HashSet()) { uri ->
+            runCatching { caller.checkContentUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                .getOrDefault(PackageManager.PERMISSION_DENIED) != PackageManager.PERMISSION_GRANTED
+        }
 
     override fun onStart() {
         app.appLock.onForeground()
@@ -126,26 +149,26 @@ class MainActivity : ComponentActivity() {
 
 // The helpers below run in the Navigator's scope, which outlives a rotation; they hold no activity.
 
-/** The first route: Setup without accounts, else the unified inbox. */
-private fun Navigator.start(app: PlicoApp) = startWith {
+/** The first route: the draft from [share] without the [denied] URIs, else Setup without accounts, else the inbox. */
+private fun Navigator.start(app: PlicoApp, share: Intent?, denied: Set<Uri>) = startWith {
+    share?.let { s ->
+        val draftId = ComposeIntents.draftFromIntent(app, s, denied)
+        if (draftId != null) return@startWith Route.Compose(draftId, fresh = ComposeIntents.isMailto(s.action))
+    }
     val empty = withContext(Dispatchers.IO) { app.accounts.all().isEmpty() }
     if (empty) Route.Setup else Route.Mailbox(MailView.Unified)
 }
 
-/**
- * Acts on a trusted [entry] once the first route is set. [fresh] = this intent started the activity:
- * a shared draft is then the only screen, so that Back returns to the sharing app.
- */
-private fun Navigator.open(app: PlicoApp, entry: Entry, intent: Intent, fresh: Boolean) {
+/** Acts on a trusted [entry] once the first route is set. A share does not copy the [denied] URIs. */
+private fun Navigator.open(app: PlicoApp, entry: Entry, intent: Intent, denied: Set<Uri> = emptySet()) {
     viewModelScope.launch {
         snapshotFlow { backStack.isNotEmpty() }.first { it }
         when (entry) {
             is Entry.OpenMessage -> go(Route.Message(entry.messageId))
             is Entry.Reauth -> go(Route.Reauth(entry.accountId))
             Entry.Compose -> {
-                val draftId = ComposeIntents.draftFromIntent(app, intent) ?: return@launch
-                val route = Route.Compose(draftId, fresh = ComposeIntents.isMailto(intent.action))
-                if (fresh) reset(route) else go(route)
+                val draftId = ComposeIntents.draftFromIntent(app, intent, denied) ?: return@launch
+                go(Route.Compose(draftId, fresh = ComposeIntents.isMailto(intent.action)))
             }
             Entry.OAuthDone -> OAuthResume.onResult(app)?.let(::go)
         }

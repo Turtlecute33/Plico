@@ -190,7 +190,7 @@ object Ops {
             }
             is OpArg.Move -> move(ctx, op, arg)
             is OpArg.Expunge -> expunge(ctx, op, arg)
-            is OpArg.Append -> if (arg.role == FolderRole.SENT) Sender.uploadSentCopy(ctx, arg) else Drafts.upload(ctx, arg)
+            is OpArg.Append -> if (arg.role == FolderRole.SENT) Sender.uploadSentCopy(ctx, arg, op.attempts) else Drafts.upload(ctx, arg)
             is OpArg.DeleteDraft -> Drafts.deleteRevisions(ctx, arg)
         }
     }

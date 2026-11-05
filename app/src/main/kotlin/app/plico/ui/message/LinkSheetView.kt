@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.PersistableBundle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -132,9 +134,18 @@ fun LinkSheetView(sheet: LinkSheet, onOpen: (String) -> Unit, onDismiss: () -> U
     }
 }
 
-/** Links can hold tokens: marked sensitive, so that the clipboard preview hides them. */
+/**
+ * Links can hold tokens: marked sensitive, so that the clipboard preview hides them, and cleared
+ * after 60 s. In the background the app cannot read the clipboard, so it clears it when it cannot tell.
+ */
 private fun copy(context: Context, text: String) {
     val clip = ClipData.newPlainText(null, text)
     clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
-    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+    val cm = context.applicationContext.getSystemService(ClipboardManager::class.java)
+    cm.setPrimaryClip(clip)
+    val at = cm.primaryClipDescription?.timestamp
+    Handler(Looper.getMainLooper()).postDelayed({
+        val now = cm.primaryClipDescription?.timestamp
+        if (now == null || at == null || now == at) cm.clearPrimaryClip()
+    }, 60_000L)
 }

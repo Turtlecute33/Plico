@@ -1154,7 +1154,7 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 - Size: the message must fit `traits.maxMessageBytes` (§6.1), lowered by the live SMTP `SIZE`.
 - **Sent copy:**
   - Gmail and Microsoft: never (the server saves SMTP-submitted mail in Sent).
-  - Riseup: the APPEND runs at once, without a check (unchanged).
+  - Riseup: the first APPEND runs at once, without a check; a retry does the Message-ID check below first.
   - Other servers: never for a table server that saves the copy itself (`serverSavesSent`: Yahoo, AOL). Else the
     `append` op gets `run_at = now + 60 s`, because an unknown server may save its own copy. Before the APPEND,
     the op fetches `BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]` of the newest 50 messages of Sent
@@ -1507,7 +1507,11 @@ redirects, a blocked hop).
 ### 11.6 Incoming intents (`privacy PS2`, `simplicity EM6`)
 - `IncomingUri.check` for `EXTRA_STREAM` and `ClipData`: only `content://` whose provider package is not Plico
   (`resolveContentProvider(authority, 0)?.packageName != packageName`); reject `file://` and other schemes.
-  Typed getters inside try/catch. Copy at once into `outbox/<draftId>/` with a size cap (provider limit).
+  Typed getters inside try/catch. Copy at once into `outbox/<draftId>/` with a size cap for all files together
+  (provider limit). A URI that the sending app cannot read itself is not copied
+  (`ComponentCaller.checkContentUriPermission`), so that no app gets a file through Plico's own grants.
+- A share that starts the app is the first screen: the splash stays during the copy, and Back returns to the
+  sharing app.
 - `mailto:` (SENDTO, and VIEW + BROWSABLE): parse only `to cc bcc subject body` (RFC 6068); prefilled Cc/Bcc
   rows are shown expanded.
 - External intents can only open Compose. The app lock covers every entry.
@@ -1518,6 +1522,7 @@ redirects, a blocked hop).
 - Network security config: `<base-config><certificateTransparency enabled="true"/></base-config>` (CT on
   Android 16+; Android 15 has none; About says so — `apis AF10`). System CAs only (default).
 - `setRecentsScreenshotEnabled(false)` (default on); `FLAG_SECURE` option (default off).
+- `setHideOverlayWindows(true)` on Setup and Reauth (the password fields), not on other screens.
 - App lock (default off): platform `BiometricPrompt`, `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` (no negative
   button), timeout immediately / 1 / 5 / 30 min; UI only; background sync continues.
 - Compose and search fields: `InterceptPlatformTextInput` adds `IME_FLAG_NO_PERSONALIZED_LEARNING`

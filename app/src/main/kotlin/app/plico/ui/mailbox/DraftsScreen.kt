@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -49,7 +50,8 @@ fun DraftsScreen(accountId: Long, nav: Navigator) {
     val account by remember(app, accountId) { app.accounts.observe(accountId) }.collectAsStateWithLifecycle(null)
     val dates = rememberDateFormats()
     val scope = rememberCoroutineScope()
-    var confirmRetry by remember { mutableStateOf<Draft?>(null) }
+    // An id in saved state keeps the dialog open after a configuration change, as in MailboxScreen.
+    var confirmRetry by rememberSaveable { mutableStateOf<Long?>(null) }
     val retry = { draft: Draft -> scope.launch(Dispatchers.IO) { app.mail.retrySend(draft.id) } }
 
     Scaffold(
@@ -80,7 +82,7 @@ fun DraftsScreen(accountId: Long, nav: Navigator) {
                         draft = draft,
                         date = dates.list(draft.updated),
                         onOpen = { nav.go(Route.Compose(draft.id)) },
-                        onRetry = { if (draft.mayHaveBeenSent) confirmRetry = draft else retry(draft) },
+                        onRetry = { if (draft.mayHaveBeenSent) confirmRetry = draft.id else retry(draft) },
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -88,7 +90,7 @@ fun DraftsScreen(accountId: Long, nav: Navigator) {
         }
     }
 
-    confirmRetry?.let { draft ->
+    confirmRetry?.let { id -> drafts?.find { it.id == id } }?.let { draft ->
         SendAgainDialog(draft, onConfirm = { retry(draft) }, onDismiss = { confirmRetry = null })
     }
 }

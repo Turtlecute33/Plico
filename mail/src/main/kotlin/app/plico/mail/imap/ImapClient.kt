@@ -87,12 +87,21 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         if ("IMAP4REV1" !in caps && "IMAP4REV2" !in caps) throw ImapMissingCapabilityException(setOf("IMAP4REV1"))
     }
 
-    /** `ENABLE`; returns the upper-case extensions the server reports as enabled (none without ENABLE). */
+    /**
+     * `ENABLE`; returns the upper-case extensions the server reports as enabled (none without ENABLE, or on NO or
+     * BAD). The extensions are optional, so a refusal does not stop the session.
+     */
     fun enable(vararg ext: String): Set<String> {
         if (ext.isEmpty() || "ENABLE" !in caps) return emptySet()
         val enabled = HashSet<String>()
-        conn.execute(Command.raw("ENABLE", *ext)) { r ->
-            if (r.keyword == "ENABLED") r.values.mapNotNullTo(enabled) { it.textOrNull()?.uppercase() }
+        try {
+            conn.execute(Command.raw("ENABLE", *ext)) { r ->
+                if (r.keyword == "ENABLED") r.values.mapNotNullTo(enabled) { it.textOrNull()?.uppercase() }
+            }
+        } catch (_: ImapNoException) {
+            return emptySet()
+        } catch (_: ImapBadException) {
+            return emptySet()
         }
         return enabled
     }
@@ -125,9 +134,17 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         }
     }
 
-    /** Starts COMPRESS=DEFLATE when the server advertises it. */
+    /**
+     * Starts COMPRESS=DEFLATE when the server advertises it. A NO or BAD (RFC 4978 §3) keeps the stream
+     * uncompressed and usable: the switch occurs only after OK.
+     */
     fun compress() {
-        if ("COMPRESS=DEFLATE" in caps) conn.startCompression()
+        if ("COMPRESS=DEFLATE" !in caps) return
+        try {
+            conn.startCompression()
+        } catch (_: ImapNoException) {
+        } catch (_: ImapBadException) {
+        }
     }
 
     /**

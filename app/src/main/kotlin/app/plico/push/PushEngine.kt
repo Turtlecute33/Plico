@@ -74,12 +74,28 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
     var appVisible = false
         private set
 
-    private val state = MutableStateFlow(readStatus())
+    // An "all OK" placeholder with no binder calls on the main thread; init reads the real values on IO
+    // (PLICO-PERF-011), so no false banner shows before then.
+    private val state = MutableStateFlow(
+        PushStatus(
+            running = false,
+            pausedByUser = app.prefs.pushPaused,
+            stoppedBySystem = app.prefs.pushStoppedBySystemUi,
+            hasNetwork = true,
+            grants = Grants(
+                notifications = true,
+                batteryUnrestricted = true,
+                exactAlarms = true,
+                backgroundRestricted = false,
+            ),
+        ),
+    )
 
     /** Grants and push state for the UI; updated on start, stop, pause, network changes and [refreshStatus]. */
     val status: StateFlow<PushStatus> = state.asStateFlow()
 
     init {
+        scope.launch { updateStatus() }
         scope.launch {
             while (true) {
                 signal.receive()
@@ -143,7 +159,10 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         if (!visible) return
         // The grant reads are binder calls: not on the main thread (PLICO-PERF-011). The UI holds no wake lock
         // that the alarm must be armed before (push PB4).
-        scope.launch { refreshStatus() }
+        scope.launch {
+            refreshStatus()
+            app.notifier.clearUnsent()
+        }
         ensureStarted()
         onWake()
     }
@@ -359,7 +378,8 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         grants = Grants.read(app),
     )
 
-    private fun updateStatus() {
+    /** Serialized, so that a slow read that started earlier cannot write old values over a newer one. */
+    private fun updateStatus() = synchronized(state) {
         state.value = readStatus()
     }
 

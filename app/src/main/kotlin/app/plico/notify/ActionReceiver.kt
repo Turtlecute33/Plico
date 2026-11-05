@@ -11,8 +11,8 @@ import app.plico.sync.NotificationAction
 
 /**
  * Archive / Delete / Mark read from a new-mail notification (DESIGN §9; push PB7). The change is local at
- * once and its op runs now; when push is not running, the service starts (a notification action may
- * start it) so that the op reaches the server.
+ * once and its op runs now; when push is not running and not paused or stopped, the service starts (a
+ * notification action may start it) so that the op reaches the server.
  */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -27,7 +27,8 @@ class ActionReceiver : BroadcastReceiver() {
         app.power.holder("action").renew(LOCK_MS)
         val engine = app.push
         runAsync(engine) {
-            if (!engine.running && !app.prefs.pushPaused) PushService.start(app, Source.ACTION)
+            val stopped = app.prefs.pushPaused || app.prefs.pushStoppedBySystemUi
+            if (!engine.running && !stopped) PushService.start(app, Source.ACTION)
             app.mail.notificationAction(messageId, action)
             app.notifier.refresh(accountId)
         }
