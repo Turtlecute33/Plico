@@ -4,6 +4,7 @@ import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import app.plico.R
 import app.plico.account.TlsReason
 
@@ -21,6 +22,22 @@ fun tlsCause(reason: TlsReason): Int = when (reason) {
     TlsReason.NAME_MISMATCH -> R.string.ui_tls_name
     TlsReason.UNTRUSTED -> R.string.ui_tls_untrusted
     TlsReason.NO_TLS -> R.string.ui_tls_no_tls
+}
+
+/**
+ * The cause of a TLS problem and what to do, for the account settings and setup (PLICO-UX-009). [other] is true
+ * for servers that the user entered or that setup found. A name mismatch on a built-in server is not a typo: it
+ * points to the network, as an untrusted certificate does.
+ */
+@Composable
+fun tlsText(reason: TlsReason, other: Boolean): String {
+    val advice = when (reason) {
+        TlsReason.EXPIRED -> R.string.settings_tls_expired
+        TlsReason.NOT_YET_VALID -> R.string.settings_tls_clock
+        TlsReason.NAME_MISMATCH -> if (other) R.string.settings_tls_name else R.string.settings_tls_network
+        TlsReason.UNTRUSTED, TlsReason.NO_TLS -> R.string.settings_tls_network
+    }
+    return stringResource(tlsCause(reason)) + " " + stringResource(advice)
 }
 
 /** The text, with [ErrorText.detail] in its placeholder when it has one. */

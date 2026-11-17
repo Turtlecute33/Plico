@@ -69,7 +69,7 @@ import app.plico.ui.components.Icons
 import app.plico.ui.components.PrivateTextInput
 import app.plico.ui.components.SystemPages
 import app.plico.ui.components.fileSize
-import app.plico.ui.components.tlsCause
+import app.plico.ui.components.tlsText
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
 
@@ -145,21 +145,11 @@ private fun AccountHeader(account: Account, onSignIn: () -> Unit) {
     }
 }
 
-/**
- * The cause of a TLS problem and what to do (PLICO-UX-009). A name mismatch on a built-in server is not a typo:
- * it points to the network, as an untrusted certificate does.
- */
+/** The cause of a TLS problem and what to do (PLICO-UX-009). */
 @Composable
 private fun tlsProblem(account: Account): String {
     val reason = TlsReason.of(account.stateText) ?: return stringResource(R.string.settings_state_tls_text)
-    val advice = when (reason) {
-        TlsReason.EXPIRED -> R.string.settings_tls_expired
-        TlsReason.NOT_YET_VALID -> R.string.settings_tls_clock
-        TlsReason.NAME_MISMATCH ->
-            if (account.provider == Provider.OTHER) R.string.settings_tls_name else R.string.settings_tls_network
-        TlsReason.UNTRUSTED, TlsReason.NO_TLS -> R.string.settings_tls_network
-    }
-    return stringResource(tlsCause(reason)) + " " + stringResource(advice)
+    return tlsText(reason, account.provider == Provider.OTHER)
 }
 
 private enum class ProfileDialog { LABEL, NAME, SIGNATURE }

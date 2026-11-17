@@ -16,6 +16,7 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.security.cert.CertificateException
+import java.security.cert.CertificateExpiredException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
@@ -162,23 +163,29 @@ class ProblemTest {
         assertEquals(Problem(Problem.Kind.NETWORK), riseup(UnknownHostException("mail.riseup.net")))
         assertEquals(Problem(Problem.Kind.NETWORK), gmail(IOException("Token endpoint: HTTP 503"), Method.BROWSER))
         val certificate = SSLHandshakeException("bad").apply { initCause(CertificateException("untrusted")) }
-        assertEquals(Problem(Problem.Kind.TLS), riseup(certificate))
-        assertEquals(Problem(Problem.Kind.TLS), riseup(MailError.Tls(certificate)))
+        assertEquals(Problem(Problem.Kind.TLS, "UNTRUSTED"), riseup(certificate))
+        assertEquals(Problem(Problem.Kind.TLS, "UNTRUSTED"), riseup(MailError.Tls(certificate)))
         assertEquals(Problem(Problem.Kind.THROTTLED), riseup(MailError.Throttled("Maximum number of connections")))
     }
 
     @Test
-    fun `a certificate failure of a server that the user can change asks for the server name`() {
+    fun `a certificate failure tells its cause`() {
         // Shared hosting: imap.<domain> has the certificate of the hosting server (MailSocket's hostname check).
         val name = MailError.Tls(SSLPeerUnverifiedException("Hostname verification failed"))
-        assertEquals(Problem(Problem.Kind.TLS_NAME), other(failedAt(TlsMode.IMPLICIT, 993, name)))
+        assertEquals(Problem(Problem.Kind.TLS_OTHER, "NAME_MISMATCH"), other(failedAt(TlsMode.IMPLICIT, 993, name)))
         // A certificate failure with STARTTLS is still a certificate failure.
         val untrusted = MailError.Tls(SSLHandshakeException("bad").apply { initCause(CertificateException("untrusted")) })
-        assertEquals(Problem(Problem.Kind.TLS_NAME), other(failedAt(TlsMode.STARTTLS, 587, untrusted)))
+        assertEquals(Problem(Problem.Kind.TLS_OTHER, "UNTRUSTED"), other(failedAt(TlsMode.STARTTLS, 587, untrusted)))
+        // A correct name with a different fault must not ask for the server name.
+        val expired = MailError.Tls(SSLHandshakeException("bad").apply { initCause(CertificateExpiredException()) })
+        assertEquals(Problem(Problem.Kind.TLS_OTHER, "EXPIRED"), other(failedAt(TlsMode.IMPLICIT, 993, expired)))
         // The built-in servers have fixed names: there a network that examines connections is the usual cause.
-        assertEquals(Problem(Problem.Kind.TLS), riseup(failedAt(TlsMode.IMPLICIT, 993, name)))
-        assertEquals(Problem(Problem.Kind.TLS), gmail(failedAt(TlsMode.IMPLICIT, 993, name)))
-        assertEquals(Problem(Problem.Kind.TLS), Problem.of(failedAt(TlsMode.IMPLICIT, 993, name), Provider.MICROSOFT, Method.BROWSER))
+        assertEquals(Problem(Problem.Kind.TLS, "NAME_MISMATCH"), riseup(failedAt(TlsMode.IMPLICIT, 993, name)))
+        assertEquals(Problem(Problem.Kind.TLS, "NAME_MISMATCH"), gmail(failedAt(TlsMode.IMPLICIT, 993, name)))
+        assertEquals(
+            Problem(Problem.Kind.TLS, "NAME_MISMATCH"),
+            Problem.of(failedAt(TlsMode.IMPLICIT, 993, name), Provider.MICROSOFT, Method.BROWSER),
+        )
     }
 
     @Test

@@ -1315,9 +1315,9 @@ attachments into `outbox/<draftId>/` when the user taps Forward (`protocol PS24`
   Only `AuthRequired` stops retries.
 - TLS cause (`PLICO-UX-009`): `MailErrors.tlsReason` finds `EXPIRED`, `NOT_YET_VALID`, `NAME_MISMATCH`,
   `UNTRUSTED` or `NO_TLS` (STARTTLS) in the cause chain; the session stores its name in `account.state_text`.
-  The mailbox banner tells the cause and has the action "Account"; the account settings add what to do (phone
-  clock; for a name mismatch on other servers the server name; else try a different network). No certificate
-  data is stored or logged, and there is no "accept" button (non-goal).
+  The mailbox banner tells the cause and has the action "Account"; the account settings and setup add what to do
+  (`tlsText`: phone clock; for a name mismatch on other servers the server name; else try a different network).
+  No certificate data is stored or logged, and there is no "accept" button (non-goal).
 - Keepalive cost (Dovecot example, e.g. Riseup): Dovecot's default 2-min keepalive is about 720 wakes/day per
   connection. Accounts on one phone share the phase only if the server sees the public client IP, otherwise
   each account has its own phase (`push PB18`). The account screen shows the measured interval and the
@@ -1653,11 +1653,11 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
     STARTTLS did not come, §4.1). On the built-in servers of Riseup, Gmail and Microsoft these are network
     problems (their TLS modes are known; resets and captive portals cause them). A connect timeout and a read
     timeout after the switch to TLS (LOGIN, LIST, EXAMINE, SMTP AUTH) are always network problems.
-    A certificate failure (`MailError.Tls`): on the built-in servers `TLS` ("… A network that examines
-    connections … can cause this. Try again on a different network."); on other servers `TLS_NAME` ("… Often the
-    certificate is for a different server name. Make sure that the server name is correct. Use the server name
-    that your mail provider gives. If the name is correct, try again on a different network."), because there a
-    certificate for another name (shared hosting, the guessed `imap.<domain>`) is the usual cause.
+    A certificate failure (`MailError.Tls`): `TLS` on the built-in servers, `TLS_OTHER` on other servers, with
+    the `MailErrors.tlsReason` name as detail. The text is "The secure connection to the server failed." with
+    the cause and what to do from `tlsText` (`PLICO-UX-009`), as in the account settings. Only a name mismatch
+    on other servers asks for the server name (shared hosting, the guessed `imap.<domain>`); on the built-in
+    servers it points to the network.
   - **Sign in again** (`Route.Reauth`): starts on the provider's page, or with `editServers` ("Change server
     settings" of an account on other servers with a password) on Server settings with the stored servers. The
     test writes the servers when they or `idle` changed (`ServerUpdate`; also a user name that the retry
@@ -1813,8 +1813,8 @@ sign-in method with this server …". The connection test and `AccountSession.fa
     exact), `MailboxMathTest` (skip without CONDSTORE, search windows), `SyncPlanTest`, `PushModesTest`,
     `TextsTest` (default labels), `HeaderParserTest` (`\Deleted`, never on Gmail).
   - ui: `SetupStateTest` (every transition and back path, the Microsoft sign-in-again account check),
-    `SetupInputTest`, `ProblemTest` (NO_TLS only for other servers and only before TLS, TLS_NAME for other
-    servers), `OAuthResumeTest`, `SettingsModelTest` (connections, sign-in clients),
+    `SetupInputTest`, `ProblemTest` (NO_TLS only for other servers and only before TLS, the TLS cause,
+    TLS_OTHER for other servers), `OAuthResumeTest`, `SettingsModelTest` (connections, sign-in clients),
     `NavigatorTest`/`EntryTest` (`Reauth(editServers)`), `RowLookTest`, `SenderColorsTest`, `ListContextTest`
     (logo gate).
   - html: `LogoRulesTest` (domains, URLs, hop rule, sniffing, cache times), `SenderLogosTest` (the cache with

@@ -66,11 +66,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.plico.R
 import app.plico.account.OAuthIssuer
+import app.plico.account.TlsReason
 import app.plico.mail.net.TlsMode
 import app.plico.ui.components.Banner
 import app.plico.ui.components.BannerKind
 import app.plico.ui.components.Icons
 import app.plico.ui.components.SystemPages
+import app.plico.ui.components.tlsText
 import app.plico.ui.settings.securityTitle
 import kotlinx.coroutines.launch
 
@@ -390,8 +392,8 @@ private fun problemText(problem: Problem, expected: String?): String {
         }
         Problem.Kind.SETUP -> detail ?: stringResource(R.string.setup_error_setup)
         Problem.Kind.NETWORK -> stringResource(R.string.setup_error_network)
-        Problem.Kind.TLS -> stringResource(R.string.setup_error_tls)
-        Problem.Kind.TLS_NAME -> stringResource(R.string.setup_error_tls_name)
+        Problem.Kind.TLS, Problem.Kind.TLS_OTHER -> stringResource(R.string.ui_error_tls) + " " +
+            tlsText(TlsReason.of(detail) ?: TlsReason.UNTRUSTED, other = problem.kind == Problem.Kind.TLS_OTHER)
         Problem.Kind.NO_TLS -> stringResource(R.string.setup_error_no_tls)
         Problem.Kind.THROTTLED -> stringResource(R.string.setup_error_throttled)
         Problem.Kind.SERVER -> if (detail != null) {

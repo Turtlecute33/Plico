@@ -9,6 +9,7 @@ import app.plico.account.PasswordCredentials
 import app.plico.account.ProbeException
 import app.plico.account.ProviderTable
 import app.plico.account.SignIn
+import app.plico.account.TlsReason
 import app.plico.account.discovery.Discovery
 import app.plico.account.discovery.Outcome
 import app.plico.account.discovery.Source
@@ -85,14 +86,18 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
         SETUP,
         NETWORK,
 
-        /** The certificate of a built-in server is not valid: often a network that examines connections. */
+        /**
+         * The certificate of a built-in server is not valid; [detail] is the [TlsReason] name. A name mismatch
+         * there points to a network that examines connections.
+         */
         TLS,
 
         /**
-         * The certificate of a server that the user entered or that setup found is not valid: often a certificate
-         * for another server name (shared hosting, a guessed `imap.<domain>`), which the user can correct.
+         * The certificate of a server that the user entered or that setup found is not valid; [detail] is the
+         * [TlsReason] name. A name mismatch there is often a wrong server name (shared hosting, a guessed
+         * `imap.<domain>`), which the user can correct.
          */
-        TLS_NAME,
+        TLS_OTHER,
 
         /** No encrypted connection: STARTTLS refused, or the security setting does not fit the port. */
         NO_TLS,
@@ -147,7 +152,8 @@ data class Problem(val kind: Kind, val detail: String? = null, val issuer: OAuth
                 }
                 is MailError.Setup -> Problem(Kind.SETUP, e.message?.ifBlank { null })
                 is MailError.Network -> Problem(Kind.NETWORK)
-                is MailError.Tls -> Problem(if (provider == Provider.OTHER) Kind.TLS_NAME else Kind.TLS)
+                is MailError.Tls ->
+                    Problem(if (provider == Provider.OTHER) Kind.TLS_OTHER else Kind.TLS, MailErrors.tlsReason(e).name)
                 is MailError.Throttled -> Problem(Kind.THROTTLED)
                 // MailError.Server, with the server's text.
                 else -> Problem(Kind.SERVER, e.message?.ifBlank { null })
