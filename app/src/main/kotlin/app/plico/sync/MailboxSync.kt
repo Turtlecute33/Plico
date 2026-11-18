@@ -203,7 +203,9 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
     ): Int {
         val batch = ArrayList<NewMessage>()
         var count = 0
-        val inbox = if (newMail) labels?.inboxId(report) else null
+        // Not on a first sync: its 200 old rows are no new mail, and counting them would make the Gmail UIDNEXT
+        // check (GmailSync.missedMail) expect a value that the inbox never reaches.
+        val inbox = if (newMail && folder.backfillUid != 0L) labels?.inboxId(report) else null
         fun flush() {
             if (batch.isEmpty()) return
             env.messages.upsert(batch)
