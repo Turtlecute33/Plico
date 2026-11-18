@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -149,6 +150,13 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
                 }
                 is MessageEvent.Notice -> say(event.text)
             }
+        }
+    }
+
+    // Changes the server refused (DESIGN §7.4): the mailbox screen, which shows them too, is not composed now.
+    LaunchedEffect(app) {
+        app.mail.failures.collect {
+            snackbar.showSnackbar(it.text, withDismissAction = true, duration = SnackbarDuration.Long)
         }
     }
 
