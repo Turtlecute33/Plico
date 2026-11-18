@@ -96,6 +96,15 @@ class BodiesTest {
     }
 
     @Test
+    fun attachmentsStopAtTheCap() {
+        val part = """("application" "octet-stream" NIL NIL NIL "base64" 4)"""
+        val plan = BodyPlan(structure("(" + plain + part.repeat(BodyPlan.MAX_ATTACHMENTS + 100) + " \"mixed\")"))
+        val body = assertNotNull(plan.assemble(mapOf("1" to "Hi".toByteArray())))
+        assertEquals(BodyPlan.MAX_ATTACHMENTS, body.attachments.size)
+        assertEquals("2", body.attachments.first().section)
+    }
+
+    @Test
     fun textAfterEightMegabytesIsAnAttachment() {
         // Four parts of 2 MB make the 8 MB total; the fifth and sixth parts are attachments.
         val part = """("text" "plain" ("charset" "utf-8") NIL NIL "7bit" ${BodyPlan.MAX_TEXT_PART} 1)"""

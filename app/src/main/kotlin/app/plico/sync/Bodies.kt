@@ -226,8 +226,8 @@ internal class BodyPlan(root: MimePart) {
         val joined = HtmlSanitizer.join(decoded, parts.inline)
         val unreferenced = joined.unreferencedImages.toSet()
         val listed = (parts.attachments + (parts.textParts - texts.toSet()) + unreferenced).sortedWith(sectionOrder)
-        val attachments = listed.map { it.toAttachment(inline = false) } +
-            parts.inline.filter { it !in unreferenced }.map { it.toAttachment(inline = true) }
+        val inline = parts.inline.filter { it !in unreferenced }.map { it.toAttachment(inline = true) }
+        val attachments = (listed.map { it.toAttachment(inline = false) } + inline).take(MAX_ATTACHMENTS)
         return StoredBody(joined.html, joined.text, HtmlSanitizer.snippet(joined.text), attachments)
     }
 
@@ -239,6 +239,12 @@ internal class BodyPlan(root: MimePart) {
 
         /** A crafted message can have thousands of text parts; each one costs a FETCH item (PLICO-SEC-001). */
         const val MAX_TEXT_PARTS = 50
+
+        /**
+         * A crafted message can have about 10 000 parts under the reader limits; each one is a row and a card on
+         * the message screen, which draws all cards at once.
+         */
+        const val MAX_ATTACHMENTS = 500
 
         /** A name for a part that has none, e.g. "message.eml", "image.png"; else "attachment". */
         fun defaultName(part: MimePart): String = when {
