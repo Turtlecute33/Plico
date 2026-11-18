@@ -3,6 +3,7 @@ package app.plico.sync
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
+import app.plico.data.MessageDao
 import app.plico.data.NewMessage
 import app.plico.mail.imap.Command
 import app.plico.mail.imap.UidSet
@@ -56,7 +57,8 @@ object Search {
     /**
      * `UID SEARCH UID a:b TEXT` in windows of 50,000 UIDs from [uidNext] down (no ESEARCH: each `* SEARCH` line lists
      * every hit). The first window ends at `*`, so that mail newer than a SELECT of earlier in the session is
-     * included. Stops when [MAX_NEW] hits are not stored yet, or at UID 1. Newest first.
+     * included. Stops when [MAX_NEW] hits are not stored yet, when it has the [MessageDao.MAX_SERVER_HITS] hits that
+     * the list shows, or at UID 1. Newest first.
      */
     private fun windowHits(ctx: OpContext, mailbox: Folder, uidNext: Long, text: String): List<Long> {
         val hits = ArrayList<Long>()
@@ -73,7 +75,7 @@ object Search {
             val found = ctx.client.uidSearch(criteria).toList().filter(seen::add).sortedDescending()
             hits += found
             unknown += found.size - ctx.store.messages.idsByUid(mailbox.id, found).size
-            if (unknown >= MAX_NEW) break
+            if (unknown >= MAX_NEW || hits.size >= MessageDao.MAX_SERVER_HITS) break
             ctx.progress()
         }
         return hits
