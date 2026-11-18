@@ -1180,6 +1180,13 @@ class ImapClientTest {
         assertEquals(Quota(10, 512), client.quota())
         fake.client("A3 GETQUOTAROOT \"INBOX\"").server("* QUOTAROOT INBOX", "A3 OK Success")
         assertNull(client.quota())
+        // A refusal gives no quota, and the connection stays usable.
+        fake.client("A4 GETQUOTAROOT \"INBOX\"").server("A4 NO Internal error")
+        assertNull(client.quota())
+        fake.client("A5 GETQUOTAROOT \"INBOX\"").server("A5 BAD Unknown command")
+        assertNull(client.quota())
+        fake.client("A6 NOOP").server("A6 OK")
+        client.conn.execute(Command.raw("NOOP"))
         fake.finish()
     }
 

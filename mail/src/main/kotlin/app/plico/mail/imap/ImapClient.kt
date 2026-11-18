@@ -358,12 +358,21 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
         }
     }
 
-    /** `GETQUOTAROOT`: the STORAGE resource of the first quota root, or null (also without QUOTA). */
+    /**
+     * `GETQUOTAROOT`: the STORAGE resource of the first quota root, or null (also without QUOTA, and when the
+     * server refuses the command: the quota is only shown, so a refusal must not fail the sync).
+     */
     fun quota(mailbox: String = "INBOX"): Quota? {
         if (caps.none { it == "QUOTA" || it.startsWith("QUOTA=") }) return null
         var quota: Quota? = null
-        conn.execute(Command.build { raw("GETQUOTAROOT"); string(wire(mailbox)) }) { r ->
-            if (r.keyword == "QUOTA" && quota == null) quota = storage(r.values.getOrNull(1))
+        try {
+            conn.execute(Command.build { raw("GETQUOTAROOT"); string(wire(mailbox)) }) { r ->
+                if (r.keyword == "QUOTA" && quota == null) quota = storage(r.values.getOrNull(1))
+            }
+        } catch (_: ImapNoException) {
+            return null
+        } catch (_: ImapBadException) {
+            return null
         }
         return quota
     }
