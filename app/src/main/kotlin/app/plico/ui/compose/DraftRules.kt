@@ -4,6 +4,7 @@ import app.plico.data.Account
 import app.plico.data.DraftState
 import app.plico.data.Identity
 import app.plico.data.Provider
+import app.plico.sync.MailActions
 import app.plico.sync.ReplyRules
 
 /** An address the user can send from: an account address or one of its identities (DESIGN §13). */
@@ -49,6 +50,9 @@ internal object DraftRules {
         DraftState.QUEUED -> ComposeViewModel.Phase.WAITING
         else -> ComposeViewModel.Phase.GONE
     }
+
+    /** True when [subject] and [body] together fit in one draft ([MailActions.MAX_DRAFT_CHARS]). */
+    fun fits(subject: String, body: String): Boolean = subject.length + body.length <= MailActions.MAX_DRAFT_CHARS
 
     /** Bytes of [s] in UTF-8, without a copy. */
     fun utf8Length(s: CharSequence): Long {

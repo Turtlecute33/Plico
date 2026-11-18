@@ -41,6 +41,7 @@
     <string name="compose_send_too_large">The message is too large. Remove files to send it.</string>
     <string name="compose_not_sendable">This message cannot be sent. Check the recipients and the size of the files.</string>
     <string name="compose_attach_failed">The file could not be attached.</string>
+    <string name="compose_text_too_long">The text is too long for one message.</string>
     <string name="compose_no_picker">No app on this phone can choose files.</string>
     <string name="compose_no_subject_title">Send without a subject?</string>
     <string name="compose_no_attachment_title">Did you forget the attachment?</string>

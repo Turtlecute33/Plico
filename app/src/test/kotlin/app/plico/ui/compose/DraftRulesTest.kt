@@ -34,6 +34,12 @@ class DraftRulesTest {
     }
 
     @Test
+    fun aDraftFitsInOneRow() {
+        assertTrue(DraftRules.fits("Subject", "x".repeat(499_993)))
+        assertFalse(DraftRules.fits("Subject", "x".repeat(499_994)))
+    }
+
+    @Test
     fun leaveRules() {
         assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = false, empty = true, fresh = false))
         assertEquals(DraftRules.Leave.DISCARD, DraftRules.leave(edited = true, empty = true, fresh = false))

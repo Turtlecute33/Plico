@@ -380,6 +380,7 @@ class MailActions internal constructor(private val store: OpStore, private val h
     suspend fun newDraft(accountId: Long?, prefill: DraftPrefill = DraftPrefill()): Long = withContext(Dispatchers.IO) {
         val account = (accountId?.let(store.accounts::get) ?: allAccounts().firstOrNull())
             ?: throw ActionError(store.text(R.string.ops_error_no_account))
+        val subject = HeaderSafety.clean(prefill.subject).take(MAX_DRAFT_CHARS)
         store.drafts.create(
             NewDraft(
                 accountId = account.id,
@@ -387,8 +388,8 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 toList = addressList(prefill.to),
                 ccList = addressList(prefill.cc),
                 bccList = addressList(prefill.bcc),
-                subject = HeaderSafety.clean(prefill.subject),
-                body = ReplyRules.newBody(prefill.body, account.signature),
+                subject = subject,
+                body = ReplyRules.newBody(prefill.body.take(MAX_DRAFT_CHARS - subject.length), account.signature),
             ),
         )
     }
@@ -845,11 +846,11 @@ class MailActions internal constructor(private val store: OpStore, private val h
         private const val BODY_WAIT_MS = 15_000L
 
         /**
-         * The most characters of text in a server draft that Plico copies into a local draft: at most 1.5 MB of
-         * UTF-8. The draft table reads the body in one piece, and a row larger than one CursorWindow (2 MB) fails
-         * at each read.
+         * The most characters of text (subject and body) in one draft: at most 1.5 MB of UTF-8. The draft table
+         * reads the body in one piece, and a row larger than one CursorWindow (2 MB) fails at each read, also the
+         * drafts list of the home screen. Server draft copies, prefills and Compose edits keep to it.
          */
-        private const val MAX_DRAFT_CHARS = 500_000
+        const val MAX_DRAFT_CHARS = 500_000
         private const val SEEN = "\\Seen"
         private const val FLAGGED = "\\Flagged"
         private const val IMPORTANT = "\\Important"

@@ -50,6 +50,7 @@ internal enum class Notice(@StringRes val text: Int) {
     ATTACH_FAILED(R.string.compose_attach_failed),
     NO_PICKER(R.string.compose_no_picker),
     BEING_SENT(R.string.compose_undo_too_late),
+    TEXT_TOO_LONG(R.string.compose_text_too_long),
 }
 
 /** What Send asks before it queues (PLICO-UX-016), in this order. */
@@ -178,6 +179,7 @@ internal class ComposeViewModel(
         if (!editing) return
         val clean = value.replace('\n', ' ').replace('\r', ' ')
         if (clean == subject) return
+        if (clean.length > subject.length && !DraftRules.fits(clean, body.text)) return tooLong()
         subject = clean
         changed()
     }
@@ -185,8 +187,14 @@ internal class ComposeViewModel(
     fun editBody(value: TextFieldValue) {
         val textChanged = value.text != body.text
         if (textChanged && !editing) return
+        if (value.text.length > body.text.length && !DraftRules.fits(subject, value.text)) return tooLong()
         body = value
         if (textChanged) changed()
+    }
+
+    /** The edit is refused: a larger draft could not be read back (MailActions.MAX_DRAFT_CHARS). */
+    private fun tooLong() {
+        noticeChannel.trySend(Notice.TEXT_TOO_LONG)
     }
 
     fun type(field: RecipientField, value: String) {
