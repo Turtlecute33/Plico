@@ -304,7 +304,7 @@
     <string name="settings_about_logos">Sender logos, only when you turn them on</string>
     <string name="settings_about_logos_websites">The websites of the senders</string>
     <string name="settings_about_remote">Remote content</string>
-    <string name="settings_about_remote_text">Images from the web and unsubscribe requests, only after you tap.</string>
+    <string name="settings_about_remote_text">Images from the web: only after you tap Show, or when you turn on \"Show remote images\" or always show the images of a sender. Unsubscribe requests: only after you tap.</string>
     <string name="settings_about_browser">Links</string>
     <string name="settings_about_browser_text">Links and web settings open in your browser.</string>
     <string name="settings_about_security">Security</string>
