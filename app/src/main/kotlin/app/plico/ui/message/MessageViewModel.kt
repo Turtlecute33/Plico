@@ -108,7 +108,8 @@ sealed interface BodyState {
 
 sealed interface HeadersState {
     data object Loading : HeadersState
-    data class Loaded(val raw: String, val senderDate: String?) : HeadersState
+    /** [text]: the raw header block for display (bidi controls revealed, at most 64 Ki characters). */
+    data class Loaded(val text: String, val senderDate: String?) : HeadersState
     data class Failed(val error: ErrorText) : HeadersState
 }
 
@@ -341,7 +342,10 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         headersJob = viewModelScope.launch {
             headersFlow.value = try {
                 val raw = mail.fetchHeaders(messageId)
-                HeadersState.Loaded(raw, withContext(Dispatchers.Default) { senderDate(raw) })
+                // Off the main thread and cut: a header block can be megabytes, and the dialog lays it out at once.
+                withContext(Dispatchers.Default) {
+                    HeadersState.Loaded(revealBidi(raw.take(MAX_HEADER_CHARS).trimEnd()), senderDate(raw))
+                }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 HeadersState.Failed(errorText(e))
@@ -565,6 +569,9 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     private companion object {
         /** DESIGN §11.2: inline images up to 10 MB. */
         const val MAX_INLINE_BYTES = 10L * 1024 * 1024
+
+        /** The most characters of a raw header block that "View headers" shows. */
+        const val MAX_HEADER_CHARS = 64 * 1024
 
         /** Messages whose WebView renderer died in this process; shown as text (privacy PS7). */
         val renderCrashes: MutableSet<Long> = ConcurrentHashMap.newKeySet()

@@ -748,7 +748,7 @@ private fun HeadersDialog(state: HeadersState, onDismiss: () -> Unit) {
                     }
                     SelectionContainer {
                         Text(
-                            revealBidi(state.raw.trimEnd()),
+                            state.text,
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                         )
