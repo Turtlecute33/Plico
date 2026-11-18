@@ -6,8 +6,11 @@ package app.plico.html
  * The UI and the RFC 8058 POST read the header through here, so that they agree.
  */
 data class ListUnsubscribe(val web: String?, val mail: Mailto?) {
-    /** The page for the one-click POST: only an https one (RFC 8058). */
-    val oneClick: String? get() = web?.takeIf { it.startsWith(HTTPS, ignoreCase = true) }
+    /**
+     * The page for the one-click POST: only an https one (RFC 8058) that RemoteFetcher can fetch (HostRules), so
+     * that the UI offers the mail or web method instead of a one-click that always fails.
+     */
+    val oneClick: String? get() = web?.takeIf { HostRules.fetchable(it, blockTrackers = false) != null }
 
     companion object {
         private val BRACKETED = Regex("<([^<>]*)>")

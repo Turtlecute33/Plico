@@ -12,6 +12,9 @@ class ListUnsubscribeTest {
         assertEquals("https://example.org/u?id=1", oneClick("<mailto:u@example.org>, <https://example.org/u?id=1>"))
         assertEquals("https://example.org/u", oneClick("< https://example.org/u >"))
         assertEquals("https://example.org/u", oneClick("https://example.org/u"))
+        // A page that the fetcher refuses gets no one-click.
+        assertNull(oneClick("<https://user@example.org/u>"))
+        assertNull(oneClick("<https://10.0.0.1/u>"))
         assertEquals("HTTPS://example.org/u", oneClick("<HTTPS://example.org/u>"))
         assertEquals("https://example.org/s", oneClick("<http://example.org/p>, <https://example.org/s>"))
     }
