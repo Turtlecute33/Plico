@@ -171,8 +171,13 @@ class AccountDao(private val db: Db) {
         drafts.forEach(files::deleteOutbox)
         messages.forEach(files::deleteAttachments)
         sql.execSQL("INSERT INTO message_fts(message_fts) VALUES('optimize')")
-        // This PRAGMA returns a row, so it must run as a query.
-        sql.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { it.moveToFirst() }
+        // This PRAGMA returns a row, so it must run as a query. Its first column is 1 when a reader kept it from
+        // finishing: the WAL then still has the removed mail, so try again a few times.
+        repeat(CHECKPOINT_TRIES) {
+            val busy = sql.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { it.moveToFirst() && it.getInt(0) != 0 }
+            if (!busy) return
+            Thread.sleep(CHECKPOINT_WAIT_MS)
+        }
     }
 
     fun identities(accountId: Long): List<Identity> = db.sql.identityRows(accountId)
@@ -207,6 +212,8 @@ class AccountDao(private val db: Db) {
     ) { c -> Identity(c.getLong(0), c.getLong(1), c.str(2), c.str(3)) }
 
     internal companion object {
+        private const val CHECKPOINT_TRIES = 5
+        private const val CHECKPOINT_WAIT_MS = 200L
         private const val COLS = "id, provider, email, sender_name, label, color, auth, device_account, body_days, " +
             "push_mode, poll_minutes, gmail_categories, archive_folder, signature, state, state_text, " +
             "server_keepalive_s, quota_used, quota_limit, sort, imap_host, imap_port, imap_tls, smtp_host, " +
