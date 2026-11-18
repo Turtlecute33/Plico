@@ -55,9 +55,10 @@ class Db(context: Context, name: String = "plico.db") {
     fun <T> tx(vararg tables: String, block: SQLiteDatabase.() -> T): T {
         val db = sql
         val outer = touched.get()
+        // First: when BEGIN fails, no table set is left on this thread, else all its later calls look nested.
+        db.beginTransaction()
         val tableSet = outer ?: HashSet<String>().also(touched::set)
         tableSet.addAll(tables)
-        db.beginTransaction()
         val result = try {
             db.block().also { db.setTransactionSuccessful() }
         } finally {
