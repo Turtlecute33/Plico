@@ -370,6 +370,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         ensureStarted()
         idleRun?.let { run ->
             scope.launch {
+                // DONE acts on the connection: a late coroutine must not end the next IDLE on it.
+                if (idleRun !== run) return@launch
                 run.conn.client.stopIdle()
                 watch(run)
             }
