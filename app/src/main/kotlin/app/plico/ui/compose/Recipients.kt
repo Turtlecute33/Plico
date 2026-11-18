@@ -13,7 +13,9 @@ internal sealed interface Recipient {
 
     data class Valid(val address: Address) : Recipient {
         override val text: String get() = Recipients.display(address)
-        override val label: String get() = address.name ?: address.email
+
+        /** The name, unless it has an '@': a name such as "boss@example.com" must not hide the real address. */
+        override val label: String get() = address.name?.takeIf { '@' !in it } ?: address.email
     }
 
     /** Text that is not a usable address. It stays visible, marked, and blocks sending. */

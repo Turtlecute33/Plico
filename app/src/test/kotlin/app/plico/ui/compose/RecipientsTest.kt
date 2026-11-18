@@ -147,6 +147,7 @@ class RecipientsTest {
     fun labels() {
         assertEquals("Jane", valid("j@example.com", "Jane").label)
         assertEquals("j@example.com", valid("j@example.com").label)
+        assertEquals("x@evil.example", valid("x@evil.example", "boss@corp.example").label)
         assertEquals("bob", Recipient.Invalid("bob").label)
     }
 }
