@@ -431,7 +431,9 @@ private fun NewMailGroup(account: Account, vm: AccountSettingsViewModel) {
                 val polls = wakeEstimate(PushMode.POLL, null, account.pollMinutes).polls
                 val summary = listOfNotNull(
                     pollTitle(account.pollMinutes),
-                    polls?.takeIf { !account.idle }?.let { pluralStringResource(R.plurals.settings_polls, it, it) },
+                    // A server with IDLE in "Check at an interval" mode polls too: its checks belong here.
+                    polls?.takeIf { !account.idle || account.pushMode == PushMode.POLL }
+                        ?.let { pluralStringResource(R.plurals.settings_polls, it, it) },
                 ).joinToString("\n")
                 ClickRow(it, stringResource(R.string.settings_poll_interval), { dialog = PushDialog.INTERVAL }, summary = summary)
             }
@@ -479,7 +481,8 @@ private fun keepaliveSummary(account: Account): String {
         estimate.keepaliveWakes?.let {
             pluralStringResource(if (wifi) R.plurals.settings_wakes_wifi else R.plurals.settings_wakes, it, it)
         },
-        estimate.polls?.let {
+        // In POLL mode the checks show under "Check interval"; the keepalive does not cause them.
+        estimate.polls?.takeIf { account.pushMode != PushMode.POLL }?.let {
             pluralStringResource(if (wifi) R.plurals.settings_polls_mobile else R.plurals.settings_polls, it, it)
         },
         if (account.pushMode == PushMode.INSTANT && estimate.keepaliveWakes != null) {
