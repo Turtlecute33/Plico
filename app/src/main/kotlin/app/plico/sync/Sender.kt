@@ -139,7 +139,13 @@ object Sender {
         } catch (e: IOException) {
             return retry(ctx, draft, e)
         }
-        sent(ctx, draft, sentCopy)
+        try {
+            sent(ctx, draft, sentCopy)
+        } catch (_: RuntimeException) {
+            // The server took it, but the record failed (a full disk): the row must not stay in SENDING until the
+            // next start, and it must never be sent again by itself. The same state as an interrupted send.
+            fail(ctx, draft, store.text(R.string.data_error_may_have_been_sent), uncertain = true)
+        }
     }
 
     /** The final 250: one transaction records the send and queues the follow-ups (DESIGN §7.5). */
