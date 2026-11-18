@@ -435,6 +435,9 @@ class SetupViewModel(
     ) {
         work?.cancel()
         _state.update { it.start(busy) }
+        // Cleared now, not when the test ends: a cancelled test can end later and clear a password typed again.
+        // The test has its own copy.
+        if (method == Method.PASSWORD) password.clearText()
         work = viewModelScope.launch {
             try {
                 val account = block() ?: return@launch
@@ -445,8 +448,6 @@ class SetupViewModel(
                 _state.update { it.failed(e.problem) }
             } catch (e: Exception) {
                 _state.update { it.failed(Problem.of(e, provider, method)) }
-            } finally {
-                if (method == Method.PASSWORD) password.clearText()
             }
         }
     }
