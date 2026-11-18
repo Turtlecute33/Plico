@@ -18,7 +18,8 @@ internal class FolderList(private val env: SyncEnv) {
 
     /**
      * LIST, then writes the folder rows: new and changed ones are upserted, mailboxes that LIST no longer shows
-     * are deleted, and Gmail user labels that it no longer shows are hidden. Returns the Gmail label views that
+     * are deleted (a guarded one with many rows gets the guard instead), and Gmail user labels that it no longer
+     * shows are hidden. Returns the Gmail label views that
      * had no row before (candidates for the one-time fill). A Gmail account without All Mail throws
      * [MailError.Setup] after it has set `account.state = 3`.
      */
@@ -65,9 +66,22 @@ internal class FolderList(private val env: SyncEnv) {
         for (folder in before) {
             if (folder.kind to folder.path in listed) continue
             when {
-                folder.kind == FolderKind.MAILBOX -> env.folders.delete(folder.id)
+                folder.kind == FolderKind.MAILBOX -> gone(folder)
                 folder.role == null && !folder.hidden -> env.folders.setHidden(folder.id, true)
             }
+        }
+    }
+
+    /**
+     * A mailbox that LIST no longer shows. A guarded one with many rows keeps them behind the guard until the user
+     * resyncs it (DESIGN §7.2 step 6): a server can lose all its mail (riseup R22), and then the local rows are
+     * the only copy. Else the row goes, with its messages.
+     */
+    private fun gone(folder: Folder) {
+        if (MailboxMath.guarded(folder.role) && env.messages.count(folder.id) > MailboxMath.GUARD_MIN_ROWS) {
+            env.folders.setGuard(folder.id, true)
+        } else {
+            env.folders.delete(folder.id)
         }
     }
 

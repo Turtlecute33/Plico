@@ -990,7 +990,9 @@ class AccountSession(...) {
 ### 7.2 Mailbox sync (every kind-0 mailbox)
 1. Folder list: on first connect, then at most every 6 h, when an unknown label appears, and after a server
    change or a setup problem. LIST with SPECIAL-USE (`RETURN (SPECIAL-USE)` only with LIST-EXTENDED, §4.4).
-   `\Noselect` (and `\NonExistent`) mailboxes are not stored. Gmail: §7.3.
+   `\Noselect` (and `\NonExistent`) mailboxes are not stored. A mailbox that LIST no longer shows is deleted
+   with its rows; a guarded one (not Trash or Junk) with more than 50 rows gets the guard instead, so that a
+   server that lost its mail cannot delete the only copy (riseup R22). Resync then deletes it. Gmail: §7.3.
    - **Riseup** (`FolderRules.mailboxes(…, riseup = true)`, unchanged): roles from attributes (`\Sent \Drafts
      \Trash \Junk \Archive \All`); INBOX by name. Archive (`protocol PS5`, `simplicity EM5`):
      `account.archive_folder`, else the `\Archive` mailbox, else a mailbox named `Archive` or `Archives`
