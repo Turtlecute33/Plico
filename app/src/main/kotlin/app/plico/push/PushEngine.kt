@@ -120,7 +120,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
             val accounts = app.accounts.all()
             app.notifier.ensureChannels(accounts)
             app.notifier.removeStaleChannels(accounts.mapTo(HashSet()) { it.id })
-            applyModes(accounts)
+            applyModes()
             when {
                 accounts.isEmpty() -> {
                     scheduler.cancel()
@@ -252,7 +252,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
             }
             app.notifier.ensureChannels(accounts)
             app.notifier.start()
-            applyModes(accounts)
+            applyModes()
             updateStatus()
             onWake()
         }
@@ -318,9 +318,13 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         onWake()
     }
 
-    /** Creates, removes and sets the mode of the sessions: IDLE or POLL while push runs, else OFF. */
-    private suspend fun applyModes(accounts: List<Account>? = null) = modes.withLock {
-        val all = accounts ?: app.accounts.all()
+    /**
+     * Creates, removes and sets the mode of the sessions: IDLE or POLL while push runs, else OFF. The accounts are
+     * read under the lock: a list read before it can be older than a removal that ran meanwhile, and would create
+     * a session for the removed account again.
+     */
+    private suspend fun applyModes() = modes.withLock {
+        val all = app.accounts.all()
         val ids = all.mapTo(HashSet()) { it.id }
         for (session in app.sessions.all()) {
             if (session.accountId in ids) continue
