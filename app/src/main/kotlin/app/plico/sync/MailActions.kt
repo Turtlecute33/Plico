@@ -642,13 +642,20 @@ class MailActions internal constructor(private val store: OpStore, private val h
         listOfNotNull(move(account, messages.filter { path(it) != trash.path }, trash, runAt))
     }
 
-    /** Runs [block] per account in one transaction, then refreshes notifications and kicks the session. */
+    /**
+     * Runs [block] per account in one transaction, then refreshes notifications and kicks the session. The rows are
+     * read in the transaction: a change that waited for the lock (a mark-read at open) must not decide on old rows
+     * of a later one (Mark unread).
+     */
     private fun apply(ids: List<Long>, block: Rows.() -> List<Change>): List<Change> {
         val changes = ArrayList<Change>()
-        for ((accountId, messages) in ids.distinct().mapNotNull(store.messages::get).groupBy { it.accountId }) {
+        val byAccount = ids.distinct().mapNotNull(store.messages::get).groupBy({ it.accountId }, { it.id })
+        for ((accountId, rowIds) in byAccount) {
             val account = store.accounts.get(accountId) ?: continue
-            val rows = Rows(account, messages, store.folders.byAccount(accountId).associateBy { it.id })
-            val done = store.db.tx(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.OP) { rows.block() }
+            val folders = store.folders.byAccount(accountId).associateBy { it.id }
+            val done = store.db.tx(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.OP) {
+                Rows(account, rowIds.mapNotNull(store.messages::get), folders).block()
+            }
             if (done.isEmpty()) continue
             changes += done
             host.messagesChanged(accountId)
