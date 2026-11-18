@@ -55,6 +55,10 @@ class MessageDaoTest : DbFixture() {
         assertEquals(listOf(ids[0]), hits.map { it.id })
         val bySender = messages.observeList(MailView.Search("sender2@example", riseup), 10).now()
         assertEquals(listOf(ids[1]), bySender.map { it.id })
+        // "Search in <folder>" keeps to the folder.
+        val other = mailbox(riseup, "Other")
+        assertEquals(listOf(ids[0]), messages.observeList(MailView.Search("invoi", riseup, inbox), 10).now().map { it.id })
+        assertEquals(emptyList(), messages.observeList(MailView.Search("invoi", riseup, other), 10).now().map { it.id })
     }
 
     @Test

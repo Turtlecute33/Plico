@@ -153,7 +153,8 @@ sealed interface MailView {
     data object Unified : MailView
     data class InFolder(val folderId: Long) : MailView
     data class Starred(val accountId: Long?) : MailView
-    data class Search(val query: String, val accountId: Long?) : MailView
+    /** [folderId]: "Search in <folder>" keeps to that folder; null = the account, or every account. */
+    data class Search(val query: String, val accountId: Long?, val folderId: Long? = null) : MailView
 }
 
 /** One row of a message list. */

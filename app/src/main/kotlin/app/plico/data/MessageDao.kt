@@ -31,7 +31,7 @@ class MessageDao(private val db: Db) {
             MailView.Unified -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.FOLDER, Tables.DRAFT)
             is MailView.InFolder -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FOLDER, Tables.DRAFT)
             is MailView.Starred -> arrayOf(Tables.MESSAGE, Tables.FOLDER, Tables.DRAFT)
-            is MailView.Search -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FTS, Tables.DRAFT)
+            is MailView.Search -> arrayOf(Tables.MESSAGE, Tables.MESSAGE_FTS, Tables.MESSAGE_FOLDER, Tables.DRAFT)
         }
         val bound = args.toTypedArray<Any>()
         return db.observe(*tables) { list(sql, *bound, row = ::summaryOf) }
@@ -43,12 +43,11 @@ class MessageDao(private val db: Db) {
      * (PLICO-PERF-003). Internal for the query-plan test.
      */
     internal fun listSql(view: MailView, limit: Int, serverHits: List<Long> = emptyList()): Pair<String, List<Any>>? {
+        val inFolder = "EXISTS (SELECT 1 FROM message_folder mf WHERE mf.folder_id = ? AND mf.message_id = m.id)"
         val (where, args) = when (view) {
             MailView.Unified -> "m.id IN (SELECT mf.message_id FROM message_folder mf " +
                 "JOIN folder f ON f.id = mf.folder_id WHERE f.role = 'inbox')" to emptyList()
-            is MailView.InFolder ->
-                "EXISTS (SELECT 1 FROM message_folder mf WHERE mf.folder_id = ? AND mf.message_id = m.id)" to
-                    listOf(view.folderId)
+            is MailView.InFolder -> inFolder to listOf(view.folderId)
             is MailView.Starred -> "m.flagged = 1 AND m.folder_id NOT IN " +
                 "(SELECT id FROM folder WHERE role IN ('trash', 'junk'))" + accountFilter(view.accountId) to
                 listOfNotNull(view.accountId)
@@ -57,7 +56,8 @@ class MessageDao(private val db: Db) {
                 // Numbers only, so inlining them cannot inject SQL.
                 val hits = serverHits.take(MAX_SERVER_HITS).sqlList()
                 "(m.id IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) OR m.id IN ($hits))" +
-                    accountFilter(view.accountId) to listOfNotNull(match, view.accountId)
+                    accountFilter(view.accountId) + (if (view.folderId == null) "" else " AND $inFolder") to
+                    listOfNotNull(match, view.accountId, view.folderId)
             }
         }
         return "SELECT $SUMMARY_COLS FROM message m WHERE $where AND $VISIBLE ORDER BY m.date DESC LIMIT $limit" to args

@@ -192,7 +192,7 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         when {
             text == null -> view
             text.isEmpty() -> null
-            else -> MailView.Search(text, account)
+            else -> MailView.Search(text, account, (view as? MailView.InFolder)?.folderId)
         }
     }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, if (searching) null else view)
 
