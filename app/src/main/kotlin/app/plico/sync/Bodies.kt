@@ -108,9 +108,17 @@ object Bodies {
             for (run in runs(group, MAX_FETCH_BYTES) { it.value.bytes }) {
                 val uids = run.mapTo(HashSet()) { it.key }
                 val data = HashMap<Long, MutableMap<String, ByteArray>>()
+                var received = 0L
                 for (items in lines) {
                     ctx.client.uidFetch(UidSet.of(uids), items) { item ->
-                        if (item.uid in uids) data.getOrPut(item.uid) { HashMap() }.putAll(item.sections)
+                        if (item.uid !in uids) return@uidFetch
+                        data.getOrPut(item.uid) { HashMap() }.putAll(item.sections)
+                        // The run bound uses the sizes that BODYSTRUCTURE declares; a server that declares 0 must
+                        // not fill the memory. The exception closes the connection, and the rows go alone next.
+                        received += item.sections.values.sumOf { it.size.toLong() }
+                        if (received > MAX_FETCH_BYTES + BodyPlan.MAX_TEXT_PART) {
+                            throw ImapProtocolException("More text than BODYSTRUCTURE declares")
+                        }
                     }
                 }
                 for ((uid, plan) in run) saved += save(ctx, byUid.getValue(uid), plan, data[uid].orEmpty())
