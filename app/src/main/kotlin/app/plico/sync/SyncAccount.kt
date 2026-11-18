@@ -44,7 +44,7 @@ internal class SyncAccount(val env: SyncEnv) {
                 report.relist = true
             } else if (status.uidNext > folder.uidNext || status.uidValidity != folder.uidValidity) {
                 // The STATUS value: a SELECT without UIDNEXT gives only an estimate (DESIGN §7.2 step 4).
-                mailbox.newMail(folder, report, statusUidNext = status.uidNext)
+                mailbox.newMail(folder, report, status = status)
                     ?.let { mailbox.flagsAndExpunge(it, fullFlags = false, report) }
             }
         }

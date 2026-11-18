@@ -27,7 +27,7 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
     fun sync(folder: Folder, status: MailboxStatus?, fullFlags: Boolean, report: SyncReport) {
         if (!folder.syncable) return
         if (status != null && MailboxMath.unchanged(status, folder, knownMessages(folder), flagsDue = fullFlags)) return
-        val current = newMail(folder, report, statusUidNext = status?.uidNext) ?: return
+        val current = newMail(folder, report, status = status) ?: return
         flagsAndExpunge(current, fullFlags, report)
     }
 
@@ -35,14 +35,15 @@ internal class MailboxSync(private val env: SyncEnv, private val labels: GmailLa
      * Steps 3 and 4: SELECT (or [selected], a SELECT the caller has just done), the UIDVALIDITY check, then the
      * new UIDs. Returns the updated row, or null when the folder does not sync now (guard, gone). The message
      * count for the STATUS skip is kept only after step 6, so that an expunge check that fails is not skipped.
-     * [statusUidNext]: the UIDNEXT of a STATUS just before; the stored UIDNEXT is never below it (a SELECT without
-     * UIDNEXT gives only an estimate, and the STATUS skip compares with the stored value).
+     * [status]: a STATUS just before; the stored UIDNEXT is never below its UIDNEXT (a SELECT without UIDNEXT gives
+     * only an estimate, and the STATUS skip compares with the stored value). Only a STATUS with the UIDVALIDITY of
+     * the SELECT counts: the UIDNEXT of an older numbering would stop the fetch of new mail below it.
      */
-    fun newMail(folder: Folder, report: SyncReport, selected: SelectResult? = null, statusUidNext: Long? = null): Folder? {
+    fun newMail(folder: Folder, report: SyncReport, selected: SelectResult? = null, status: MailboxStatus? = null): Folder? {
         if (!folder.syncable) return null
         val sel = selected ?: select(folder, report) ?: return null
         val valid = validate(folder, sel, report) ?: return null
-        fetchNew(valid, sel, statusUidNext ?: 0, report)
+        fetchNew(valid, sel, status?.takeIf { it.uidValidity == sel.uidValidity }?.uidNext ?: 0, report)
         return env.folders.get(valid.id)
     }
 
