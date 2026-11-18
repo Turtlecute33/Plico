@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -206,5 +207,23 @@ class BodiesFetchTest : OpFixture() {
         val copy = forward.attachments.single()
         assertEquals("plan.pdf", copy.name)
         assertEquals("data", store.files.outboxDir(forwardId).resolve(copy.file).readText())
+    }
+
+    @Test
+    fun aFailedCopyOfAServerDraftKeepsTheServerDraft() {
+        val box = mailbox(riseup, "Drafts", FolderRole.DRAFTS)
+        val source = insert(header(riseup, box, 4).copy(subject = "Plan", messageId = "<d@example.org>", draft = true)).single()
+        messages.saveBody(
+            source, null, "Text", "Text", "Text",
+            listOf(NewAttachment("2", "plan.pdf", "application/pdf", 8, "base64", null, false)),
+        )
+        val imap = FakeImap()
+            .select("Drafts")
+            .expect("UID FETCH 4 (UID BODY.PEEK[2]<0.1048576>)", "NO [UNAVAILABLE] Try later")
+        session(riseup, imap)
+        assertFails { runBlocking { actions.editServerDraft(source) } }
+        assertNull(drafts.byMessageId(riseup, "<d@example.org>"))
+        assertTrue(store.ops.due(riseup, Long.MAX_VALUE).isEmpty())
+        assertNotNull(messages.get(source))
     }
 }

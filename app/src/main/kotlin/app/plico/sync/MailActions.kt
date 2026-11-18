@@ -748,7 +748,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
     private fun bodyText(detail: MessageDetail): String =
         store.messages.body(detail.message.id)?.let { it.text ?: it.html?.let(HtmlSanitizer::text) }.orEmpty()
 
-    /** Downloads [attachments] (not the inline images) into the draft; on failure the draft is discarded. */
+    /**
+     * Downloads [attachments] (not the inline images) into the draft. On failure only the local copy is deleted:
+     * for a copy of a server draft, discardDraft would also delete the original on the server.
+     */
     private suspend fun copyAttachments(draftId: Long, attachments: List<Attachment>) {
         val originals = attachments.filterNot { it.inline }
         if (originals.isEmpty()) return
@@ -767,7 +770,10 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 if (!store.updateDraft(draftId) { it.copy(attachments = it.attachments + copies) }) throw gone()
             }
         } catch (e: Throwable) {
-            withContext(NonCancellable + Dispatchers.IO) { discardDraft(draftId) }
+            withContext(NonCancellable + Dispatchers.IO) {
+                store.drafts.delete(draftId)
+                store.files.deleteOutbox(draftId)
+            }
             throw e
         }
     }
