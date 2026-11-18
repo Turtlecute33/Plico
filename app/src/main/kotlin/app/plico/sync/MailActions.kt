@@ -282,7 +282,11 @@ class MailActions internal constructor(private val store: OpStore, private val h
         }
     }
 
-    fun setFolderNotify(folderId: Long, notify: Boolean): Unit = store.folders.setNotify(folderId, notify)
+    /** The notifier watches only message tables, so it is told: the shown mail of the folder follows at once. */
+    fun setFolderNotify(folderId: Long, notify: Boolean) {
+        store.folders.setNotify(folderId, notify)
+        store.folders.get(folderId)?.let { host.messagesChanged(it.accountId) }
+    }
 
     /**
      * Drops the rows of a guarded folder and syncs it again now (DESIGN §7.2 step 6). Changes that wait for the
