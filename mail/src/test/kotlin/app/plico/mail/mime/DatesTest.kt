@@ -47,6 +47,8 @@ class DatesTest {
         assertEquals(at(1950, 1, 2, 3, 4, 5), Dates.parse("2 Jan 50 03:04:05 +0000"))
         assertEquals(at(2049, 1, 2, 3, 4, 5), Dates.parse("2 Jan 49 03:04:05 +0000"))
         assertEquals(at(2004, 1, 2, 3, 4, 5), Dates.parse("2 Jan 104 03:04:05 +0000"))
+        // A zone with a colon and no time: midnight, not the zone as the time.
+        assertEquals(at(2026, 10, 16, 0, 0, 0), Dates.parse("Fri, 16 Oct 2026 +05:30"))
     }
 
     @Test

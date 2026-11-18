@@ -31,7 +31,8 @@ object Dates {
         val numbers = ArrayList<String>()
         for (t in tokens(value)) {
             when {
-                time == null && ':' in t -> time = time(t) ?: return null
+                // "+05:30" is a zone, not the time 05:30.
+                time == null && ':' in t && t[0] != '+' && t[0] != '-' -> time = time(t) ?: return null
                 t[0] == '+' || t[0] == '-' -> if (time != null && offset == null) offset = offset(t)
                 t[0].isLetter() -> {
                     val m = monthOf(t)
