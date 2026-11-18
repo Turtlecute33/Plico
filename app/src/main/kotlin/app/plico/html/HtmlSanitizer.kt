@@ -141,8 +141,12 @@ object HtmlSanitizer {
             val t = line.trim()
             if (t == "--" || separator.matches(t)) break
             if (t.startsWith(">")) continue
-            val next = lines.subList(i + 1, lines.size).firstOrNull { it.isNotBlank() }?.trimStart()
-            if (t.endsWith(":") && next?.startsWith(">") == true) continue
+            // Only after a ':' line: a search from every line is quadratic on a long run of blank lines.
+            if (t.endsWith(":") && lines.subList(i + 1, lines.size).firstOrNull { it.isNotBlank() }?.trimStart()
+                    ?.startsWith(">") == true
+            ) {
+                continue
+            }
             kept += t
         }
         val s = kept.joinToString(" ").replace(spaces, " ").trim()

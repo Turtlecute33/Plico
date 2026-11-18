@@ -53,6 +53,11 @@ class HtmlTextTest {
         assertEquals("", HtmlSanitizer.snippet(""))
     }
 
+    @Test(timeout = 5_000)
+    fun snippetOfManyBlankLinesIsFast() {
+        assertEquals("a b", HtmlSanitizer.snippet("a\n" + "\n".repeat(1_000_000) + "b"))
+    }
+
     @Test
     fun snippetLength() {
         val long = "word ".repeat(100)
