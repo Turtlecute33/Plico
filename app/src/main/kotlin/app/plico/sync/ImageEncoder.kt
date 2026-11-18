@@ -21,6 +21,10 @@ internal object ImageEncoder {
         } catch (_: Exception) {
             // DecodeException (an IOException) for broken data; IllegalArgumentException for unsupported sources.
             return false
+        } catch (_: OutOfMemoryError) {
+            // A lossless image keeps its full size (up to about 96 MB of pixels). No memory for it: the caller
+            // refuses the image with a message, as an image that cannot be decoded, and the app does not end.
+            return false
         }
         return try {
             target.outputStream().buffered().use { out ->
