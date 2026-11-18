@@ -252,6 +252,8 @@ internal class ComposeViewModel(
                     val i = adding.indexOfFirst { it.key == key }
                     if (i >= 0) adding[i] = PendingAttachment(key, name)
                     val added = copy.await()
+                    // The outbox can give the name of a removed file again; the new file must stay visible.
+                    removed -= added.file
                     sources[added.file] = Source(uri, original = false)
                     if (attachments.none { it.file == added.file }) attachments = attachments + added
                     changed()
@@ -289,6 +291,7 @@ internal class ComposeViewModel(
                         app.mail.removeAttachment(draftId, a.file)
                     }
                 }
+                removed -= added.file
                 sources -= a.file
                 sources[added.file] = source.copy(original = original)
                 attachments = attachments.map { if (it.file == a.file) added else it }
