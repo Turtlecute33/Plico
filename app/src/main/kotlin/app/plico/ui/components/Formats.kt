@@ -7,6 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -82,12 +85,16 @@ class DateFormats(locale: Locale, private val zone: ZoneId, patterns: Patterns) 
     }
 }
 
-/** [DateFormats] for the current locale; created again when the configuration changes. */
+/**
+ * [DateFormats] for the current locale; created again when the configuration changes, and when the screen is
+ * resumed: a new time zone or 12/24-hour choice is no configuration change, and a screen can stay open for days.
+ */
 @Composable
 fun rememberDateFormats(): DateFormats {
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
-    return remember(context, locale) { DateFormats.forDevice(context, locale) }
+    val resumed = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.RESUMED)
+    return remember(context, locale, resumed) { DateFormats.forDevice(context, locale) }
 }
 
 /** A file or message size as Android shows it ("1.2 MB"), the same text as the send and upload errors. */
