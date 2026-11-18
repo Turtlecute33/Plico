@@ -49,6 +49,9 @@ class QueueJob : JobService() {
             }
             later?.let(queue::schedule)
         }
+        // A job stopped before its coroutine starts never runs the finally above: active would stay set for the
+        // life of the process, and schedule() would do nothing. ended() runs twice otherwise, which is harmless.
+        work?.invokeOnCompletion { queue.ended() }
         return true
     }
 
