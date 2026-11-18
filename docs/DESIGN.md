@@ -1504,7 +1504,8 @@ redirects, a blocked hop).
   type. Warn for effective types `text/html`, `application/xhtml+xml`, `image/svg+xml`, `multipart/related`
   and extensions `.apk .apks .apkm .xapk .exe .msi .bat .cmd .js .jar .scr .vbs .ps1 .lnk .iso .img .html
   .htm .xhtml .xht .svg .mht .mhtml .shtml`, double extensions, U+202E. Never declare `REQUEST_INSTALL_PACKAGES`.
-- Save with `ACTION_CREATE_DOCUMENT`. Cache files older than 1 h are deleted at start and when the message closes.
+- Save with `ACTION_CREATE_DOCUMENT`. Cache files older than 1 h, and the files of messages that are gone, are
+  deleted at start and when a message closes.
 
 ### 11.6 Incoming intents (`privacy PS2`, `simplicity EM6`)
 - `IncomingUri.check` for `EXTRA_STREAM` and `ClipData`: only `content://` whose provider package is not Plico

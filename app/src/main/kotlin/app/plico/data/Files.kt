@@ -50,10 +50,17 @@ class Files internal constructor(cacheDir: File, filesDir: File) {
         inside(attBase, messageId.toString()).deleteRecursively()
     }
 
-    /** Deletes cached attachment files older than [maxAgeMs], and old dirs left empty. */
-    fun pruneAttachmentCache(maxAgeMs: Long = 60 * 60 * 1000L) {
+    /**
+     * Deletes cached attachment files older than [maxAgeMs] and old dirs left empty. The dir of a message that is
+     * gone ([isLive] false) goes at once: a deleted message must leave no file behind.
+     */
+    fun pruneAttachmentCache(maxAgeMs: Long = 60 * 60 * 1000L, isLive: (Long) -> Boolean = { true }) {
         val cutoff = System.currentTimeMillis() - maxAgeMs
         attBase.listFiles()?.forEach { dir ->
+            if (dir.name.toLongOrNull()?.let(isLive) == false) {
+                dir.deleteRecursively()
+                return@forEach
+            }
             // Deleting a file updates the dir's time, so read it first.
             val oldDir = dir.lastModified() < cutoff
             dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.deleteRecursively() }

@@ -410,8 +410,8 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     }
 
     override fun onCleared() {
-        // DESIGN §11.5: cached attachment files older than 1 h go when the message closes.
-        thread(name = "prune-attachments") { app.files.pruneAttachmentCache() }
+        // DESIGN §11.5: cached attachment files older than 1 h, and those of deleted messages, go when it closes.
+        thread(name = "prune-attachments") { app.files.pruneAttachmentCache(isLive = app.messages::exists) }
     }
 
     // ---- Helpers

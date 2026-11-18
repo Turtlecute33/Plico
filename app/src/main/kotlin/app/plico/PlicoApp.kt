@@ -70,8 +70,8 @@ class PlicoApp : Application() {
             notifier.start()
             // DESIGN §7.5: interrupted sends become failed before the first send of this process.
             Sender.onProcessStart(this)
-            // DESIGN §11.5: cached attachment files older than 1 h are deleted at start.
-            files.pruneAttachmentCache()
+            // DESIGN §11.5: cached attachment files older than 1 h, and those of deleted messages, go at start.
+            files.pruneAttachmentCache(isLive = messages::exists)
             // DESIGN §12: expired logos go; all of them when logos are off or no account is left.
             logos.prune(prefs.senderLogos, accounts.all().isNotEmpty())
         }

@@ -144,7 +144,10 @@ class PlatformTest {
         val busy = files.attachmentPart(502, 1).apply { writeText("part") }
         busy.parentFile!!.setLastModified(System.currentTimeMillis() - 2 * hour)
 
-        files.pruneAttachmentCache()
+        // The fresh file of a message that is gone goes too.
+        val orphan = files.attachment(503, 1).apply { writeText("data") }
+        files.pruneAttachmentCache(isLive = { it != 503L })
+        assertFalse(orphan.exists())
         assertFalse(old.exists())
         assertFalse(old.parentFile!!.exists())
         assertTrue(fresh.exists())

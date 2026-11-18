@@ -65,6 +65,8 @@ class MessageDao(private val db: Db) {
 
     fun get(id: Long): Message? = db.sql.message(id)
 
+    fun exists(id: Long): Boolean = db.sql.long("SELECT 1 FROM message WHERE id = ?", id) != null
+
     /** The message with its attachments and folders; null once the row is gone. The body is [observeBody]. */
     fun observeDetail(id: Long): Flow<MessageDetail?> =
         db.observe(Tables.MESSAGE, Tables.ATTACHMENT, Tables.MESSAGE_FOLDER, Tables.FOLDER) {
