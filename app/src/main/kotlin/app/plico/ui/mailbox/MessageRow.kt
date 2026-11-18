@@ -57,6 +57,7 @@ import app.plico.ui.components.Avatar
 import app.plico.ui.components.ConfirmDialog
 import app.plico.ui.components.Icons
 import app.plico.ui.message.revealBidi
+import app.plico.ui.message.revealName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -251,7 +252,7 @@ private fun RowContent(
                         text = when {
                             draft -> stringResource(R.string.mailbox_draft)
                             recipient != null -> stringResource(R.string.mailbox_draft_to, recipient)
-                            else -> revealBidi(row.fromName).ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.ui_no_sender) }
+                            else -> revealName(row.fromName).ifBlank { row.fromEmail }.ifBlank { stringResource(R.string.ui_no_sender) }
                         },
                         color = if (draft) scheme.error else textColor,
                         style = type.bodyLarge,

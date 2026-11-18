@@ -323,6 +323,11 @@ class MessageModelsTest {
         assertEquals("invoice\uFFFDfdp.exe", revealBidi("invoice\u202Efdp.exe"))
         assertEquals("a\uFFFDb\uFFFDc", revealBidi("a\u2066b\u0000c"))
         assertEquals("Date: x\r\n\tfolded", revealBidi("Date: x\r\n\tfolded"))
+        // Subjects keep the direction marks; names do not.
+        assertEquals("a\u200Fb", revealBidi("a\u200Fb"))
+        assertEquals("com\uFFFD.\uFFFDpaypal", revealName("com\u200F.\u200Fpaypal"))
+        assertEquals("pay\uFFFDpal \uFFFD", revealName("pay\u200Bpal \u202E"))
+        assertEquals("\u0645\u200C\u0647", revealName("\u0645\u200C\u0647"))
     }
 
     @Test

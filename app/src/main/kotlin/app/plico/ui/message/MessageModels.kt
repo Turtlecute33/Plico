@@ -29,7 +29,7 @@ import java.io.IOException
 data class SenderLine(val name: String, val address: String?)
 
 fun senderLine(fromName: String, fromEmail: String): SenderLine {
-    val name = revealBidi(fromName.trim())
+    val name = revealName(fromName.trim())
     return if (name.isEmpty() || name.equals(fromEmail, ignoreCase = true)) {
         SenderLine(fromEmail, null)
     } else {
@@ -59,7 +59,7 @@ fun replyToLine(replyTo: String, fromEmail: String): RecipientLine? = Addresses.
 
 /** "Name <address>" for the expanded header, else the address. */
 fun addressText(address: Address): String =
-    address.name?.trim()?.takeIf { it.isNotEmpty() }?.let { "${revealBidi(it)} <${address.email}>" } ?: address.email
+    address.name?.trim()?.takeIf { it.isNotEmpty() }?.let { "${revealName(it)} <${address.email}>" } ?: address.email
 
 /**
  * The collapsed recipient line, "to me, Alice and 2 more": the first [names] (null = one of the user's own
@@ -318,6 +318,20 @@ private val disguising =
  * "invoice<U+202E>fdp.exe" cannot read as "invoiceexe.pdf".
  */
 fun revealBidi(text: String): String = disguising.replace(text, "\uFFFD")
+
+/**
+ * The marks that change the order of a few characters or split a word with no visible trace: ALM, LRM, RLM,
+ * zero-width space, word joiner and the invisible operators, BOM. Not ZWJ and ZWNJ: names in Persian, Indic
+ * scripts and emoji need them.
+ */
+private val nameMarks = Regex("[\\u061C\\u200B\\u200E\\u200F\\u2060-\\u2064\\uFEFF]")
+
+/**
+ * [revealBidi] for a sender or recipient name, and [nameMarks] become U+FFFD too: "com<RLM>.<RLM>paypal" reads as
+ * "paypal.com", and SenderCheck does not see a domain in it. Subjects keep these marks, because Hebrew and Arabic
+ * text often has them.
+ */
+fun revealName(text: String): String = nameMarks.replace(revealBidi(text), "\uFFFD")
 
 /** "PDF" for an attachment card: the file extension, else the MIME subtype. */
 fun typeLabel(name: String, mime: String): String {

@@ -2,6 +2,7 @@ package app.plico.notify
 
 import app.plico.data.Provider
 import app.plico.ui.message.revealBidi
+import app.plico.ui.message.revealName
 
 /** Pure text rules of the notifications (DESIGN §9, privacy PS11). */
 internal object Texts {
@@ -20,7 +21,7 @@ internal object Texts {
 
     /** The sender as the private version shows it: the display name, else the address, with [revealBidi]. */
     fun sender(fromName: String, fromEmail: String): String? =
-        revealBidi(fromName.trim().ifEmpty { fromEmail.trim() }).ifEmpty { null }
+        revealName(fromName.trim().ifEmpty { fromEmail.trim() }).ifEmpty { null }
 
     /** BigTextStyle text: the subject, then the snippet when known, both with [revealBidi]. */
     fun bigText(subject: String, snippet: String): String =
