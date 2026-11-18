@@ -576,6 +576,10 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         if (trigger.poll) {
             // Only a poll that ran to its end is done: a failed one stays wanted, so the backoff retries it.
             synchronized(lock) { poll = false }
+            // A cycle longer than the interval: the next poll counts from now. Else its time is in the past,
+            // nextDueAt leaves it out, and no alarm stays armed for it.
+            val end = elapsed()
+            if (lastPollAt + pollMs <= end) lastPollAt = end
             backoff.markHealthy()
         }
         refreshWorkDue()
