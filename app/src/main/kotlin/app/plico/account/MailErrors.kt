@@ -171,8 +171,17 @@ object MailErrors {
      */
     fun isThrottleText(text: String): Boolean = THROTTLE_TEXT.containsMatchIn(text)
 
-    private fun text(t: Throwable): String = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
+    private fun text(t: Throwable): String = serverText(t)
 
+    /**
+     * The message of [t], at most [MAX_SERVER_TEXT] characters, else a short name of the problem. A server reply
+     * can be megabytes (200 SMTP lines of 8 KB, an IMAP line of 1 MiB), and the text goes into the database and a
+     * one-piece Compose Text.
+     */
+    fun serverText(t: Throwable): String =
+        t.message?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_SERVER_TEXT) ?: t.javaClass.simpleName
+
+    private const val MAX_SERVER_TEXT = 500
     private const val MAX_CAUSES = 16
 }
 

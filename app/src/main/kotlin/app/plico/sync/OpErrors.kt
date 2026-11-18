@@ -73,5 +73,5 @@ internal object OpErrors {
     fun givesUp(attempts: Int): Boolean = (1 until attempts).sumOf(::backoffMs) >= GIVE_UP_MS
 
     /** The server's text for a refusal, else a short name of the problem. */
-    fun text(t: Throwable): String = t.message?.trim()?.takeIf { it.isNotEmpty() } ?: t.javaClass.simpleName
+    fun text(t: Throwable): String = MailErrors.serverText(t)
 }

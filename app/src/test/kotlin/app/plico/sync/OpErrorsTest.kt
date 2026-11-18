@@ -59,6 +59,13 @@ class OpErrorsTest {
     }
 
     @Test
+    fun serverTextIsShort() {
+        assertEquals("server text", OpErrors.text(no(null)))
+        assertEquals("IOException", OpErrors.text(IOException(" ")))
+        assertEquals(500, OpErrors.text(ImapBadException("x".repeat(1_000_000))).length)
+    }
+
+    @Test
     fun tryCreateIsItsOwnClass() {
         assertEquals(Failure.TRYCREATE, OpErrors.classify(no("TRYCREATE")))
     }
