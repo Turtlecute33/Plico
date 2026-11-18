@@ -84,7 +84,11 @@ class SetupViewModel(
     private var work: Job? = null
 
     init {
-        viewModelScope.launch { OAuthResume.signals.collect { resumeBrowser() } }
+        // Only the screen that waits for the browser: a Setup lower in the back stack must not take the single
+        // result of a "Sign in again" on top of it.
+        viewModelScope.launch {
+            OAuthResume.signals.collect { if (_state.value.busy == Busy.BROWSER) resumeBrowser() }
+        }
         if (reauthId == null) {
             if (OAuthResume.hasResult(app)) resumeBrowser()
         } else {
