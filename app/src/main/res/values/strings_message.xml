@@ -55,6 +55,8 @@
     <string name="message_save_named">Save %1$s</string>
     <string name="message_open_file_title">Open this file?</string>
     <string name="message_open_anyway">Open anyway</string>
+    <string name="message_save_file_title">Save this file?</string>
+    <string name="message_save_anyway">Save anyway</string>
     <string name="message_no_app_file">No app on this phone can open this file.</string>
     <string name="message_saved">File saved.</string>
     <string name="message_save_failed">The file could not be saved.</string>

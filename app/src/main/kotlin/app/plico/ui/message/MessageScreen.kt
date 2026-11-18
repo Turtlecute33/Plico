@@ -215,11 +215,16 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
     }
     headers?.let { HeadersDialog(it, onDismiss = vm::hideHeaders) }
     pendingOpen?.let { pending ->
+        val (title, confirm) = if (pending.save) {
+            R.string.message_save_file_title to R.string.message_save_anyway
+        } else {
+            R.string.message_open_file_title to R.string.message_open_anyway
+        }
         ConfirmDialog(
-            title = stringResource(R.string.message_open_file_title),
+            title = stringResource(title),
             text = (listOf(revealBidi(pending.name)) + pending.check.warnings.map { stringResource(it.text) })
                 .joinToString("\n\n"),
-            confirmLabel = stringResource(R.string.message_open_anyway),
+            confirmLabel = stringResource(confirm),
             onConfirm = vm::openAnyway,
             onDismiss = vm::cancelOpen,
             destructive = true,

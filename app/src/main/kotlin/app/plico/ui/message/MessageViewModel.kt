@@ -127,7 +127,8 @@ sealed interface MessageEvent {
 }
 
 /** An attachment whose checks warn; the screen asks before it opens. */
-data class PendingOpen(val name: String, val file: File, val check: AttachmentCheck)
+/** A file with warnings that waits for "Open anyway" or, with [save], "Save anyway". */
+data class PendingOpen(val name: String, val file: File, val check: AttachmentCheck, val save: Boolean = false)
 
 /**
  * State and actions of one message (DESIGN §11, §13 Message). Scoped to the back-stack entry. Reads use the
@@ -379,16 +380,26 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     fun openAnyway() {
         val pending = pendingOpenFlow.value ?: return
         pendingOpenFlow.value = null
-        eventChannel.trySend(MessageEvent.OpenFile(pending.file, pending.check.mimeType))
+        if (pending.save) {
+            pendingSave = pending.file
+            eventChannel.trySend(MessageEvent.SaveFile(Files.safeName(pending.name), pending.check.mimeType))
+        } else {
+            eventChannel.trySend(MessageEvent.OpenFile(pending.file, pending.check.mimeType))
+        }
     }
 
     fun cancelOpen() {
         pendingOpenFlow.value = null
     }
 
+    /** The same warnings as [open] come first (DESIGN §11.5): a saved file can be opened from Files later. */
     fun save(attachment: Attachment) = fetch(attachment) { file, check ->
-        pendingSave = file
-        eventChannel.send(MessageEvent.SaveFile(Files.safeName(attachment.name), check.mimeType))
+        if (check.warnings.isEmpty()) {
+            pendingSave = file
+            eventChannel.send(MessageEvent.SaveFile(Files.safeName(attachment.name), check.mimeType))
+        } else {
+            pendingOpenFlow.value = PendingOpen(attachment.name, file, check, save = true)
+        }
     }
 
     /** The result of ACTION_CREATE_DOCUMENT; null when the user cancelled. */
