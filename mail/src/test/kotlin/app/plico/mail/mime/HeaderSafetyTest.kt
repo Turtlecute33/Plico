@@ -30,7 +30,9 @@ class HeaderSafetyTest {
     @Test
     fun revealHiddenReplacesEachHiddenCharacter() {
         val bmp = "\u0000\u001B\u0085\u00AD\u034F\u17B4\u17B5\u1806\u180B\u180E\u200B\u200D\u200E\u202E\u2060\u2065" +
-            "\u2066\uFE0F\uFEFF\uFFF0\uFFF8"
+            "\u2066\uFE0F\uFEFF\uFFF0\uFFF8" +
+            // Separators, spaces other than U+0020 and blank letters.
+            "\u00A0\u1680\u2000\u200A\u2028\u2029\u202F\u205F\u3000\u115F\u1160\u3164\uFFA0\u2800"
         for (c in bmp) {
             assertEquals("a\uFFFDb", HeaderSafety.revealHidden("a${c}b"))
         }
