@@ -27,6 +27,14 @@ class HtmlTextTest {
     }
 
     @Test
+    fun deepQuotesGetAtMostFiveMarks() {
+        assertEquals("> > > > > deep", HtmlSanitizer.text("<blockquote>".repeat(8) + "deep"))
+        // 500 nested quotes and many line breaks: the output stays a few times the input.
+        val html = "<blockquote>".repeat(500) + "<br>x".repeat(100_000)
+        assertTrue(HtmlSanitizer.text(html).length < 4 * html.length)
+    }
+
+    @Test
     fun textOfEmptyOrPlainInput() {
         assertEquals("", HtmlSanitizer.text(""))
         assertEquals("just text", HtmlSanitizer.text("just text"))

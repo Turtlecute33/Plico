@@ -44,6 +44,9 @@ object HtmlSanitizer {
     private const val CID_PREFIX = "https://$CID_HOST/"
     private const val SNIPPET_LENGTH = 200
 
+    /** Deeper quotes in [text] get this number of `> ` marks (see TextWriter). */
+    private const val MAX_QUOTE_MARKS = 5
+
     private val safelist: Safelist = Safelist.relaxed()
         .addTags(
             "font", "center", "span", "div", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "col",
@@ -262,7 +265,11 @@ object HtmlSanitizer {
         }
     }
 
-    /** Writes the text of a DOM: line breaks for blocks, `> ` before quoted lines. */
+    /**
+     * Writes the text of a DOM: line breaks for blocks, `> ` before quoted lines. The marks go only before a line
+     * with text, and at most [MAX_QUOTE_MARKS] of them: else 500 nested quotes and many `<br>` give an output of
+     * hundreds of times the input, and an out-of-memory error during body prefetch.
+     */
     private class TextWriter : NodeVisitor {
         private val out = StringBuilder()
         private var quoteDepth = 0
@@ -300,13 +307,13 @@ object HtmlSanitizer {
 
         private fun append(text: String) {
             if (lineStart && text.isBlank()) return
+            if (lineStart) repeat(minOf(quoteDepth, MAX_QUOTE_MARKS)) { out.append("> ") }
             out.append(text)
             lineStart = false
         }
 
         private fun newLine() {
             out.append('\n')
-            repeat(quoteDepth) { out.append("> ") }
             lineStart = true
         }
 
