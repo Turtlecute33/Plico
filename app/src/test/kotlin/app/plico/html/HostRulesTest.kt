@@ -48,6 +48,8 @@ class HostRulesTest {
         assertNull(HostRules.fetchable("https://printer.local/a.png", blockTrackers = true))
         assertNull(HostRules.fetchable("https://img example/a.png", blockTrackers = true))
         assertNull(HostRules.fetchable("https:///a.png", blockTrackers = true))
+        assertEquals(URL("https://img.example:443/a.png"), HostRules.fetchable("https://img.example:443/a.png", blockTrackers = true))
+        assertNull(HostRules.fetchable("https://img.example:9100/a.png", blockTrackers = true))
         assertNull(HostRules.fetchable("https://www.google-analytics.com/collect", blockTrackers = true))
         // The unsubscribe POST may go to a host that also tracks (Mailchimp).
         assertEquals(

@@ -1444,8 +1444,8 @@ class MessageBuilder(val from: Address, val to: List<Address>, val cc: List<Addr
 
 `RemoteFetcher` (`privacy PS12`): `HttpsURLConnection`, HTTPS only, no cookies, no Referer, no
 Accept-Language, `User-Agent: Mozilla/5.0`, max 3 redirects handled manually. Every hop (and the
-unsubscribe POST) rejects IP-literal hosts, `localhost`, single-label names and `.local .lan .home.arpa
-.internal` (string check). Per request: 10 s connect/read, 20 s total, 5 MB. Per message: 20 MB, 4 parallel.
+unsubscribe POST) rejects IP-literal hosts, `localhost`, single-label names, `.local .lan .home.arpa
+.internal` and every port other than 443 (string check). Per request: 10 s connect/read, 20 s total, 5 MB. Per message: 20 MB, 4 parallel.
 The app never declares `ACCESS_LOCAL_NETWORK`.
 
 One GET engine serves remote content, sender logos (§12) and the autoconfig file (§6.3):

@@ -8,6 +8,7 @@ import java.util.Locale
 
 /** Host rules for remote content and the unsubscribe POST (DESIGN.md §11.2, privacy PS12). String checks only. */
 object HostRules {
+    private const val HTTPS_PORT = 443
     private val localSuffixes = listOf("localhost", "local", "lan", "home.arpa", "internal")
 
     /** Hosts that serve only open-tracking pixels and analytics. A host matches itself and its subdomains. */
@@ -33,12 +34,16 @@ object HostRules {
         return trackers.any { h == it || h.endsWith(".$it") }
     }
 
-    /** [url] as a [URL] when it is https, has no userinfo and its host is [allowed] (and not a tracker, if asked). */
+    /**
+     * [url] as a [URL] when it is https on the https port, has no userinfo and its host is [allowed] (and not a
+     * tracker, if asked). Only port 443: a sender's name can resolve to a LAN address, and then any other port
+     * would be a blind probe of a service in the user's network.
+     */
     internal fun fetchable(url: String, blockTrackers: Boolean): URL? = try {
         val uri = URI(url)
         val host = uri.host
         val ok = uri.scheme.equals("https", ignoreCase = true) && uri.rawUserInfo == null && host != null &&
-            allowed(host) && !(blockTrackers && isTracker(host))
+            (uri.port == -1 || uri.port == HTTPS_PORT) && allowed(host) && !(blockTrackers && isTracker(host))
         if (ok) uri.toURL() else null
     } catch (_: URISyntaxException) {
         null
