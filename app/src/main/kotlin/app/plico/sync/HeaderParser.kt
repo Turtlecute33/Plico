@@ -25,6 +25,12 @@ internal object HeaderParser {
     private const val DELETED = "\\Deleted"
 
     /**
+     * A header value is cut to this length before it is parsed. Then every stored value is small, and one row
+     * stays far below the 2 MB CursorWindow: a larger row would make every list read of its mailbox fail.
+     */
+    private const val MAX_FIELD = 32 * 1024
+
+    /**
      * FETCH items for new rows. [modSeq] only with CONDSTORE; [gmMsgId] and [gmLabels] only on Gmail (labels only
      * in All Mail).
      */
@@ -58,17 +64,18 @@ internal object HeaderParser {
         now: Long,
     ): NewMessage {
         val headers = HeaderBlock.parse(headerBytes(item))
-        val from = headers["From"]?.let(Addresses::parseList)?.firstOrNull()
+        fun field(name: String) = headers[name]?.take(MAX_FIELD)
+        val from = field("From")?.let(Addresses::parseList)?.firstOrNull()
         return NewMessage(
             accountId = accountId,
             folderId = folderId,
             uid = item.uid,
-            date = item.internalDate ?: headers["Date"]?.let(Dates::parse) ?: now,
+            date = item.internalDate ?: field("Date")?.let(Dates::parse) ?: now,
             gmMsgId = item.gmMsgId,
-            messageId = headers["Message-ID"]?.let(HeaderSafety::messageIds)?.firstOrNull(),
-            inReplyTo = ids(headers["In-Reply-To"]),
-            refs = ids(headers["References"]),
-            subject = headers["Subject"]?.let { HeaderSafety.clean(EncodedWords.decode(it)) }.orEmpty(),
+            messageId = field("Message-ID")?.let(HeaderSafety::messageIds)?.firstOrNull(),
+            inReplyTo = ids(field("In-Reply-To")),
+            refs = ids(field("References")),
+            subject = field("Subject")?.let { HeaderSafety.clean(EncodedWords.decode(it)) }.orEmpty(),
             fromName = from?.name.orEmpty(),
             fromEmail = from?.email?.let(HeaderSafety::clean).orEmpty(),
             toList = addresses(headers["To"]),
@@ -81,10 +88,10 @@ internal object HeaderParser {
             answered = item.has("\\Answered"),
             draft = item.has("\\Draft"),
             modSeq = item.modSeq ?: 0,
-            attachments = if (isMixed(headers["Content-Type"])) 1 else 0,
-            auth = if (gmail) AuthResults.parse(headers["Authentication-Results"]) else Auth.UNKNOWN,
-            unsubscribe = headers["List-Unsubscribe"]?.let(HeaderSafety::clean)?.takeIf { it.isNotEmpty() },
-            unsubscribePost = headers["List-Unsubscribe-Post"]?.trim().equals(ONE_CLICK, ignoreCase = true),
+            attachments = if (isMixed(field("Content-Type"))) 1 else 0,
+            auth = if (gmail) AuthResults.parse(field("Authentication-Results")) else Auth.UNKNOWN,
+            unsubscribe = field("List-Unsubscribe")?.let(HeaderSafety::clean)?.takeIf { it.isNotEmpty() },
+            unsubscribePost = field("List-Unsubscribe-Post")?.trim().equals(ONE_CLICK, ignoreCase = true),
             notified = notified,
             labels = labels,
             deleted = !gmail && item.has(DELETED),
@@ -111,9 +118,15 @@ internal object HeaderParser {
 
     private fun FetchItem.has(flag: String) = flags.orEmpty().any { it.equals(flag, ignoreCase = true) }
 
-    /** Stored `*_list` form: decoded, so that [Addresses.parseList] reads it back. */
-    private fun addresses(value: String?): String =
-        value?.let { Addresses.format(Addresses.parseList(it), encode = false) }.orEmpty()
+    /**
+     * Stored `*_list` form: decoded, so that [Addresses.parseList] reads it back. A value longer than [MAX_FIELD]
+     * is cut, and its last address, which the cut can change, is dropped.
+     */
+    private fun addresses(value: String?): String {
+        if (value == null) return ""
+        val list = Addresses.parseList(value.take(MAX_FIELD))
+        return Addresses.format(if (value.length > MAX_FIELD) list.dropLast(1) else list, encode = false)
+    }
 
     private fun ids(value: String?): String? =
         value?.let(HeaderSafety::messageIds)?.takeIf { it.isNotEmpty() }?.joinToString(" ")

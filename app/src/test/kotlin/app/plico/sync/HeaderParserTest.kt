@@ -112,6 +112,17 @@ class HeaderParserTest {
     }
 
     @Test
+    fun longHeadersAreCut() {
+        val to = (1..5_000).joinToString(", ") { "user$it@example.org" }
+        val m = parse("Subject: ${"s".repeat(3_000_000)}\nTo: $to\n\n")
+        assertEquals("s".repeat(32 * 1024), m.subject)
+        val kept = m.toList.split(", ")
+        assertTrue(kept.size in 1_000 until 5_000)
+        // Only whole addresses: the address that the cut changed is dropped.
+        assertEquals((1..kept.size).map { "user$it@example.org" }, kept)
+    }
+
+    @Test
     fun onlyItemsWithTheHeaderSectionAreNewRows() {
         assertTrue(HeaderParser.hasHeaderFields(item("From: a@example.org\n")))
         assertTrue(HeaderParser.hasHeaderFields(item("", key = "header.fields (FROM)")))
