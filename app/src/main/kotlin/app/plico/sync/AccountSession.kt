@@ -292,6 +292,8 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         if (closed) throw CancellationException("Session closed")
         val request = Request(block)
         requests.add(request)
+        // close() may have drained the queue between the check above and the add: no loop would run it.
+        if (closed) failRequests(CancellationException("Session closed"))
         kick(Reason.OPEN_FOLDER)
         try {
             return request.result.await()
@@ -415,14 +417,14 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
     }
 
     private suspend fun work() {
-        val first = app.accounts.get(accountId) ?: return
+        val first = app.accounts.get(accountId) ?: return accountGone()
         policy = policyFor(first)
         authStopped = first.state == AccountState.SIGN_IN_NEEDED
         while (true) {
             currentCoroutineContext().ensureActive()
             val c = connection
             try {
-                val account = app.accounts.get(accountId) ?: return
+                val account = app.accounts.get(accountId) ?: return accountGone()
                 pollMs = account.pollMinutes * MINUTE_MS
                 when {
                     c == null -> if (!connectIfWanted(account)) awaitWork()
@@ -938,6 +940,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
             job.invokeOnCompletion { timers.decrementAndGet() }
         }
     }
+
+    /** The account is gone and the loop ends: the requests that wait would never run. */
+    private fun accountGone() = failRequests(CancellationException("Account removed"))
 
     private fun failRequests(error: Throwable) {
         while (true) {
