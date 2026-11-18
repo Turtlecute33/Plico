@@ -150,15 +150,16 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
 
     /**
      * Exchanges the code that [onRedirect] stored, with the issuer of the pending entry. Returns null while no
-     * redirect has arrived. Throws [MailError.AuthRequired] when the user declined, [MailError.Setup] for an
-     * expired sign-in, a rejected client, a client that needs an administrator or other account types, or a
+     * redirect has arrived and the entry is fresh. Throws [MailError.AuthRequired] when the user declined,
+     * [MailError.Setup] for an expired sign-in (also one whose redirect came too late), a rejected client, a client that needs an administrator or other account types, or a
      * missing mail scope, and IOException for network failures.
      */
     suspend fun completePending(): SignIn? {
         val pending = pending(prefs) ?: return null
         if (!pending.done) {
-            if (!pending.isFresh(now())) prefs.put(PENDING_KEY, null)
-            return null
+            if (pending.isFresh(now())) return null
+            prefs.put(PENDING_KEY, null)
+            throw MailError.Setup(context.getString(R.string.account_error_oauth_expired))
         }
         prefs.put(PENDING_KEY, null)
         val issuer = pending.issuer

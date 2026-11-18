@@ -15,7 +15,10 @@ class OAuthRedirectActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val uri = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data
-        if (uri != null && BrowserOAuth.onRedirect(app, app.prefs, uri)) {
+        val stored = uri != null && BrowserOAuth.onRedirect(app, app.prefs, uri)
+        // A redirect that came too late is refused, but setup must not wait for it without end: it then reads the
+        // entry and says that the sign-in expired. MainActivity reads nothing from this intent.
+        if (stored || BrowserOAuth.pending(app.prefs) != null) {
             // NEW_TASK: the browser may start this activity in its own task; MainActivity is in Plico's task.
             val flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
