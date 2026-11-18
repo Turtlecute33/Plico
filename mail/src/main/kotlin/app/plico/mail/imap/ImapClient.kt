@@ -383,9 +383,13 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
     /** Ends the running IDLE ([ImapConnection.done]); safe from another thread and never throws. */
     fun stopIdle(): Unit = conn.done()
 
-    /** `LOGOUT` (BYE, then OK), then closes the connection. */
+    /**
+     * `LOGOUT` (BYE, then OK), then closes the connection. The answer gets [LOGOUT_TIMEOUT_MS], not the normal read
+     * timeout: a socket that died quietly must not hold the caller for a minute only to say goodbye.
+     */
     fun logout() {
         try {
+            conn.readTimeoutMs = LOGOUT_TIMEOUT_MS
             conn.execute(Command.raw("LOGOUT"))
         } finally {
             close()
@@ -546,6 +550,7 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             "LIST-STATUS", "SASL-IR", "UNSELECT",
         )
         private const val DELETED = "\\Deleted"
+        private const val LOGOUT_TIMEOUT_MS = 5_000
 
         /**
          * Opens the connection, reads the greeting and, for [TlsMode.STARTTLS], upgrades to TLS. The returned

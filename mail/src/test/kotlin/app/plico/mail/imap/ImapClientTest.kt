@@ -1226,6 +1226,7 @@ class ImapClientTest {
         dovecot()
         fake.client("A2 LOGOUT").server("* BYE Logging out", "A2 OK Logout completed (0.001 + 0.000 secs).")
         client.logout()
+        assertEquals(5_000, fake.readTimeoutMs, "a short wait for the answer")
         assertTrue(fake.closed)
         assertNull(client.selected)
         fake.finish()

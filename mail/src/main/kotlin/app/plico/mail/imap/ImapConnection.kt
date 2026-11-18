@@ -26,6 +26,11 @@ class ImapConnection(private val stream: MailStream, private val log: (String) -
     var capabilities: Set<String> = emptySet()
         private set
 
+    /** The read timeout of the stream in ms (0 = none); for a short wait such as LOGOUT. */
+    var readTimeoutMs: Int
+        get() = stream.readTimeoutMs
+        set(value) = restoreTimeout(value)
+
     /** Receives EXISTS / EXPUNGE / FETCH / RECENT responses seen while any command runs. */
     var onUnsolicited: (Untagged) -> Unit = {}
 
