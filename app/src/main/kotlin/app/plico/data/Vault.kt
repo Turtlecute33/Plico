@@ -2,7 +2,6 @@ package app.plico.data
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.ProviderException
@@ -46,7 +45,9 @@ class Vault {
         (store.getKey(ALIAS, null) as SecretKey?)?.let { return it }
         return try {
             generateKey(strongBox = true)
-        } catch (_: StrongBoxUnavailableException) {
+        } catch (_: ProviderException) {
+            // StrongBoxUnavailableException (a ProviderException), and the other failures of a StrongBox that is
+            // there but does not work: the TEE key is the planned second choice.
             generateKey(strongBox = false)
         }
     }
