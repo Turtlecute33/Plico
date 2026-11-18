@@ -14,6 +14,9 @@ import java.io.IOException
 object Attachments {
     private const val CHUNK = 1_048_576
 
+    /** The limit of a part whose declared size is 0: without one, a server could send chunks without end. */
+    private const val MAX_UNKNOWN_SIZE = 64L * 1024 * 1024
+
     /** Chunked download into the attachment cache (DESIGN §7.8). */
     internal fun load(ctx: OpContext, attachmentId: Long, onProgress: (Float) -> Unit): File {
         val store = ctx.store
@@ -26,6 +29,7 @@ object Attachments {
         Ops.selectChecked(ctx, folder)
         val raw = store.files.attachmentPart(message.id, attachment.id)
         val decoded = Files.inside(target.parentFile!!, "${attachment.id}.tmp")
+        val limit = if (attachment.size > 0) attachment.size + CHUNK else MAX_UNKNOWN_SIZE
         try {
             raw.outputStream().use { out ->
                 var offset = 0L
@@ -36,10 +40,15 @@ object Attachments {
                         val section = item.sections["${attachment.section}<$offset>"] ?: item.sections[attachment.section]
                         if (item.uid == message.uid && section != null) chunk = section
                     }
-                    val bytes = chunk ?: if (offset == 0L) throw FileNotFoundException("Message is gone") else break
+                    val bytes = chunk ?: when {
+                        offset == 0L -> throw FileNotFoundException("Message is gone")
+                        // No answer before the declared end (the message was expunged): never cache a cut file.
+                        offset < attachment.size -> throw IOException("The download ended early")
+                        else -> break
+                    }
                     // A server that ignores the partial range sends full chunks without end (review PS29).
                     // The part is never larger than the size the server declared for it.
-                    if (bytes.size > CHUNK || (attachment.size > 0 && offset + bytes.size > attachment.size + CHUNK)) {
+                    if (bytes.size > CHUNK || offset + bytes.size > limit) {
                         throw IOException("The server sent more data than the attachment has")
                     }
                     out.write(bytes)
