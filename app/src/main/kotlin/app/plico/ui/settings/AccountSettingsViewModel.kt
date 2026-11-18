@@ -1,11 +1,14 @@
 package app.plico.ui.settings
 
+import android.util.Log
+import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.plico.PlicoApp
+import app.plico.R
 import app.plico.data.Account
 import app.plico.data.Folder
 import app.plico.data.FolderKind
@@ -77,14 +80,20 @@ internal class AccountSettingsViewModel(private val app: PlicoApp, private val a
                     app.mail.removeAccount(accountId)
                     app.accounts.all().isNotEmpty()
                 }
+            } catch (e: Exception) {
+                // A database error (a full disk): no crash; the screen stays, and the user can try again.
+                Log.e(TAG, "remove: ${e.javaClass.simpleName}")
+                Toast.makeText(app, R.string.settings_remove_failed, Toast.LENGTH_LONG).show()
+                null
             } finally {
                 removing = false
             }
-            onDone(othersLeft)
+            othersLeft?.let(onDone)
         }
     }
 
     private companion object {
+        const val TAG = "Plico"
         val WHILE_SHOWN = SharingStarted.WhileSubscribed(5_000)
         val NOT_ARCHIVE = setOf(FolderRole.INBOX, FolderRole.SENT, FolderRole.DRAFTS, FolderRole.TRASH, FolderRole.JUNK)
     }

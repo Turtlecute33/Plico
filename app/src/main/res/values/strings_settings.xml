@@ -284,6 +284,7 @@
     <string name="settings_remove_title">Remove %1$s?</string>
     <string name="settings_remove_text">Plico deletes the mail, drafts and settings of this account from this phone. Drafts that you did not send are lost. The mail on the server stays.</string>
     <string name="settings_remove">Remove</string>
+    <string name="settings_remove_failed">The account could not be removed. Try again.</string>
     <string name="settings_remove_microsoft_note">Microsoft keeps the access of Plico after you remove the account. To stop it, go to account.live.com/consent/Manage (personal account) or myapps.microsoft.com (work or school account).</string>
 
     <!-- About -->

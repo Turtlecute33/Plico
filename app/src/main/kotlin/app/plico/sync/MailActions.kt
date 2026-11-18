@@ -821,13 +821,17 @@ class MailActions internal constructor(private val store: OpStore, private val h
             } catch (_: Exception) {
                 // Best effort: a missing secret or no network leaves the grant for the user to remove.
             }
-            app.accounts.purge(account.id, app.files)
-            app.logos.clear()
-            GmailSync.forget(app.prefs, account.id)
-            // The channel goes in onAccountsChanged (removeStaleChannels).
-            app.notifier.cancelAccount(account.id)
-            forgetCredentials(account.id)
-            app.push.onAccountsChanged()
+            try {
+                app.accounts.purge(account.id, app.files)
+            } finally {
+                // Also after a failed purge: its delete may be committed already, and the rest must not stay.
+                app.logos.clear()
+                GmailSync.forget(app.prefs, account.id)
+                // The channel goes in onAccountsChanged (removeStaleChannels).
+                app.notifier.cancelAccount(account.id)
+                forgetCredentials(account.id)
+                app.push.onAccountsChanged()
+            }
         }
     }
 
