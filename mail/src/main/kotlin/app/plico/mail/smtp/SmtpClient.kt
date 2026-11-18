@@ -197,7 +197,15 @@ class SmtpClient(
         }
     }
 
-    private fun authPlain(user: String, password: String) = authenticate("PLAIN", Sasl.plain(user, password), cancel = "*")
+    /** A response that does not fit the 510 octets of the command line goes after an empty 334 (RFC 4954 §4). */
+    private fun authPlain(user: String, password: String) {
+        val ir = Sasl.plain(user, password)
+        if ("AUTH PLAIN ".length + ir.length <= MAX_COMMAND_LINE) return authenticate("PLAIN", ir, cancel = "*")
+        var reply = command("AUTH PLAIN")
+        if (reply.code == 334) reply = command(ir, logAs = SASL_RESPONSE)
+        if (reply.code == 334) reply = command("*", logAs = SASL_RESPONSE)
+        reply.expect(Stage.AUTH, 235)
+    }
 
     private fun authenticate(mechanism: String, initialResponse: String, cancel: String) {
         var reply = command("AUTH $mechanism $initialResponse")

@@ -208,6 +208,15 @@ class SmtpClientTest {
     }
 
     @Test
+    fun `a long AUTH PLAIN response goes after the 334`() {
+        val password = "p".repeat(400)
+        val ir = b64("\u0000alice@riseup.net\u0000$password")
+        val (client, stream) = started(c("AUTH PLAIN"), s("334 "), c(ir), s("235 2.7.0 ok"), extensions = listOf("AUTH PLAIN"))
+        client.authPassword("alice@riseup.net", password)
+        stream.assertDone()
+    }
+
+    @Test
     fun `AUTH PLAIN answers an unexpected 334 with a cancel`() {
         val (client, stream) = started(
             c("AUTH PLAIN " + b64("\u0000u\u0000p")), s("334 "), c("*"), s("501 5.7.0 Authentication aborted"),
