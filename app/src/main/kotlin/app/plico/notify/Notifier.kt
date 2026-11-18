@@ -287,17 +287,21 @@ class Notifier(private val app: PlicoApp) {
             val before = book.pending(accountId)
             if (before.isEmpty()) return clearLocked(accountId)
             val gone = book.retain(accountId, app.messages.stillNotifiable(before.map { it.id }))
-            // Content shown again after it was hidden: the newest mail gets its children back.
-            val shown = if (rerender && !hideContent()) book.showChildren(accountId, now).cancel else emptyList()
+            // Content shown again after it was hidden, or the last children are read while mail without a child
+            // is still pending: the newest mail gets children. Else renderLocked cancels the summary, and that
+            // mail, already marked notified, never shows.
+            val refill = rerender || book.children(accountId).isEmpty()
+            val shown = if (refill && !hideContent()) book.showChildren(accountId, now) else null
             val rows = Rows(app.messages)
             val children = book.children(accountId)
             val repost = if (rerender) {
                 children
             } else {
                 children.filter { it.id in noSnippet && rows[it.id]?.snippet?.isNotBlank() == true }
+                    .plus(shown?.post.orEmpty()).distinct()
             }
             if (book.pending(accountId).size == shownBefore && repost.isEmpty() && !rerender) return
-            renderLocked(account, rows, now, alert = false, post = repost, cancel = gone + shown)
+            renderLocked(account, rows, now, alert = false, post = repost, cancel = gone + shown?.cancel.orEmpty())
         }
     }
 
