@@ -89,13 +89,13 @@ fun AccountSettingsScreen(accountId: Long, nav: Navigator) {
     val title = account?.label ?: stringResource(R.string.ui_account)
     SettingsScaffold(title = title, onBack = { if (!vm.removing) nav.back() }) {
         val current = account ?: return@SettingsScaffold
-        AccountHeader(current, onSignIn = { nav.go(Route.Reauth(accountId)) })
+        AccountHeader(current, onSignIn = { if (!vm.removing) nav.go(Route.Reauth(accountId)) })
         ProfileGroup(current, vm)
         IdentitiesGroup(current, vm)
         OfflineGroup(current, vm)
         NewMailGroup(current, vm)
         NotificationsGroup(current, vm)
-        ServersGroup(current, onChange = { nav.go(Route.Reauth(accountId, editServers = true)) })
+        ServersGroup(current, onChange = { if (!vm.removing) nav.go(Route.Reauth(accountId, editServers = true)) })
         if (!current.isGmail) {
             FoldersGroup(current, vm)
             StorageGroup(current)

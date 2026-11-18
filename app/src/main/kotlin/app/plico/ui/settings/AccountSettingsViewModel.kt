@@ -58,12 +58,15 @@ internal class AccountSettingsViewModel(private val app: PlicoApp, private val a
     }
 
     fun addIdentity(email: String, name: String) {
+        // During the removal: a row of an account that is gone fails its foreign key.
+        if (removing) return
         viewModelScope.launch(writes) {
             app.accounts.addIdentity(accountId, email.trim(), cleanLine(name, Choices.NAME_MAX))
         }
     }
 
     fun removeIdentity(id: Long) {
+        if (removing) return
         viewModelScope.launch(writes) { app.accounts.removeIdentity(id) }
     }
 
