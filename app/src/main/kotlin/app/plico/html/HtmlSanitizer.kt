@@ -74,8 +74,11 @@ object HtmlSanitizer {
     )
     private val spaces = Regex("""[\s\u00A0]+""")
     private val pixelSize = Regex("""(\d*\.?\d+)\s*(?:px)?""")
+    // Each pattern starts only where its first character class starts: without the lookbehind, a long run of
+    // those characters with no '@' (or no dot) makes the search quadratic on text from any sender.
     private val linkLike = Regex(
-        """\b(?:https?://|mailto:)[^\s<>"]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}""",
+        """\b(?:https?://|mailto:)[^\s<>"]+|""" +
+            """(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}""",
         RegexOption.IGNORE_CASE,
     )
     private val separator = Regex("""-{2,}\s*original message\s*-{2,}|_{10,}""", RegexOption.IGNORE_CASE)

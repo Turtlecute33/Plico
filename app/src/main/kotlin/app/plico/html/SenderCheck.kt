@@ -86,6 +86,9 @@ class SenderCheck(private val psl: Psl) {
             else -> SenderTrust.NONE
         }
 
-        private val addressInName = Regex("""[^\s<>()\[\]"',;:@]+@[^\s<>()\[\]"',;:@]+\.[^\s<>()\[\]"',;:@.]+""")
+        // The lookbehind keeps the search linear on a long name with no '@' (see HtmlSanitizer.linkLike).
+        private val addressInName = Regex(
+            """(?<![^\s<>()\[\]"',;:@])[^\s<>()\[\]"',;:@]+@[^\s<>()\[\]"',;:@]+\.[^\s<>()\[\]"',;:@.]+""",
+        )
     }
 }

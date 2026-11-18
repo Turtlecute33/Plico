@@ -90,6 +90,12 @@ class HtmlTextTest {
         )
     }
 
+    @Test(timeout = 5_000)
+    fun plainToHtmlOfALongWordIsFast() {
+        val word = "a".repeat(1_000_000)
+        assertEquals("<div style=\"white-space:pre-wrap\">$word</div>", HtmlSanitizer.plainToHtml(word))
+    }
+
     @Test
     fun plainToHtmlLinkEnds() {
         fun hrefs(text: String) = Jsoup.parse(HtmlSanitizer.plainToHtml(text)).select("a").map { it.attr("href") }

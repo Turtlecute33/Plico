@@ -104,6 +104,11 @@ class PslTest {
         assertEquals(emptyList(), psl.domainsIn("Click here"))
     }
 
+    @Test(timeout = 5_000)
+    fun domainsInALongWordIsFast() {
+        assertEquals(emptyList(), psl.domainsIn("a".repeat(1_000_000)))
+    }
+
     @Test
     fun matchedRuleRecordsTheSection() {
         val com = psl.matchedRule("www.example.com")

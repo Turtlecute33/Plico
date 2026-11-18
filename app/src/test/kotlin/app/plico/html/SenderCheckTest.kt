@@ -24,6 +24,11 @@ class SenderCheckTest {
         assertEquals(emptyList(), warnings("Mr. Smith", "smith@example.com"))
     }
 
+    @Test(timeout = 5_000)
+    fun aLongNameIsCheckedFast() {
+        assertEquals(emptyList(), warnings("a".repeat(1_000_000), "alice@example.com"))
+    }
+
     @Test
     fun displayNameWithAnotherAddress() {
         assertEquals(listOf(SenderWarning.NAME_HAS_OTHER_ADDRESS), warnings("service@paypal.com", "x@evil.example"))

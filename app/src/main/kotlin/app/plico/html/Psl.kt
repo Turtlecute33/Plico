@@ -93,7 +93,7 @@ class Psl(text: String) {
         private const val ASSET = "public_suffix_list.dat"
         private const val PRIVATE_BEGIN = "===BEGIN PRIVATE DOMAINS==="
         private const val PRIVATE_END = "===END PRIVATE DOMAINS==="
-        private val domainLike = Regex("""[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+""")
+        private val domainLike = Regex("""(?<![\p{L}\p{N}_-])[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+""")
 
         @Volatile
         private var shared: Psl? = null
