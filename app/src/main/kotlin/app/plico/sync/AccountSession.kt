@@ -545,8 +545,9 @@ class AccountSession(val app: PlicoApp, val accountId: Long, private val host: S
         wakeLock.renew()
         withTimeout(STEP_MAX_MS) {
             if (plan.listFolders) {
-                relist = false
                 listFolders(c)
+                // Only after a LIST that ran to its end: a failed one stays wanted for the next cycle.
+                relist = false
                 lastListAt = now
             }
             if (plan.fastPath) {
