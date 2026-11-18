@@ -640,11 +640,12 @@ class ImapClient(val conn: ImapConnection, val host: String = "") : Closeable {
             return out
         }
 
+        /** The UIDs of an ESEARCH result. `*` is legal on the wire, but a result must list real UIDs. */
         private fun uidSet(text: String): UidSet = try {
             UidSet.parse(text)
         } catch (_: IllegalArgumentException) {
             throw ImapProtocolException("Malformed UID set")
-        }
+        }.also { if (it.max == UidSet.MAX) throw ImapProtocolException("UID set with *") }
 
         /**
          * Adds the pairs of a `[COPYUID validity src dst]` code. The two sets pair by position as written

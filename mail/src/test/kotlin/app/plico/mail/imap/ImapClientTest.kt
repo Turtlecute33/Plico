@@ -786,6 +786,9 @@ class ImapClientTest {
         assertEquals(UidSet.parse("1:3,5"), client.uidSearch(Command.raw("UID", "1:*")))
         fake.client("A3 UID SEARCH RETURN (ALL) UNSEEN").server("* ESEARCH (TAG \"A3\") UID", "A3 OK Search completed.")
         assertEquals(UidSet.EMPTY, client.uidSearch(Command.raw("UNSEEN")))
+        // `*` is legal on the wire but lists no real UIDs: a protocol error, not a crash in toList().
+        fake.client("A4 UID SEARCH RETURN (ALL) UNSEEN").server("* ESEARCH (TAG \"A4\") UID ALL 5:*")
+        assertFailsWith<ImapProtocolException> { client.uidSearch(Command.raw("UNSEEN")) }
         fake.finish()
     }
 
