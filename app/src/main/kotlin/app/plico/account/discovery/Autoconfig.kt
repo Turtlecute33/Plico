@@ -40,7 +40,14 @@ object Autoconfig {
      * 1..65535, its host is a usable server name without the address placeholders and it has a password method
      * (OAuth2 only for Google and Microsoft hosts). Placeholders are replaced in user names and host names.
      */
-    fun parse(xml: String, email: String): Servers? {
+    fun parse(xml: String, email: String): Servers? = try {
+        parseChecked(xml, email)
+    } catch (_: StackOverflowError) {
+        // Android's DOM builds and walks the tree by recursion: about 20 000 nested elements fit in MAX_CHARS.
+        null
+    }
+
+    private fun parseChecked(xml: String, email: String): Servers? {
         val text = xml.removePrefix("\uFEFF")
         if (text.length > MAX_CHARS || forbidden.containsMatchIn(text) || '\u0000' in text) return null
         val root = try {
