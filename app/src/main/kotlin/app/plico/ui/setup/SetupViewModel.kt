@@ -118,7 +118,7 @@ class SetupViewModel(
         email.setTextAndPlaceCursorAtEnd(address)
         work = viewModelScope.launch {
             // Before any network request.
-            val known = withContext(Dispatchers.IO) { app.accounts.byEmail(address) } != null
+            val known = isKnown(address)
             val suggestion = if (manual) null else ProviderTable.suggest(domain)
             val next = _state.value.welcomed(address, domain, known, suggestion, manual)
             _state.value = next
@@ -501,13 +501,15 @@ class SetupViewModel(
     private suspend fun checkIdentity(address: String) {
         val reauth = _state.value.reauth
         if (reauth == null) {
-            if (withContext(Dispatchers.IO) { app.accounts.byEmail(address) } != null) {
-                throw Rejected(Problem(Problem.Kind.ALREADY_ADDED))
-            }
+            if (isKnown(address)) throw Rejected(Problem(Problem.Kind.ALREADY_ADDED))
         } else if (!address.equals(reauth.deviceAccount ?: reauth.email, ignoreCase = true)) {
             throw Rejected(Problem(Problem.Kind.WRONG_ACCOUNT, address))
         }
     }
+
+    /** True when an account has the mailbox of [address] ([SetupInput.sameMailbox]: also a Gmail dot variant). */
+    private suspend fun isKnown(address: String): Boolean =
+        withContext(Dispatchers.IO) { app.accounts.all().any { SetupInput.sameMailbox(it.email, address) } }
 
     /** Adding: the account that signed in must be the typed address ([typed] null: nothing typed, no check). */
     private fun checkTyped(address: String, typed: String?) {
