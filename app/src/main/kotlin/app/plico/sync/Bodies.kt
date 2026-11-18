@@ -59,10 +59,12 @@ object Bodies {
     /**
      * [fetchBatch], and a failed batch goes to [skips] (PLICO-SEC-001, PLICO-PERF-001). A NO or BAD keeps the
      * connection, so the rows of the batch are tried again alone at once. A protocol error (a response that the
-     * reader refuses) closes it, so the next connection tries them alone.
+     * reader refuses) closes it, so the next connection tries them alone. A batch that saves fewer bodies than it
+     * has rows fails too (a text part or a structure that never arrives): else the same row comes back in each
+     * cycle, and each cycle fetches only one batch, because the window looks done.
      */
     private fun fetchGuarded(ctx: OpContext, batch: List<MessageRef>, skips: BodySkips): Int = try {
-        fetchBatch(ctx, batch).also { skips.passed(batch) }
+        fetchBatch(ctx, batch).also { saved -> if (saved < batch.size) skips.failed(batch) else skips.passed(batch) }
     } catch (e: ImapProtocolException) {
         skips.failed(batch)
         throw e
