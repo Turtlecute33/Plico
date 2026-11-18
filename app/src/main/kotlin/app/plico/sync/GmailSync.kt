@@ -6,6 +6,7 @@ import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
 import app.plico.mail.imap.Command
+import app.plico.mail.imap.ImapNoException
 import app.plico.mail.imap.UidSet
 import app.plico.push.policy.KeyValueStore
 import app.plico.push.policy.NotifyRule
@@ -29,10 +30,19 @@ internal class GmailSync(
         sizeNote(all)
     }
 
-    /** Refresh wake (push PB16): STATUS of All Mail; a change runs its incremental sync. */
+    /**
+     * Refresh wake (push PB16): STATUS of All Mail; a change runs its incremental sync. A refused STATUS (All
+     * Mail hidden from IMAP) asks for a LIST, which reports the setup problem; it is no reason to reconnect.
+     */
     fun checkAllMail(report: SyncReport) {
         val all = allMail()?.takeIf { !it.guard } ?: return
-        mailbox.sync(all, env.client.status(all.path), fullFlags = false, report)
+        val status = try {
+            env.client.status(all.path)
+        } catch (_: ImapNoException) {
+            report.relist = true
+            return
+        }
+        mailbox.sync(all, status, fullFlags = false, report)
     }
 
     /**
