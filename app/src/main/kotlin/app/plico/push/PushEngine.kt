@@ -245,16 +245,23 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
             startTextUpdates()
         }
         scope.launch {
-            val accounts = app.accounts.all()
-            if (accounts.isEmpty() || paused()) {
+            try {
+                val accounts = app.accounts.all()
+                if (accounts.isEmpty() || paused()) {
+                    stopService()
+                    return@launch
+                }
+                app.notifier.ensureChannels(accounts)
+                app.notifier.start()
+                applyModes()
+                updateStatus()
+                onWake()
+            } catch (e: RuntimeException) {
+                // A database or binder failure: push must not stay "running" with no session and no alarm.
+                Log.e(LOG_TAG, "push start: ${e.javaClass.simpleName}")
+                retryStartSoon()
                 stopService()
-                return@launch
             }
-            app.notifier.ensureChannels(accounts)
-            app.notifier.start()
-            applyModes()
-            updateStatus()
-            onWake()
         }
     }
 
