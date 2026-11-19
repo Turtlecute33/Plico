@@ -323,4 +323,11 @@
     <string name="settings_licence_apache" translatable="false">Apache License 2.0</string>
     <string name="settings_licence_mit" translatable="false">MIT License</string>
     <string name="settings_licence_mpl" translatable="false">Mozilla Public License 2.0</string>
+    <string name="settings_support">Support</string>
+    <string name="settings_support_donate">Donate bitcoin</string>
+    <string name="settings_support_donate_text" translatable="false">btcpay.priorato.org</string>
+    <string name="settings_support_x" translatable="false">X</string>
+    <string name="settings_support_x_text" translatable="false">\@turtlecute33</string>
+    <string name="settings_support_nostr" translatable="false">Nostr</string>
+    <string name="settings_support_nostr_text" translatable="false">turtlecute\@primal.net</string>
 </resources>

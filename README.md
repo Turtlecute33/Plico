@@ -85,6 +85,8 @@ opens.
   - the logo source that you select, only when you turn on sender logos: DuckDuckGo, Google, or the
     website of each sender (and the hosts that it redirects to);
   - remote content and unsubscribe pages, only after you tap.
+- Settings › Support has links to donate and to the developer on X and Nostr. They open in your
+  browser. The app itself does not connect to these hosts.
 
 Gmail adds the public IP address of the sender to each message that it sends. Riseup removes it.
 

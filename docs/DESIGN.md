@@ -1721,7 +1721,7 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   stacked "Re:"/"Fwd:".
 - **Settings**: Accounts, Notifications (hide content), Privacy & security (remote content default, confirm
   links, dark email, app lock + timeout, hide in recents, block screenshots, incognito keyboard), Mail (swipe
-  actions, undo send seconds), Message list, Sign-in clients, Push & battery (§8.2), About.
+  actions, undo send seconds), Message list, Sign-in clients, Push & battery (§8.2), About, Support.
   - Accounts: add; per account, in this order: header (sign-in method, e.g. "Signs in with Microsoft in the
     browser"), profile (label, sender name, signature, colour), identities (the note by provider: Gmail, Riseup,
     or "Add only addresses that your mail provider lets you send from"; Remove asks first, `PLICO-UX-012`), offline (body days / all offline),
@@ -1742,6 +1742,7 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
     When accounts use the client, its dialog says that they must sign in again after a change.
   - About: version, the tagline "A private and simple email app.", licences (Plico GPL-3.0 and the bundled
     code), what the app connects to (built from the accounts and settings, §12), the CT note.
+  - Support: links to donate (BTCPay) and to the developer on X and Nostr. The browser opens them; Plico makes no request.
 
 ## 14. Errors
 `:mail` throws `IOException` subclasses: `ImapNoException(code, text)`, `ImapBadException`,

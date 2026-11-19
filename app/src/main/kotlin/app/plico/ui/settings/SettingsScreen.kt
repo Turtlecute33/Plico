@@ -3,13 +3,16 @@ package app.plico.ui.settings
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+import androidx.annotation.StringRes
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
@@ -25,13 +28,14 @@ import app.plico.data.Account
 import app.plico.data.Prefs
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.Icons
+import app.plico.ui.components.SystemPages
 import app.plico.ui.components.rememberPref
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
 
 /**
  * App settings (DESIGN §13): accounts, notifications, privacy and security, mail, message list, sign-in clients,
- * push and battery, about. Every change applies at once.
+ * push and battery, about, support. Every change applies at once.
  */
 @Composable
 fun SettingsScreen(nav: Navigator) {
@@ -49,7 +53,31 @@ fun SettingsScreen(nav: Navigator) {
         SettingsGroup(title = null) {
             item { ClickRow(it, stringResource(R.string.ui_about), { nav.go(Route.About) }, icon = Icons.Info) }
         }
+        SupportGroup()
     }
+}
+
+/** Links to donate and to the developer. The browser opens them; Plico itself makes no request. */
+@Composable
+private fun SupportGroup() {
+    SettingsGroup(stringResource(R.string.settings_support)) {
+        link(
+            R.string.settings_support_donate, R.string.settings_support_donate_text, Icons.Bitcoin,
+            "https://btcpay.priorato.org/api/v1/invoices?storeId=31ntjiLSTmSSuTC6FrR81z6AAku46bLF2FKAL3MFHtV5&orderId=Donation&checkoutDesc=Donation&currency=USD",
+        )
+        link(R.string.settings_support_x, R.string.settings_support_x_text, Icons.AlternateEmail, "https://x.com/turtlecute33")
+        link(R.string.settings_support_nostr, R.string.settings_support_nostr_text, Icons.Hub, "https://primal.net/turtlecute")
+    }
+}
+
+/** Adds a [ClickRow] that opens [url] in the browser, with the open-in-new mark of the other web links. */
+private fun SettingsGroupScope.link(@StringRes title: Int, @StringRes summary: Int, icon: ImageVector, url: String) = item {
+    val context = LocalContext.current
+    ClickRow(
+        it, stringResource(title), { SystemPages.browser(context, url) },
+        summary = stringResource(summary), icon = icon,
+        trailing = { Icon(Icons.OpenInNew, contentDescription = null) },
+    )
 }
 
 @Composable
