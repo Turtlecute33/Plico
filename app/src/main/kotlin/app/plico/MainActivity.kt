@@ -27,6 +27,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import app.plico.data.MailView
 import app.plico.sync.MailActions
+import app.plico.ui.DonatePrompt
 import app.plico.ui.compose.ComposeIntents
 import app.plico.ui.lock.LockScreen
 import app.plico.ui.nav.AppNav
@@ -83,6 +84,7 @@ class MainActivity : ComponentActivity() {
                         LockScreen(onUnlocked = app.appLock::unlock)
                     } else {
                         screens.SaveableStateProvider("screens") { AppNav(nav) }
+                        DonatePrompt()
                     }
                 }
             }

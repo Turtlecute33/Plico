@@ -26,6 +26,7 @@ import app.plico.account.OAuthIssuer
 import app.plico.app
 import app.plico.data.Account
 import app.plico.data.Prefs
+import app.plico.ui.DONATE_URL
 import app.plico.ui.components.Avatar
 import app.plico.ui.components.Icons
 import app.plico.ui.components.SystemPages
@@ -63,7 +64,7 @@ private fun SupportGroup() {
     SettingsGroup(stringResource(R.string.settings_support)) {
         link(
             R.string.settings_support_donate, R.string.settings_support_donate_text, Icons.Bitcoin,
-            "https://btcpay.priorato.org/api/v1/invoices?storeId=31ntjiLSTmSSuTC6FrR81z6AAku46bLF2FKAL3MFHtV5&orderId=Donation&checkoutDesc=Donation&currency=USD",
+            DONATE_URL,
         )
         link(R.string.settings_support_x, R.string.settings_support_x_text, Icons.AlternateEmail, "https://x.com/turtlecute33")
         link(R.string.settings_support_nostr, R.string.settings_support_nostr_text, Icons.Hub, "https://primal.net/turtlecute")

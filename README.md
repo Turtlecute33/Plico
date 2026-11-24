@@ -87,6 +87,8 @@ opens.
   - remote content and unsubscribe pages, only after you tap.
 - Settings › Support has links to donate and to the developer on X and Nostr. They open in your
   browser. The app itself does not connect to these hosts.
+- A small donation card shows when you open the app: first 7 days after the install, then at most
+  once each 3 months. It sends no notification and makes no request.
 
 Gmail adds the public IP address of the sender to each message that it sends. Riseup removes it.
 

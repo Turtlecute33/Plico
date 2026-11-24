@@ -1743,6 +1743,9 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   - About: version, the tagline "A private and simple email app.", licences (Plico GPL-3.0 and the bundled
     code), what the app connects to (built from the accounts and settings, §12), the CT note.
   - Support: links to donate (BTCPay) and to the developer on X and Nostr. The browser opens them; Plico makes no request.
+- **Donation card** (`DonatePrompt`): a dialog when the user opens the app from the launcher, after the app lock.
+  First 7 days after the install, then at most once each 90 days (365 days after Donate). The next time is set
+  when the card shows. No notification, no request.
 
 ## 14. Errors
 `:mail` throws `IOException` subclasses: `ImapNoException(code, text)`, `ImapBadException`,

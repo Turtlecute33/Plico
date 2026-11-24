@@ -330,4 +330,9 @@
     <string name="settings_support_x_text" translatable="false">\@turtlecute33</string>
     <string name="settings_support_nostr" translatable="false">Nostr</string>
     <string name="settings_support_nostr_text" translatable="false">turtlecute\@primal.net</string>
+    <!-- Donation card at app start (DonatePrompt) -->
+    <string name="donate_title">Enjoying Plico?</string>
+    <string name="donate_text">Buy the dev a beer or send a few sats. Sats buy AI tokens for security reviews. Beer buys a happy dev.</string>
+    <string name="donate_action">Donate</string>
+    <string name="donate_later">Remind me in 3 months</string>
 </resources>
