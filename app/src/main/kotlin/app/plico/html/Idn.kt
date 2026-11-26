@@ -25,6 +25,8 @@ object Idn {
      * letters, digits, `-` and `_`.
      */
     fun toAscii(host: String): String? {
+        // FR13: the punycode step is slow for a huge host; no valid name is longer than 253 characters.
+        if (host.length > 253) return null
         val ascii = try {
             IDN.toASCII(host, IDN.ALLOW_UNASSIGNED)
         } catch (_: IllegalArgumentException) {

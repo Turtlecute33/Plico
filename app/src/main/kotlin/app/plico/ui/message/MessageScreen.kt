@@ -77,7 +77,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.plico.R
 import app.plico.app
@@ -134,21 +137,25 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
         vm.saveTo(result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK })
     }
 
+    val lifecycle = LocalLifecycleOwner.current
+    // FR24: an event waits in the channel while the app is stopped; a background start of an activity can fail.
     LaunchedEffect(vm) {
-        vm.events.collect { event ->
-            when (event) {
-                MessageEvent.Close -> if (nav.current == Route.Message(messageId)) nav.back()
-                is MessageEvent.Compose -> nav.go(Route.Compose(event.draftId, event.fresh))
-                is MessageEvent.OpenUrl -> if (!SystemPages.browser(context, event.url, toast = false)) say(R.string.message_link_no_app)
-                is MessageEvent.OpenFile ->
-                    if (!openFile(context, event.file, event.mimeType)) say(R.string.message_no_app_file)
-                is MessageEvent.SaveFile -> try {
-                    saver.launch(createDocument(event.name, event.mimeType))
-                } catch (_: ActivityNotFoundException) {
-                    vm.saveTo(null)
-                    say(R.string.message_save_failed)
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            vm.events.collect { event ->
+                when (event) {
+                    MessageEvent.Close -> if (nav.current == Route.Message(messageId)) nav.back()
+                    is MessageEvent.Compose -> nav.go(Route.Compose(event.draftId, event.fresh))
+                    is MessageEvent.OpenUrl -> if (!SystemPages.browser(context, event.url, toast = false)) say(R.string.message_link_no_app)
+                    is MessageEvent.OpenFile ->
+                        if (!openFile(context, event.file, event.mimeType)) say(R.string.message_no_app_file)
+                    is MessageEvent.SaveFile -> try {
+                        saver.launch(createDocument(event.name, event.mimeType))
+                    } catch (_: ActivityNotFoundException) {
+                        vm.saveTo(null)
+                        say(R.string.message_save_failed)
+                    }
+                    is MessageEvent.Notice -> say(event.text)
                 }
-                is MessageEvent.Notice -> say(event.text)
             }
         }
     }
@@ -181,6 +188,9 @@ fun MessageScreen(messageId: Long, nav: Navigator) {
                     if (method == Unsubscribe.OneClick) confirmUnsubscribe = true else vm.unsubscribe(method)
                 },
                 onToggleColours = { showOriginal = !showOriginal },
+                onSearchSender = { account, address ->
+                    nav.go(Route.Mailbox(MailView.Search(address, account)))
+                },
             )
         },
         bottomBar = { view?.let { ReplyBar(it, vm) } },
@@ -282,6 +292,7 @@ private fun MessageTopBar(
     onPick: (FolderPickerMode) -> Unit,
     onUnsubscribe: (Unsubscribe) -> Unit,
     onToggleColours: () -> Unit,
+    onSearchSender: (account: Long, address: String) -> Unit,
 ) {
     TopAppBar(
         title = {},
@@ -300,6 +311,14 @@ private fun MessageTopBar(
                 }
             }
             ActionButton(RowAction.MARK_UNREAD, vm::markUnread)
+            // The icon shows the star as it is now; a swipe in the list shows the result instead.
+            val starred = view.message.flagged
+            IconButton(onClick = { vm.star(!starred) }) {
+                Icon(
+                    if (starred) Icons.StarFilled else Icons.Star,
+                    stringResource(actionLabel(if (starred) RowAction.UNSTAR else RowAction.STAR)),
+                )
+            }
             Menu(
                 buildList {
                     val entry = @Composable { text: Int, icon: ImageVector, onClick: () -> Unit ->
@@ -313,10 +332,6 @@ private fun MessageTopBar(
                         val spam = if (place.inJunk) RowAction.NOT_SPAM else RowAction.SPAM
                         entry(actionLabel(spam), actionIcon(spam)) { vm.spam(!place.inJunk) }
                     }
-                    // The icon shows the star as it is now; a swipe in the list shows the result instead.
-                    val starred = view.message.flagged
-                    val star = if (starred) RowAction.UNSTAR else RowAction.STAR
-                    entry(actionLabel(star), if (starred) Icons.StarFilled else Icons.Star) { vm.star(!starred) }
                     if (place.gmail && place.important) {
                         entry(R.string.message_not_important, Icons.LabelImportantFilled) { vm.important(false) }
                     } else if (place.gmail) {
@@ -328,6 +343,12 @@ private fun MessageTopBar(
                     originalColours?.let { original ->
                         val text = if (original) R.string.message_dark_colours else R.string.message_original_colours
                         entry(text, Icons.Image, onToggleColours)
+                    }
+                    // FR26: the search index holds the sender address.
+                    view.message.fromEmail.takeIf { it.isNotBlank() }?.let { address ->
+                        entry(R.string.message_search_sender, Icons.Search) {
+                            onSearchSender(view.message.accountId, address)
+                        }
                     }
                     entry(R.string.message_view_headers, Icons.Info, vm::showHeaders)
                 },

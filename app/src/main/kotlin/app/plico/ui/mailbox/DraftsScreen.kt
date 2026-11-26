@@ -32,6 +32,7 @@ import app.plico.ui.components.Icons
 import app.plico.ui.components.rememberDateFormats
 import app.plico.ui.nav.Navigator
 import app.plico.ui.nav.Route
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -52,7 +53,18 @@ fun DraftsScreen(accountId: Long, nav: Navigator) {
     val scope = rememberCoroutineScope()
     // An id in saved state keeps the dialog open after a configuration change, as in MailboxScreen.
     var confirmRetry by rememberSaveable { mutableStateOf<Long?>(null) }
-    val retry = { draft: Draft -> scope.launch(Dispatchers.IO) { app.mail.retrySend(draft.id) } }
+    // FR19: a storage error (disk full) leaves the draft Failed; it must not crash the app.
+    val retry = { draft: Draft ->
+        scope.launch(Dispatchers.IO) {
+            try {
+                app.mail.retrySend(draft.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                Unit
+            }
+        }
+    }
 
     Scaffold(
         topBar = {

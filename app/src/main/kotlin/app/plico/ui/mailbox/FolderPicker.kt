@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -93,11 +95,16 @@ fun FolderPicker(
     var creating by rememberSaveable { mutableStateOf(false) }
     val gmail = account?.isGmail == true
 
+    // FR18: the sheet needs time to hide; a second tap must not move or apply twice.
+    var closing by remember { mutableStateOf(false) }
+
     fun close() {
         scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() }
     }
 
     fun move(folder: Folder) {
+        if (closing) return
+        closing = true
         onMove(folder)
         close()
     }
@@ -163,6 +170,8 @@ fun FolderPicker(
                 TextButton(onClick = ::close) { Text(stringResource(R.string.ui_cancel)) }
                 Button(
                     onClick = {
+                        if (closing) return@Button
+                        closing = true
                         val (add, remove) = RowActions.labelChanges(labels, states)
                         onLabels(add, remove)
                         close()
@@ -235,11 +244,17 @@ private fun NewFolderDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = ::submit, enabled = valid && !busy) {
+            val createLabel = stringResource(R.string.mailbox_create)
+            // FR36: the busy button keeps its name for TalkBack.
+            TextButton(
+                onClick = ::submit,
+                enabled = valid && !busy,
+                modifier = Modifier.semantics { contentDescription = createLabel },
+            ) {
                 if (busy) {
                     LoadingIndicator(Modifier.size(24.dp))
                 } else {
-                    Text(stringResource(R.string.mailbox_create))
+                    Text(createLabel)
                 }
             }
         },

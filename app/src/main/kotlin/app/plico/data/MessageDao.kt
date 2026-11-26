@@ -38,15 +38,16 @@ class MessageDao(private val db: Db) {
     }
 
     /**
-     * The SELECT of [observeList] and its arguments; null for a search without terms. A folder is a correlated
+     * The SELECT of [observeList] and its arguments; null for a search without terms. A folder or the unified inbox is a correlated
      * EXISTS, so that SQLite walks `message_date` and stops after [limit] rows, with no sort of the whole folder
      * (PLICO-PERF-003). Internal for the query-plan test.
      */
     internal fun listSql(view: MailView, limit: Int, serverHits: List<Long> = emptyList()): Pair<String, List<Any>>? {
         val inFolder = "EXISTS (SELECT 1 FROM message_folder mf WHERE mf.folder_id = ? AND mf.message_id = m.id)"
         val (where, args) = when (view) {
-            MailView.Unified -> "m.id IN (SELECT mf.message_id FROM message_folder mf " +
-                "JOIN folder f ON f.id = mf.folder_id WHERE f.role = 'inbox')" to emptyList()
+            // EXISTS too (PLICO-PERF-003, FR8): IN made SQLite sort the whole inbox before the LIMIT.
+            MailView.Unified -> "EXISTS (SELECT 1 FROM message_folder mf JOIN folder f ON f.id = mf.folder_id " +
+                "WHERE mf.message_id = m.id AND f.role = 'inbox')" to emptyList()
             is MailView.InFolder -> inFolder to listOf(view.folderId)
             is MailView.Starred -> "m.flagged = 1 AND m.folder_id NOT IN " +
                 "(SELECT id FROM folder WHERE role IN ('trash', 'junk'))" + accountFilter(view.accountId) to

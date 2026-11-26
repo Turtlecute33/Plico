@@ -64,6 +64,13 @@ class HtmlSanitizerTest {
     }
 
     @Test
+    fun classStaysForStyleBlocksAndIdGoes() {
+        val html = "<style>.pre{display:none}</style><div class=\"pre\" id=\"x\">hidden</div>"
+        assertEquals("<div class=\"pre\">hidden</div>", body(html))
+        assertTrue(".pre{display:none}" in clean(html).html)
+    }
+
+    @Test
     fun svgAndMath() {
         assertNoActiveContent("<svg onload=alert(1)><circle r=1 /><image href=\"https://t.example/x.png\" /></svg>")
         assertNoActiveContent("<svg><style><img src=x onerror=alert(1)></style></svg>")

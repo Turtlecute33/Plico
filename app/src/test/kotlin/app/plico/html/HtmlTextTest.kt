@@ -53,6 +53,15 @@ class HtmlTextTest {
         assertEquals("", HtmlSanitizer.snippet(""))
     }
 
+    @Test
+    fun invisiblePaddingIsBlank() {
+        val pad = "\u034F\u200B\u00AD\u2060\uFEFF \u034F"
+        assertEquals("Hello\n\nWorld", HtmlSanitizer.text("<div>Hello</div><div>$pad</div><div>World</div>"))
+        assertEquals("Hello World", HtmlSanitizer.snippet("$pad\nHello\n$pad\nWorld"))
+        // U+200D joins an emoji sequence and stays.
+        assertEquals("a\u200Db", HtmlSanitizer.text("a\u200Db"))
+    }
+
     @Test(timeout = 5_000)
     fun snippetOfManyBlankLinesIsFast() {
         assertEquals("a b", HtmlSanitizer.snippet("a\n" + "\n".repeat(1_000_000) + "b"))

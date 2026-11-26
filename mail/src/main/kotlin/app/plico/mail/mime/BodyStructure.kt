@@ -29,11 +29,14 @@ fun parseBodyStructure(value: ImapValue): MimePart = body(value.listOrEmpty(), "
  *   `attachment` disposition, no filename) are text; images with a Content-ID and no `attachment`
  *   disposition are inline; everything else is an attachment.
  *
+ * [maxText] (FR42): an `alternative` option whose text parts are larger than this is not chosen while a smaller
+ * option has text, so that the message does not open with an empty body.
+ *
  * Without HTML no cid reference can show an inline image, so such images become attachments.
  * Attachments are in document order.
  */
-fun MimePart.displayParts(): DisplayParts {
-    val out = Collector().apply { add(this@displayParts) }
+fun MimePart.displayParts(maxText: Long = Long.MAX_VALUE): DisplayParts {
+    val out = Collector(maxText).apply { add(this@displayParts) }
     return if (out.html.isEmpty()) {
         DisplayParts(emptyList(), out.plain, emptyList(), (out.attachments + out.inline).sortedWith(sectionOrder))
     } else {
@@ -144,13 +147,14 @@ private val MimePart.isCidImage: Boolean get() = type == "image" && contentId !=
 private fun MimePart.leaves(): List<MimePart> = if (isMultipart) children.flatMap { it.leaves() } else listOf(this)
 
 /** The parts of one subtree by role, in display order. Mutable, so that big flat messages stay linear. */
-private class Collector {
+private class Collector(private val maxText: Long) {
     val html = ArrayList<MimePart>()
     val plain = ArrayList<MimePart>()
     val inline = ArrayList<MimePart>()
     val attachments = ArrayList<MimePart>()
 
     private val hasText: Boolean get() = html.isNotEmpty() || plain.isNotEmpty()
+    private val fits: Boolean get() = (html + plain).all { it.size <= maxText }
 
     fun add(part: MimePart) {
         val children = part.children
@@ -179,8 +183,11 @@ private class Collector {
     }
 
     private fun alternative(children: List<MimePart>) {
-        val options = children.map { Collector().apply { add(it) } }
-        val best = options.lastOrNull { it.html.isNotEmpty() } ?: options.lastOrNull { it.plain.isNotEmpty() }
+        val options = children.map { Collector(maxText).apply { add(it) } }
+        val best = options.lastOrNull { it.html.isNotEmpty() && it.fits }
+            ?: options.lastOrNull { it.plain.isNotEmpty() && it.fits }
+            ?: options.lastOrNull { it.html.isNotEmpty() }
+            ?: options.lastOrNull { it.plain.isNotEmpty() }
         options.filter { it === best || !it.hasText }.forEach(::addAll)
     }
 

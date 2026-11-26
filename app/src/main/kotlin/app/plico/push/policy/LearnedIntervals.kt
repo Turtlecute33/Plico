@@ -38,6 +38,12 @@ class LearnedIntervals(private val store: KeyValueStore) {
         store.put(STORE_KEY, encode(map))
     }
 
+    /** Removes every key of [scope] (a key is `scope|network`), so that a removed account leaves no host name (FR29). */
+    @Synchronized
+    fun forget(scope: String) {
+        if (map.keys.removeAll { it.startsWith("$scope|") }) store.put(STORE_KEY, encode(map))
+    }
+
     companion object {
         const val STORE_KEY = "learned_keepalive"
         const val MAX_KEYS = 16

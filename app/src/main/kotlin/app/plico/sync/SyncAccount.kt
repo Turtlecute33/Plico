@@ -3,6 +3,8 @@ package app.plico.sync
 import app.plico.data.Folder
 import app.plico.data.FolderKind
 import app.plico.data.FolderRole
+import app.plico.mail.imap.ImapBadException
+import app.plico.mail.imap.ImapNoException
 import app.plico.push.policy.NotifyRule
 import app.plico.push.policy.UidNextCheck
 
@@ -44,8 +46,10 @@ internal class SyncAccount(val env: SyncEnv) {
                 report.relist = true
             } else if (status.uidNext > folder.uidNext || status.uidValidity != folder.uidValidity) {
                 // The STATUS value: a SELECT without UIDNEXT gives only an estimate (DESIGN §7.2 step 4).
-                mailbox.newMail(folder, report, status = status)
-                    ?.let { mailbox.flagsAndExpunge(it, fullFlags = false, report) }
+                skipRefused {
+                    mailbox.newMail(folder, report, status = status)
+                        ?.let { mailbox.flagsAndExpunge(it, fullFlags = false, report) }
+                }
             }
         }
     }
@@ -66,7 +70,7 @@ internal class SyncAccount(val env: SyncEnv) {
         val statuses = folderList.statuses(folders)
         for (folder in folders) {
             val status = statuses[folder.id]
-            if (status == null) report.relist = true else mailbox.sync(folder, status, fullFlags, report)
+            if (status == null) report.relist = true else skipRefused { mailbox.sync(folder, status, fullFlags, report) }
         }
         if (!env.gmail) {
             env.client.quota()?.let { env.accounts.setQuota(env.accountId, it.usedKiB * KIB, it.limitKiB * KIB) }
@@ -98,7 +102,19 @@ internal class SyncAccount(val env: SyncEnv) {
     /** One backfill step for the first mailbox that is not complete (step 8). */
     fun backfillStep(report: SyncReport): Boolean {
         val folder = synced().filter { it.backfillUid > 1 }.minByOrNull(::backfillOrder) ?: return false
-        return mailbox.backfillStep(folder, report)
+        return skipRefused { mailbox.backfillStep(folder, report) } ?: false
+    }
+
+    /**
+     * Runs the work of one non-IDLE folder. A tagged NO or BAD of that folder skips it until the next sweep (FR3),
+     * so the other folders, the bodies and IDLE still run. Throttling NO answers and all other errors go on.
+     */
+    private fun <T> skipRefused(block: () -> T): T? = try {
+        block()
+    } catch (e: Exception) {
+        val refused = e is ImapNoException || e is ImapBadException
+        if (!refused || OpErrors.classify(e) == Failure.TRANSIENT) throw e
+        null
     }
 
     /**

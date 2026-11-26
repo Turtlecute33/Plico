@@ -593,6 +593,21 @@ class SmtpClientTest {
     }
 
     @Test
+    fun `without SMTPUTF8 a U-label domain is sent as punycode and the rejected key stays the original`() {
+        val (client, stream) = started(
+            c("MAIL FROM:<me@xn--bcher-kva.example>"), s("250 ok"),
+            c("RCPT TO:<anna@xn--bcher-kva.example>"), s("550 5.1.1 no such user"),
+            c("RSET"), s("250 ok"),
+            extensions = listOf("8BITMIME"),
+        )
+        val e = assertFailsWith<SmtpRecipientException> {
+            client.send("me@bücher.example", listOf("anna@bücher.example"), message)
+        }
+        assertEquals(setOf("anna@bücher.example"), e.rejected.keys)
+        stream.assertDone()
+    }
+
+    @Test
     fun `a rejected recipient gets RSET, no DATA and the server reply`() {
         val rejection = "550 5.1.1 <bob@typo.example>: Recipient address rejected: User unknown in virtual mailbox table"
         val stream = ScriptedStream(

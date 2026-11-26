@@ -138,7 +138,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         setStartReceiver(enabled = false)
         scheduler.cancel()
         stopService()
-        updateStatus()
+        scope.launch { updateStatus() } // FR11: grant reads are binder calls, not on main.
     }
 
     /** Ends a pause by the user or a Task Manager stop, and starts push. Call it from the foreground UI. */
@@ -147,7 +147,7 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         app.prefs.pushStoppedBySystemUi = false
         setStartReceiver(enabled = true)
         app.notifier.clearPushStopped()
-        updateStatus()
+        scope.launch { updateStatus() }
         ensureStarted()
     }
 
@@ -159,18 +159,19 @@ class PushEngine(private val app: PlicoApp) : SessionHost {
         if (!visible) return
         // The grant reads are binder calls: not on the main thread (PLICO-PERF-011). The UI holds no wake lock
         // that the alarm must be armed before (push PB4).
-        scope.launch {
-            refreshStatus()
-            app.notifier.clearUnsent()
-        }
+        refreshStatus()
+        scope.launch { app.notifier.clearUnsent() }
         ensureStarted()
         onWake()
     }
 
     /** Reads the grants again (app start, the "Push & battery" screen, an exact-alarm grant). */
     fun refreshStatus() {
-        updateStatus()
-        reschedule()
+        // FR11: the reads and the alarm arming are binder calls; the UI calls this on main.
+        scope.launch {
+            updateStatus()
+            reschedule()
+        }
     }
 
     override fun network(): NetState? = watcher.network()

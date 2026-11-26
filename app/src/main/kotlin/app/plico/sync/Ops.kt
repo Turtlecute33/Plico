@@ -146,10 +146,22 @@ object Ops {
         val emptied = (OpArg.decode(op.kind, op.arg) as? OpArg.Expunge)?.folderId
         emptied?.let(folderIds::add)
         if (folderIds.any { store.folders.get(it)?.guard == true }) return true
+        if (op.kind == OpKind.FLAGS || op.kind == OpKind.LABELS) {
+            if (blockedByEarlier(op, store.ops.byAccount(op.accountId))) return true
+        }
         return emptied != null && store.ops.byAccount(op.accountId).any { earlier ->
             earlier.id < op.id && earlier.kind == OpKind.MOVE &&
                 store.messages.refs(earlier.messageIds).any { it.folderId == emptied }
         }
+    }
+
+    /**
+     * True when an earlier op (lower id) of the same kind still queued shares a message with [op] (FR1): a flag or
+     * label change must not run before an earlier one that waits in backoff, or the older value would win.
+     */
+    internal fun blockedByEarlier(op: Op, queued: List<Op>): Boolean = queued.any { earlier ->
+        earlier.id < op.id && earlier.accountId == op.accountId && earlier.kind == op.kind &&
+            earlier.messageIds.any { it in op.messageIds }
     }
 
     private fun runOne(ctx: OpContext, op: Op) {

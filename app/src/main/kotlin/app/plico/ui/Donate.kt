@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import app.plico.R
+import app.plico.notify.Notifier
 import app.plico.ui.components.Icons
 import app.plico.ui.components.SystemPages
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,12 @@ fun DonatePrompt() {
     var show by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         // Not for a share, a mailto link or a notification: the user came to do a task.
-        if (activity.intent?.action == Intent.ACTION_MAIN && withContext(Dispatchers.IO) { Donate.claim(activity) }) show = true
+        val intent = activity.intent
+        if (intent?.action == Intent.ACTION_MAIN && !intent.getBooleanExtra(Notifier.EXTRA_FROM_NOTIFICATION, false) &&
+            withContext(Dispatchers.IO) { Donate.claim(activity) }
+        ) {
+            show = true
+        }
     }
     if (!show) return
     AlertDialog(

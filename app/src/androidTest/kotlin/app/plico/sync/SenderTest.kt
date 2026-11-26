@@ -65,7 +65,6 @@ class SenderTest : OpFixture() {
         assertTrue("Message-ID: $messageId\r\n" in wire)
         assertFalse("Bcc:" in wire)
         assertEquals(DraftState.SENT, drafts.get(id)!!.state)
-        assertTrue(store.files.outboxMessage(id).isFile)
         assertTrue(messages.get(source)!!.answered)
         assertEquals(listOf(OpKind.APPEND, OpKind.DELETE_DRAFT, OpKind.FLAGS), ops.byAccount(riseup).map { it.kind })
         assertEquals(listOf("bob@example.org"), store.contacts.suggest("bob").map { it.email })
@@ -265,7 +264,7 @@ class SenderTest : OpFixture() {
             drafts.queue(id, 0)
             drafts.markSending(id)
             drafts.markSent(id)
-            store.files.newOutboxFile(id, "message.eml").writeText("x")
+            store.files.newOutboxFile(id, "sent.eml").writeText("x")
         }
         ops.insert(OpArg.Append(copying, FolderRole.SENT, "sent.eml").toNewOp(riseup, Long.MAX_VALUE))
         send(session(riseup, FakeImap()))

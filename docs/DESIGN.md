@@ -360,7 +360,10 @@ data class DisplayParts(val html: List<MimePart>, val plain: List<MimePart>,
 - `parseBodyStructure` never throws: missing or NIL fields take RFC 2045 defaults; a multipart nested deeper
   than 100 levels keeps no children.
 - `displayParts` (`protocol PS19`): `multipart/alternative` → the richest supported child
-  (html > plain). `multipart/related` → its root (first child) plus cid images as `inline`.
+  (html > plain). An option with a text part over the caller's limit (2 MB, §7.2 step 7) is not chosen while a
+  smaller option has text, so that the message does not open with an empty body (`FR42`).
+- `unflow` (RFC 3676): joins the soft line breaks of a `text/plain` part with `format=flowed`, with `delsp`,
+  quote depth, space-stuffing and the `-- ` signature line. `BodyPlan.assemble` runs it before the join (`FR40`). `multipart/related` → its root (first child) plus cid images as `inline`.
   `multipart/mixed` (and related without an HTML root) → every inline text part in order (inline =
   no `attachment` disposition and no filename). The view joins them; plain parts are HTML-escaped
   when joined with HTML. Images without a cid reference and everything else (including
@@ -535,7 +538,8 @@ Rules:
 - Account removal: stop the session, revoke the OAuth grant (Google; Microsoft has no revoke endpoint for
   public clients, so the remove dialog names the pages where the user ends the grant, §6.4), cascade, delete
   `outbox/` and `att/` dirs of the account, `INSERT INTO message_fts(message_fts) VALUES('optimize')`,
-  `PRAGMA wal_checkpoint(TRUNCATE)` (`privacy PS8`), delete the sender-logo cache (§12); contacts and trusted
+  `PRAGMA wal_checkpoint(TRUNCATE)` (`privacy PS8`), delete the sender-logo cache (§12) and the learned keepalive
+  intervals of the account's scope when no other account uses that scope (`FR29`); contacts and trusted
   senders go with the last account. Its notifications are cancelled; the push engine deletes the channels of
   accounts that are gone (`removeStaleChannels`).
 - `DraftState`: `EDITING` 0, `QUEUED` 1, `SENDING` 2, `FAILED` 3, `SENT` 4, `UNCERTAIN` 5 (failed, but may have
@@ -1028,6 +1032,8 @@ class AccountSession(...) {
    that checked the flags, not from the last sweep: in poll mode every poll is a sweep. Else every 15-min poll
    would fetch the flags of every message of every folder, or, with the 6 h counted from the last sweep, a polling
    account would never check them. The servers of Riseup and of Gmail have CONDSTORE: no change on them.
+   A tagged NO or BAD from the sync of one mailbox other than the IDLE mailbox skips that mailbox until the
+   next sweep, so that the other mailboxes, the bodies and IDLE still run; a throttling NO still ends the cycle (`FR3`).
 3. SELECT. UIDVALIDITY changed → drop pending ops that use this folder (refetch-undo, §7.4), then
    delete the local rows — through the guard (step 6) when more than 50 rows.
 4. **New mail**: skip when server UIDNEXT ≤ `folder.uidnext`. First sync (`backfill_uid = 0`):
@@ -1089,7 +1095,8 @@ class AccountSession(...) {
   and is not named INBOX (`simplicity EM23`). An `X-GM-LABELS` value without a view row creates a
   kind-1 row (`hidden = 1` until LIST shows it) and the membership (`protocol PS6`). A label that LIST
   shows for the first time while a view row has no members: EXAMINE it, `UID FETCH 1:* (X-GM-MSGID)`,
-  map msgids to local rows (index `message_gm`), write memberships.
+  map msgids to local rows (index `message_gm`), write memberships. If this fill fails, the row of that view
+  and of each later new view is deleted, so that the next LIST sees them as new and fills them again (`FR2`).
 - All Mail uses §7.2 with `X-GM-MSGID X-GM-LABELS`. A row's membership = source mailbox + label views.
 - **IDLE on INBOX. Fast path** on `Changed`: DONE → SELECT All Mail → new UIDs (step 4) → category
   check → commit → notify → rest of the work → SELECT INBOX → UIDNEXT check → IDLE.
@@ -1115,7 +1122,8 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
   time, so that a TalkBack or switch-access user can reach Undo (`PLICO-UX-008`). MainActivity reads the setting
   at each start.
 - The loop runs due ops in id order. `nextDueAt()` includes the earliest `run_at`, so the alarm wakes
-  the session (`push PB7`, `protocol PS12`, `simplicity EM1`).
+  the session (`push PB7`, `protocol PS12`, `simplicity EM1`). A flags or labels op waits while an earlier op
+  of the same kind for the same message is still queued (in backoff), so that the older value cannot win (`FR1`).
 - The runner resolves UIDs from the rows at run time. It SELECTs the folder first; a UIDVALIDITY
   mismatch drops the op (`protocol PS11`).
 - After MOVE, apply COPYUID: update `folder_id`/`uid` of the row in place and keep body/attachments
@@ -1149,7 +1157,7 @@ User actions change the DB first, then queue an `op`. Kinds: `flags`, `labels`, 
 ### 7.5 Sending (`Sender`) — the draft table is the only outbox
 - Send: `state = 1`, `send_at = now + undo seconds` (Prefs, default 5; 0 = off; when on, at least the
   accessibility timeout of §7.4); the Undo snackbar closes 1 s before `send_at`, and an Undo after the send started says "Too late to undo". Due sends: `state = 2`
-  → build MIME (§10) → write `outbox/<id>/message.eml` → SMTP. On the final 250, in one transaction:
+  → build MIME (§10) → SMTP (the built message is not written to disk, `FR4`). On the final 250, in one transaction:
   `state = 4`, queue `append` (the Sent copy with Bcc, `\Seen`, see below), `delete_draft` (if `on_server`),
   `flags +\Answered` (source message), update contacts (`protocol PS1`). When no op references the draft
   any more, delete the row and its outbox dir.
@@ -1409,8 +1417,9 @@ class MessageBuilder(val from: Address, val to: List<Address>, val cc: List<Addr
 
 ### 11.1 Sanitizer (`HtmlSanitizer`, jsoup)
 - Custom `Safelist` (from `relaxed`): add `font center span div table thead tbody tfoot tr td th caption
-  col colgroup hr`, attributes `style align valign width height bgcolor border cellpadding cellspacing
-  color face size dir`, `a href` protocols `http https mailto`, `img src` protocols `cid data http https`.
+  col colgroup hr`, attributes `style class align valign width height bgcolor border cellpadding cellspacing
+  color face size dir` (`class` so that the class rules of the sanitized `<style>` blocks match, for example a
+  hidden preheader; no `id`), `a href` protocols `http https mailto`, `img src` protocols `cid data http https`.
   Drop `script iframe object embed form input button textarea select link meta base svg math` and `on*`.
 - `<style>` blocks: taken out before cleaning, CSS-sanitized (`@import`, `expression`, `behavior`,
   `-moz-binding`, `</` removed), put back into the head.
@@ -1698,11 +1707,12 @@ Account colours from a palette of 8. `Route`: `Setup`, `Mailbox(view)`, `Message
   passes the threshold, and a confirm haptic when a send is queued (`PLICO-UX-011`; the system touch-feedback
   setting applies). Long-press multi-select: Select all,
   Archive, Delete, Read/Unread, Star, Move/Labels, Spam/Not spam. Trash and Spam overflow: Empty (confirm).
-  Pull to refresh. Extended FAB "Compose". Banners: sign-in needed, push paused/late, guard, Gmail setup state,
-  messages not sent. Rows of sent mail (in Sent, or from the account address) show "To: <first recipient>".
+  Pull to refresh. Extended FAB "Compose". Banners: sign-in needed, push paused/late, offline (only while push
+  runs, `FR22`), guard, Gmail setup state, messages not sent. Rows of sent mail (in Sent, or from the account address) show "To: <first recipient>".
   An account with local drafts and no Drafts mailbox gets a Drafts entry that opens its local drafts.
-- **Message**: top bar (back, Archive, Delete, Unread, overflow: Move/Labels with "New…", Spam/Not spam, Star,
-  Important (Gmail), Unsubscribe, View headers (`BODY.PEEK[HEADER]` on demand, shows the sender's Date)).
+- **Message**: top bar (back, Archive, Delete, Unread, Star as a toggle that shows the state, overflow: Move/Labels with "New…", Spam/Not spam,
+  Important (Gmail), Unsubscribe, Search this sender (opens the mailbox search for the address, `FR26`),
+  View headers (`BODY.PEEK[HEADER]` on demand, shows the sender's Date)).
   Subject, Gmail label chips, sender block (name + real address, date, to/cc/bcc expandable; the logo only from
   the cache, with the gate of §12), sender-check
   banners, remote-content bar ("Images blocked · N trackers removed" + Show + Always from sender), body

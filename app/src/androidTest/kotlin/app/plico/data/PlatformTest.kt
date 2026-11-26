@@ -119,10 +119,6 @@ class PlatformTest {
         assertTrue(listOf(first, second, third).all { it.parentFile == dir && it.exists() })
         assertNotEquals(first, second)
 
-        // The built message has a fixed name that no attachment can take.
-        val eml = files.outboxMessage(9)
-        assertEquals(File(dir, "message.eml"), eml)
-        assertEquals("2-message.eml", files.newOutboxFile(9, "message.eml").name)
         assertEquals(File(context.cacheDir.canonicalFile, "att/42/7.part"), files.attachmentPart(42, 7))
 
         files.deleteOutbox(9)

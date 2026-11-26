@@ -26,6 +26,14 @@ class LinkCleanerTest {
     }
 
     @Test
+    fun overlongUrlIsUnsupportedAndShortened() {
+        val link = unsupported("https://example.com/" + "a".repeat(9000))
+        assertEquals(2000, link.text.length)
+        assertNull(link.original)
+        assertIs<Link.Web>(cleaner.clean("https://example.com/" + "a".repeat(100)))
+    }
+
+    @Test
     fun googleRedirectQ() {
         val wrapped = "https://www.google.com/url?q=https%3A%2F%2Fexample.com%2Fpage%3Fid%3D1" +
             "&sa=D&source=gmail&ust=1700000000000&usg=AOvVaw0"

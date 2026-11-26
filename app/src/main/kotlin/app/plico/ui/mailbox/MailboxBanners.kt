@@ -25,6 +25,9 @@ internal sealed interface MailboxBanner {
     data class Guard(val folder: Folder) : MailboxBanner
     data class Push(val problem: PushProblem) : MailboxBanner
 
+    /** No network: queued changes and sends wait (FR22). */
+    data object Offline : MailboxBanner
+
     /** One-time note: Gmail writes the sender's public IP address into sent mail (DESIGN §12). */
     data object GmailIp : MailboxBanner
 }
@@ -76,6 +79,8 @@ internal object MailboxBanners {
         for (account in shown) unsent[account.id]?.takeIf { it > 0 }?.let { add(MailboxBanner.Unsent(account, it)) }
         guarded.forEach { add(MailboxBanner.Guard(it)) }
         if (all.isNotEmpty()) pushProblem(status)?.let { add(MailboxBanner.Push(it)) }
+        // Only while push runs: a stopped watcher does not report that the network is back.
+        if (all.isNotEmpty() && status?.running == true && !status.hasNetwork) add(MailboxBanner.Offline)
         shown.filter { it.state == AccountState.OK && !it.stateText.isNullOrBlank() }.forEach { add(MailboxBanner.Note(it)) }
         if (!gmailIpNoteShown && all.any { it.isGmail }) add(MailboxBanner.GmailIp)
     }

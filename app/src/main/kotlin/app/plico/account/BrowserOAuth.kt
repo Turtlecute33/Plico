@@ -392,6 +392,9 @@ class BrowserOAuth(private val context: Context, private val prefs: Prefs, val i
             if (isStale(json, SystemClock.elapsedRealtime())) prefs.put(PENDING_KEY, null)
         }
 
+        /** Removes the pending sign-in at once (FR25): a redirect that comes later finds none and is ignored. */
+        fun cancelPending(prefs: Prefs) = prefs.put(PENDING_KEY, null)
+
         internal fun isStale(json: String, now: Long) = Pending.parse(json)?.isFresh(now) != true
 
         /**

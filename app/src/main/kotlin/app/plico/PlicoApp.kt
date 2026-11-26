@@ -3,6 +3,7 @@ package app.plico
 import android.app.Application
 import android.content.Context
 import android.os.StrictMode
+import android.util.Log
 import app.plico.account.BrowserOAuth
 import app.plico.data.AccountDao
 import app.plico.data.ContactDao
@@ -66,14 +67,20 @@ class PlicoApp : Application() {
         BrowserOAuth.dropStale(prefs)
         notifier.watchSendFailures()
         thread(name = "start-cleanup") {
+            // FR10: one failing task must not skip the others or end the process; only the class name is logged.
+            fun guarded(task: () -> Unit) = try {
+                task()
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "start: ${e.javaClass.simpleName}")
+            }
             // DESIGN §9: shown notifications follow "Hide content" and the app lock also while push is paused.
-            notifier.start()
+            guarded { notifier.start() }
             // DESIGN §7.5: interrupted sends become failed before the first send of this process.
-            Sender.onProcessStart(this)
+            guarded { Sender.onProcessStart(this) }
             // DESIGN §11.5: cached attachment files older than 1 h, and those of deleted messages, go at start.
-            files.pruneAttachmentCache(isLive = messages::exists)
+            guarded { files.pruneAttachmentCache(isLive = messages::exists) }
             // DESIGN §12: expired logos go; all of them when logos are off or no account is left.
-            logos.prune(prefs.senderLogos, accounts.all().isNotEmpty())
+            guarded { logos.prune(prefs.senderLogos, accounts.all().isNotEmpty()) }
         }
     }
 
@@ -84,6 +91,10 @@ class PlicoApp : Application() {
     private fun enableStrictMode() {
         StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build())
         StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().detectAll().penaltyLog().build())
+    }
+
+    private companion object {
+        const val LOG_TAG = "Plico"
     }
 }
 

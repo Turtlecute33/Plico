@@ -98,6 +98,9 @@ object Sender {
         } catch (e: RuntimeException) {
             // No byte is sent yet: the row must not stay in SENDING (DESIGN §7.5).
             return refused(ctx, draft, e)
+        } catch (_: OutOfMemoryError) {
+            // FR5: the build ran out of memory before any byte left the device; the row must not become UNCERTAIN.
+            return fail(ctx, draft, store.text(R.string.ops_error_too_large, Ops.formatSize(store, traits.maxMessageBytes)))
         }
         val recipients = DraftMime.recipients(draft)
         if (recipients.isEmpty()) return fail(ctx, draft, store.text(R.string.ops_error_no_recipient))
@@ -105,7 +108,6 @@ object Sender {
             return fail(ctx, draft, store.text(R.string.ops_error_too_large, Ops.formatSize(store, traits.maxMessageBytes)))
         }
         try {
-            store.files.outboxMessage(draft.id).writeBytes(message)
             val smtp = ctx.smtp()
             try {
                 val limit = minOf(smtp.maxSize ?: Long.MAX_VALUE, traits.maxMessageBytes)

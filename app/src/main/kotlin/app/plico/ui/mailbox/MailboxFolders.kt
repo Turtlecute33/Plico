@@ -78,7 +78,9 @@ internal object MailboxFolders {
                 it.accountId == account.id && !it.hidden && it.id !in mainIds &&
                     (it.role == null || it.role == FolderRole.ARCHIVE)
             }
-            .sortedWith(byPath(collator))
+            .map { it to displayPath(it) }
+            .sortedWith(compareBy<Pair<Folder, String>, String>(collator) { it.second }.thenBy { it.first.path })
+            .map { it.first }
         DrawerSection(
             account = account,
             main = main.map { (role, folder) -> DrawerFolder(folder, unread[folder.id] ?: 0, role) },

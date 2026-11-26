@@ -163,7 +163,7 @@ internal fun Step(number: Int, text: String, extra: @Composable () -> Unit = {})
             text = "$number.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(24.dp),
+            modifier = Modifier.widthIn(min = 24.dp),
         )
         Column(Modifier.weight(1f)) {
             Text(text = text, style = MaterialTheme.typography.bodyLarge)

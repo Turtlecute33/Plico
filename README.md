@@ -84,7 +84,9 @@ opens.
     sends only the domain, never your address;
   - the logo source that you select, only when you turn on sender logos: DuckDuckGo, Google, or the
     website of each sender (and the hosts that it redirects to);
-  - remote content and unsubscribe pages, only after you tap.
+  - remote images, only after you tap Show, or when you turn on "Show remote images" or "Always show
+    images from this sender";
+  - unsubscribe pages, only after you tap.
 - Settings › Support has links to donate and to the developer on X and Nostr. They open in your
   browser. The app itself does not connect to these hosts.
 - A small donation card shows when you open the app: first 7 days after the install, then at most

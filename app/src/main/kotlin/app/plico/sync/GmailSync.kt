@@ -112,13 +112,19 @@ internal class GmailSync(
     fun fill(views: List<Folder>) {
         if (views.isEmpty() || (allMail()?.backfillUid ?: 0L) == 0L) return
         val protected = env.protectedIds()
-        for (view in views) {
-            if (env.selection.examine(view.path).exists == 0L) continue
-            val msgIds = ArrayList<Long>()
-            env.client.uidFetch(UidSet.range(1), "X-GM-MSGID") { item -> item.gmMsgId?.let(msgIds::add) }
-            val ids = env.messages.idsByGmMsgId(env.accountId, msgIds).values.filterNot { it in protected }
-            env.messages.addToFolder(ids, view.id)
-            env.progress()
+        for ((index, view) in views.withIndex()) {
+            try {
+                if (env.selection.examine(view.path).exists == 0L) continue
+                val msgIds = ArrayList<Long>()
+                env.client.uidFetch(UidSet.range(1), "X-GM-MSGID") { item -> item.gmMsgId?.let(msgIds::add) }
+                val ids = env.messages.idsByGmMsgId(env.accountId, msgIds).values.filterNot { it in protected }
+                env.messages.addToFolder(ids, view.id)
+                env.progress()
+            } catch (e: Throwable) {
+                // FR2: a view without a row is new again at the next LIST, so its fill runs again.
+                views.drop(index).forEach { env.folders.delete(it.id) }
+                throw e
+            }
         }
     }
 

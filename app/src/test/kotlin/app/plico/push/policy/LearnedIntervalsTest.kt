@@ -105,4 +105,17 @@ class LearnedIntervalsTest {
         assertFalse(interval.isLocked(HOUR), "the clock restarted: a reboot ends the lock")
         assertFalse(LearnedInterval(7).isLocked(0))
     }
+
+    @Test
+    fun forgetRemovesOnlyTheKeysOfOneScope() {
+        val intervals = LearnedIntervals(store)
+        intervals["mail.example.org|wifi:0a1b2c3d4e5f"] = LearnedInterval(11)
+        intervals["mail.example.org|cellular"] = LearnedInterval(7)
+        intervals["mail.example.org.test|cellular"] = LearnedInterval(9)
+        intervals.forget("mail.example.org")
+        assertNull(intervals["mail.example.org|cellular"])
+        assertNull(intervals["mail.example.org|wifi:0a1b2c3d4e5f"])
+        assertEquals(LearnedInterval(9), intervals["mail.example.org.test|cellular"])
+        assertEquals("mail.example.org.test|cellular=9", store.values[LearnedIntervals.STORE_KEY])
+    }
 }

@@ -704,6 +704,20 @@ class BodyStructureTest {
     }
 
     @Test
+    fun alternativeFallsBackToPlainWhenHtmlIsTooBig() {
+        val plain = part("1", "text/plain").copy(size = 100)
+        val html = part("2", "text/html").copy(size = 5_000)
+        val p = part("", "multipart/alternative", plain, html)
+        assertEquals(listOf("2"), p.displayParts().html.map { it.section })
+        val limited = p.displayParts(maxText = 1_000)
+        assertEquals(listOf("1"), limited.plain.map { it.section })
+        assertEquals(emptyList(), limited.html)
+        // Nothing fits: the present choice stays.
+        val none = part("", "multipart/alternative", plain.copy(size = 3_000), html).displayParts(maxText = 1_000)
+        assertEquals(listOf("2"), none.html.map { it.section })
+    }
+
+    @Test
     fun alternativePicksRichestChild() {
         // Wrong order from a broken mailer: HTML still wins.
         val reversed = fetch(

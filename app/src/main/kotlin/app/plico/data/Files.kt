@@ -26,9 +26,6 @@ class Files internal constructor(cacheDir: File, filesDir: File) {
     /** filesDir/outbox/<draftId>/ (created) */
     fun outboxDir(draftId: Long): File = inside(outboxBase, draftId.toString()).also { it.mkdirs() }
 
-    /** filesDir/outbox/<draftId>/message.eml: the built message (DESIGN.md §7.5). No attachment gets this name. */
-    fun outboxMessage(draftId: Long): File = inside(outboxDir(draftId), MESSAGE_FILE)
-
     /** A new empty file in the draft's outbox dir; [name] is made safe and unique. */
     fun newOutboxFile(draftId: Long, name: String): File {
         val dir = outboxDir(draftId)
@@ -36,7 +33,7 @@ class Files internal constructor(cacheDir: File, filesDir: File) {
         // The counter goes in front, so truncation at the end cannot make two names equal.
         return generateSequence(1) { it + 1 }
             .map { n -> inside(dir, if (n == 1) safe else safeName("$n-$safe")) }
-            .first { it.name != MESSAGE_FILE && it.createNewFile() }
+            .first { it.createNewFile() }
     }
 
     /** The draft ids that have an outbox dir. */
@@ -82,7 +79,6 @@ class Files internal constructor(cacheDir: File, filesDir: File) {
     }
 
     companion object {
-        private const val MESSAGE_FILE = "message.eml"
         private const val MAX_CHARS = 100
 
         /** File systems limit one name to 255 bytes. */

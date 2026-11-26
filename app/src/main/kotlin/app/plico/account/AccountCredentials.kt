@@ -9,6 +9,7 @@ import app.plico.data.Tables
 import app.plico.mail.imap.ImapClient
 import app.plico.mail.smtp.SmtpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.security.GeneralSecurityException
 import java.util.concurrent.ConcurrentHashMap
@@ -73,15 +74,17 @@ internal class Refusing(private val message: String) : Credentials {
 
 /**
  * Stores a rotated refresh token. In one transaction, and only when the row still signs in with OAuth and still
- * holds [old]: a "Sign in again" or another sign-in method while the refresh ran must win.
+ * holds [old]: a "Sign in again" or another sign-in method while the refresh ran must win. Not cancellable: the
+ * issuer has rotated the token already, and a lost new token forces a new sign-in (FR30).
  */
-private suspend fun rotate(app: PlicoApp, accountId: Long, old: String, new: String) = withContext(Dispatchers.IO) {
-    app.db.tx(Tables.ACCOUNT) {
-        val auth = app.accounts.get(accountId)?.auth
-        val stored = decrypted(app, app.accounts.secret(accountId))
-        if (mayRotate(auth, stored, old)) app.accounts.setSecret(accountId, app.vault.encryptString(new))
+private suspend fun rotate(app: PlicoApp, accountId: Long, old: String, new: String) =
+    withContext(NonCancellable + Dispatchers.IO) {
+        app.db.tx(Tables.ACCOUNT) {
+            val auth = app.accounts.get(accountId)?.auth
+            val stored = decrypted(app, app.accounts.secret(accountId))
+            if (mayRotate(auth, stored, old)) app.accounts.setSecret(accountId, app.vault.encryptString(new))
+        }
     }
-}
 
 /** True when a rotated token may replace the stored one: the row has OAUTH and its secret is still [old]. */
 internal fun mayRotate(auth: AuthKind?, stored: String?, old: String): Boolean = auth == AuthKind.OAUTH && stored == old

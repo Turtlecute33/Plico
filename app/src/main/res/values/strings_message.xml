@@ -7,6 +7,7 @@
     <string name="message_unsubscribe">Unsubscribe</string>
     <string name="message_original_colours">Show original colours</string>
     <string name="message_dark_colours">Show dark colours</string>
+    <string name="message_search_sender">Search this sender</string>
     <string name="message_view_headers">View headers</string>
 
     <!-- Header -->

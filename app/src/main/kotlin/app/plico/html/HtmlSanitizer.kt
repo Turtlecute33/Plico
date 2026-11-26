@@ -53,7 +53,7 @@ object HtmlSanitizer {
             "colgroup", "hr",
         )
         .addAttributes(
-            ":all", "style", "align", "valign", "width", "height", "bgcolor", "border", "cellpadding", "cellspacing",
+            ":all", "style", "class", "align", "valign", "width", "height", "bgcolor", "border", "cellpadding", "cellspacing",
             "color", "face", "size", "dir",
         )
         .addAttributes("img", "srcset")
@@ -73,6 +73,8 @@ object HtmlSanitizer {
         "figcaption", "caption",
     )
     private val spaces = Regex("""[\s\u00A0]+""")
+    // FR41: invisible padding of newsletter preheaders. U+200C and U+200D stay: Persian text and emoji need them.
+    private val invisible = Regex("""[\u00AD\u034F\u200B\u2060\uFEFF]""")
     private val pixelSize = Regex("""(\d*\.?\d+)\s*(?:px)?""")
     // Each pattern starts only where its first character class starts: without the lookbehind, a long run of
     // those characters with no '@' (or no dot) makes the search quadratic on text from any sender.
@@ -152,7 +154,7 @@ object HtmlSanitizer {
             }
             kept += t
         }
-        val s = kept.joinToString(" ").replace(spaces, " ").trim()
+        val s = kept.joinToString(" ").replace(invisible, "").replace(spaces, " ").trim()
         if (s.length <= SNIPPET_LENGTH) return s
         val end = if (s[SNIPPET_LENGTH - 1].isHighSurrogate()) SNIPPET_LENGTH - 1 else SNIPPET_LENGTH
         return s.substring(0, end).trimEnd()
@@ -232,7 +234,8 @@ object HtmlSanitizer {
         var blank = false
         for (line in raw.lines()) {
             val t = line.replace(spaces, " ").trim()
-            if (t.isEmpty() || t.all { it == '>' || it == ' ' }) {
+            val visible = t.replace(invisible, "")
+            if (visible.isEmpty() || visible.all { it == '>' || it == ' ' }) {
                 blank = out.isNotEmpty()
                 continue
             }

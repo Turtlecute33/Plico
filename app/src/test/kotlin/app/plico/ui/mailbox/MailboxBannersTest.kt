@@ -75,6 +75,16 @@ class MailboxBannersTest {
     }
 
     @Test
+    fun offlineBannerOnlyWhilePushRunsWithoutNetwork() {
+        val one = listOf(account(1))
+        assertEquals(listOf(MailboxBanner.Offline), MailboxBanners.of(one, one, emptyList(), pushStatus(network = false), true))
+        assertTrue(MailboxBanners.of(one, one, emptyList(), pushStatus(), true).isEmpty())
+        // A paused push has no live network state: only the pause shows.
+        val paused = pushStatus(paused = true, network = false).copy(running = false)
+        assertEquals(listOf(MailboxBanner.Push(PushProblem.PAUSED)), MailboxBanners.of(one, one, emptyList(), paused, true))
+    }
+
+    @Test
     fun noPushOrIpBannerWithoutAccounts() {
         assertTrue(MailboxBanners.of(emptyList(), emptyList(), emptyList(), pushStatus(paused = true), false).isEmpty())
         assertTrue(MailboxBanners.of(listOf(account(1)), listOf(account(1)), emptyList(), null, false).isEmpty())

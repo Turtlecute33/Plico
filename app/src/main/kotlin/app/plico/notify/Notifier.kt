@@ -73,7 +73,9 @@ class Notifier(private val app: PlicoApp) {
             Intent(app, MainActivity::class.java)
                 .setAction(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LAUNCHER)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // FR28: an extra does not change intent matching; DonatePrompt skips the card for it.
+                .putExtra(EXTRA_FROM_NOTIFICATION, true),
         )
     }
 
@@ -272,6 +274,8 @@ class Notifier(private val app: PlicoApp) {
                 } catch (e: RuntimeException) {
                     Log.e(LOG_TAG, "notify: ${e.javaClass.simpleName}")
                 }
+                // FR27: a no-op or failed update also counts, so a sync burst keeps the gap.
+                synchronized(lock) { lastUpdate[accountId] = SystemClock.elapsedRealtime() }
             }
         }
     }
@@ -566,6 +570,9 @@ class Notifier(private val app: PlicoApp) {
     }
 
     companion object {
+        /** Extra of the intent that opens the app from a notification: the start is not from the launcher (FR28). */
+        const val EXTRA_FROM_NOTIFICATION = "app.plico.from_notification"
+
         /** The foreground-service notification. */
         const val SERVICE_ID = 1
         private const val PUSH_STOPPED_ID = 2

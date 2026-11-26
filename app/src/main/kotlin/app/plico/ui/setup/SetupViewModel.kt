@@ -352,6 +352,8 @@ class SetupViewModel(
         if (current.busy != null && current.busy != Busy.SAVING) {
             work?.cancel()
             work = null
+            // FR25: a code that the browser returns later must not sign in a cancelled account.
+            if (current.busy == Busy.BROWSER) BrowserOAuth.cancelPending(app.prefs)
         }
         if (next.page != current.page) password.clearText()
         // Back to the root of "Sign in again": the fields show the stored servers again.

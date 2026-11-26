@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -145,7 +146,8 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     /** Fetched remote images: a WebView reload (rotation, colours) makes no new request and spends no more budget. */
     private val fetched = ConcurrentHashMap<String, RemoteFetcher.Resource>()
 
-    private val detail = app.messages.observeDetail(messageId).shareIn(viewModelScope, SharingStarted.Eagerly, 1)
+    /** FR31: no UI subscriber (app stopped) means no detail queries; init and [fixed] use first(), which subscribes itself. */
+    private val detail = app.messages.observeDetail(messageId).shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1)
     private val fixed = viewModelScope.async(Dispatchers.IO) { detail.first()?.let { fixedOf(it) } }
 
     /** Sender checks need the PSL; the message shows without them first. */
@@ -167,7 +169,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
                 if (d == null) MessageState.Gone else MessageState.Ready(viewOf(d, f, t, def, once, w))
             },
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, MessageState.Loading)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MessageState.Loading)
 
     val body: StateFlow<BodyState> = combine(
         app.messages.observeBody(messageId),
@@ -176,7 +178,7 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         renderGone,
     ) { body, remote, error, gone -> bodyOf(body, remote, error, gone) }
         .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, BodyState.Loading)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BodyState.Loading)
 
     private val progressFlow = MutableStateFlow<Map<Long, Float>>(emptyMap())
     private val headersFlow = MutableStateFlow<HeadersState?>(null)
@@ -254,7 +256,11 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
         if (part == null || !image || part.size > MAX_INLINE_BYTES * 4 / 3) {
             null
         } else {
-            val file = runBlocking { viewModelScope.async(Dispatchers.IO) { mail.loadAttachment(part.id) }.await() }
+            // FR32: the request can wait long in the session queue; the timeout is inside async so that it cancels the child.
+            // A timeout is a CancellationException, and the catch below turns it into "no image".
+            val file = runBlocking {
+                viewModelScope.async(Dispatchers.IO) { withTimeout(CID_TIMEOUT_MS) { mail.loadAttachment(part.id) } }.await()
+            }
             val type = file.takeIf { it.length() <= MAX_INLINE_BYTES }
                 ?.inputStream()?.use { AttachmentSafety.sniff(it.readNBytes(AttachmentSafety.SNIFF_BYTES)) }
                 ?.takeIf { it.startsWith("image/") }
@@ -580,6 +586,9 @@ class MessageViewModel(private val app: PlicoApp, private val messageId: Long) :
     private companion object {
         /** DESIGN §11.2: inline images up to 10 MB. */
         const val MAX_INLINE_BYTES = 10L * 1024 * 1024
+
+        /** FR32: the longest wait for one inline image. */
+        const val CID_TIMEOUT_MS = 30_000L
 
         /** The most characters of a raw header block that "View headers" shows. */
         const val MAX_HEADER_CHARS = 64 * 1024

@@ -179,6 +179,10 @@ class MessageDaoTest : DbFixture() {
         assertTrue("message_date" in list, list)
         assertFalse("TEMP B-TREE" in list, list)
         assertFalse("SCAN d" in list, list)
+        val (uSql, uArgs) = messages.listSql(MailView.Unified, 50)!!
+        val unified = plan(uSql, *uArgs.toTypedArray())
+        assertTrue("message_date" in unified, unified)
+        assertFalse("TEMP B-TREE" in unified, unified)
         val unread = plan(UNREAD_SQL)
         assertTrue("message_unread" in unread, unread)
     }

@@ -17,6 +17,12 @@ class IdnTest {
     }
 
     @Test
+    fun overlongHostIsRefusedAtOnce() {
+        assertNull(Idn.toAscii("ü".repeat(254)))
+        assertNull(Idn.toAscii("a".repeat(254)))
+    }
+
+    @Test
     fun invalidNames() {
         assertNull(Idn.toAscii(""))
         assertNull(Idn.toAscii("."))

@@ -67,7 +67,8 @@ fun pushStatus(
     battery: Boolean = true,
     exact: Boolean = true,
     restricted: Boolean = false,
+    network: Boolean = true,
 ) = PushStatus(
-    running = true, pausedByUser = paused, stoppedBySystem = stopped, hasNetwork = true,
+    running = true, pausedByUser = paused, stoppedBySystem = stopped, hasNetwork = network,
     grants = Grants(notifications, battery, exact, restricted),
 )

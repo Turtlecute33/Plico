@@ -133,6 +133,7 @@
     <string name="mailbox_banner_push_restricted">Push is off: battery use for Plico is Restricted.</string>
     <string name="mailbox_banner_push_late">New mail can be late. Android can stop Plico.</string>
     <string name="mailbox_fix">Fix</string>
+    <string name="mailbox_banner_offline">Offline. Changes are sent when the connection returns.</string>
     <string name="mailbox_banner_gmail_ip">Gmail writes your public IP address into the mail that you send.</string>
     <string name="mailbox_ok">OK</string>
 
@@ -152,7 +153,7 @@
     <string name="mailbox_draft_queued">Queued</string>
     <string name="mailbox_draft_sending">Sending…</string>
     <string name="mailbox_draft_failed">Not sent</string>
-    <string name="mailbox_retry_send">Retry</string>
+    <string name="mailbox_retry_send">Try again</string>
 
     <!-- Folder picker -->
     <string name="mailbox_move_to">Move to</string>

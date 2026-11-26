@@ -124,7 +124,7 @@ private fun ComposeContent(vm: ComposeViewModel, nav: Navigator) {
     val photos = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { vm.attach(it) }
     val files = rememberLauncherForActivityResult(OpenMultipleDocuments()) { vm.attach(it) }
 
-    LaunchedEffect(vm) { vm.notices.collect { snackbar.showSnackbar(resources.getString(it.text)) } }
+    LaunchedEffect(vm) { vm.notices.collect { snackbar.showSnackbar(it(resources)) } }
     LaunchedEffect(Unit) {
         if (vm.editing) (if (vm.to.chips.isEmpty()) toFocus else bodyFocus).requestFocus()
     }

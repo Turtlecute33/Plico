@@ -31,6 +31,7 @@ import app.plico.mail.mime.Addresses
 import app.plico.mail.mime.HeaderSafety
 import app.plico.mail.mime.MessageBuilder
 import app.plico.mail.mime.TransferDecoding
+import app.plico.push.policy.KeepalivePolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -348,9 +349,18 @@ class MailActions internal constructor(private val store: OpStore, private val h
             val folder = folderId?.let(store.folders::get)
             folder to (folder?.let { listOf(it.accountId) } ?: accountId?.let { listOf(it) } ?: allAccounts().map { it.id })
         }
-        return forAll(accounts) { id ->
-            host.request(id, closeOnCancel = true) { Search.server(this, query, folder?.takeIf { it.accountId == id }) }
-        }.flatten().distinct()
+        // FR7: one account that fails must not drop the hits of the others.
+        val results = forAll(accounts) { id ->
+            try {
+                Result.success(host.request(id, closeOnCancel = true) { Search.server(this, query, folder?.takeIf { it.accountId == id }) })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+        if (results.isNotEmpty() && results.all { it.isFailure }) throw results.first().exceptionOrNull() ?: IllegalStateException()
+        return results.flatMap { it.getOrDefault(emptyList()) }.distinct()
     }
 
     /** Pull to refresh / folder opened: syncs the mailboxes of the view now. */
@@ -831,6 +841,12 @@ class MailActions internal constructor(private val store: OpStore, private val h
                 // Also after a failed purge: its delete may be committed already, and the rest must not stay.
                 app.logos.clear()
                 GmailSync.forget(app.prefs, account.id)
+                // FR29: the learned intervals are shared by scope; keep them while another account uses the scope.
+                val scope = KeepalivePolicy.scopeOf(account.provider, account.servers.imap.host)
+                val shared = app.accounts.all().any {
+                    it.id != account.id && KeepalivePolicy.scopeOf(it.provider, it.servers.imap.host) == scope
+                }
+                if (!shared) app.learnedIntervals.forget(scope)
                 // The channel goes in onAccountsChanged (removeStaleChannels).
                 app.notifier.cancelAccount(account.id)
                 forgetCredentials(account.id)

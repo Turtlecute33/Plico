@@ -1,5 +1,6 @@
 package app.plico.ui.compose
 
+import android.content.res.Resources
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
@@ -23,6 +24,7 @@ import app.plico.data.Contact
 import app.plico.data.DraftAttachment
 import app.plico.data.DraftState
 import app.plico.mail.mime.Address
+import app.plico.sync.ActionError
 import app.plico.sync.DraftMime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -131,7 +133,8 @@ internal class ComposeViewModel(
     var question by mutableStateOf<SendQuestion?>(null)
         private set
 
-    val notices: Flow<Notice> get() = noticeChannel.receiveAsFlow()
+    /** Snackbar texts: a [Notice], or the ready text of an [ActionError] (FR23). */
+    val notices: Flow<(Resources) -> String> get() = noticeChannel.receiveAsFlow()
 
     /** Estimated size on the wire (DESIGN §13); Send uses the same estimate. */
     val encodedSize by derivedStateOf {
@@ -144,7 +147,7 @@ internal class ComposeViewModel(
     /** Picker URIs of the files added in this session, for "Original quality". Never stored. */
     private val sources = mutableStateMapOf<String, Source>()
     private val removed = HashSet<String>()
-    private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
+    private val noticeChannel = Channel<(Resources) -> String>(Channel.BUFFERED)
     private val lock = Mutex()
     private var edited = false
     private var closed = false
@@ -194,7 +197,7 @@ internal class ComposeViewModel(
 
     /** The edit is refused: a larger draft could not be read back (MailActions.MAX_DRAFT_CHARS). */
     private fun tooLong() {
-        noticeChannel.trySend(Notice.TEXT_TOO_LONG)
+        notice(Notice.TEXT_TOO_LONG)
     }
 
     fun type(field: RecipientField, value: String) {
@@ -261,7 +264,7 @@ internal class ComposeViewModel(
                     throw e
                 } catch (e: Exception) {
                     failed("attach", e)
-                    noticeChannel.trySend(Notice.ATTACH_FAILED)
+                    attachFailed(e)
                 } finally {
                     adding.removeAll { it.key == key }
                 }
@@ -300,15 +303,21 @@ internal class ComposeViewModel(
                 throw e
             } catch (e: Exception) {
                 failed("quality", e)
-                noticeChannel.trySend(Notice.ATTACH_FAILED)
+                attachFailed(e)
             } finally {
                 replacing -= a.file
             }
         }
     }
 
+    /** FR23: only an [ActionError] has user-ready text; any other message could show internal data. */
+    private fun attachFailed(e: Exception) {
+        val text = (e as? ActionError)?.message?.takeIf { it.isNotBlank() } ?: return notice(Notice.ATTACH_FAILED)
+        noticeChannel.trySend { text }
+    }
+
     fun notice(notice: Notice) {
-        noticeChannel.trySend(notice)
+        noticeChannel.trySend { it.getString(notice.text) }
     }
 
     /**
@@ -327,7 +336,7 @@ internal class ComposeViewModel(
             else -> null
         }
         if (problem != null) {
-            noticeChannel.trySend(problem)
+            notice(problem)
             return
         }
         val ask = DraftRules.sendQuestions(subject, body.text, attachments.isNotEmpty())
@@ -360,7 +369,7 @@ internal class ComposeViewModel(
                 failure = null
                 mayHaveBeenSent = false
             } else {
-                noticeChannel.trySend(if (tooLarge) Notice.TOO_LARGE else Notice.NOT_SENDABLE)
+                notice(if (tooLarge) Notice.TOO_LARGE else Notice.NOT_SENDABLE)
             }
         }
     }

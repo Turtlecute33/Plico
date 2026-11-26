@@ -13,6 +13,7 @@ import app.plico.mail.mime.MimePart
 import app.plico.mail.mime.TransferDecoding
 import app.plico.mail.mime.displayParts
 import app.plico.mail.mime.parseBodyStructure
+import app.plico.mail.mime.unflow
 
 /**
  * Message bodies (DESIGN.md §7.2 step 7): BODYSTRUCTURE, then the first 50 display text parts of at most 2 MB
@@ -205,7 +206,7 @@ internal data class StoredBody(val html: String?, val text: String, val snippet:
 
 /** What to download for one message and how to store it; pure. */
 internal class BodyPlan(root: MimePart) {
-    private val parts = root.displayParts()
+    private val parts = root.displayParts(MAX_TEXT_PART)
 
     /**
      * Text parts small enough to download, at most [MAX_TEXT_PARTS] and at most [MAX_FETCH_BYTES] in total, so that
@@ -229,7 +230,10 @@ internal class BodyPlan(root: MimePart) {
     fun assemble(data: Map<String, ByteArray>): StoredBody? {
         val decoded = texts.mapNotNull { part ->
             data[part.section]?.let { raw ->
-                part to TransferDecoding.text(TransferDecoding.decode(raw, part.encoding), part.params["charset"])
+                val text = TransferDecoding.text(TransferDecoding.decode(raw, part.encoding), part.params["charset"])
+                // FR40: RFC 3676 soft line breaks of plain text.
+                val flowed = part.mimeType == "text/plain" && part.params["format"].equals("flowed", ignoreCase = true)
+                part to if (flowed) unflow(text, part.params["delsp"].equals("yes", ignoreCase = true)) else text
             }
         }
         if (texts.isNotEmpty() && decoded.isEmpty()) return null

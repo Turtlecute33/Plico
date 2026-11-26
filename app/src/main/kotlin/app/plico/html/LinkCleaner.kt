@@ -60,6 +60,8 @@ class LinkCleaner(private val psl: Psl) {
      */
     fun clean(url: String, linkText: String? = null): Link {
         val input = url.trim()
+        // FR12: a huge URL must not reach an Intent (Binder limit) or the sheet layout.
+        if (input.length > MAX_URL) return Link.Unsupported(visible(input.take(MAX_SHOWN)), null)
         var target = input
         for (i in 0 until MAX_UNWRAP) target = unwrap(target)?.trim() ?: break
         val tapped = WebUrl.parse(input)?.toString()
@@ -164,6 +166,8 @@ class LinkCleaner(private val psl: Psl) {
 
     private companion object {
         const val MAX_UNWRAP = 5
+        const val MAX_URL = 8192
+        const val MAX_SHOWN = 2000
         const val RUN_LENGTHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         val google = Regex("""(www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?""")
         val awsLink = Regex("""L\d+""")

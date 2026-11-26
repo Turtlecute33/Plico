@@ -84,6 +84,15 @@ internal sealed interface ServerSearch {
     data class Failed(val error: ErrorText) : ServerSearch
 }
 
+/** A request to open the [FolderPicker] for [ids]. */
+internal data class PickerRequest(
+    val accountId: Long,
+    val mode: FolderPickerMode,
+    val ids: List<Long>,
+    val exclude: Set<Long> = emptySet(),
+    val labels: Map<Long, ToggleableState> = emptyMap(),
+)
+
 /**
  * The accounts and folders a list needs to decide what each row allows. [inboxView]: the list shows inboxes
  * (all inboxes, or one inbox); only there are Gmail rows sure to carry the `\Inbox` label that Archive removes.
@@ -151,6 +160,9 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
     var searching by mutableStateOf(route is MailView.Search)
         private set
 
+    /** The open Move-to or Labels sheet. It survives a configuration change, not process death (FR34). */
+    var picker by mutableStateOf<PickerRequest?>(null)
+
     val accounts: StateFlow<List<Account>> = app.accounts.observeAll().state(emptyList())
 
     /**
@@ -167,7 +179,14 @@ internal class MailboxViewModel(private val app: PlicoApp, route: MailView) : Vi
         }
     }.state(emptyMap())
 
-    val folders: StateFlow<List<Folder>> = app.folders.observeVisible().state(emptyList())
+    // FR33: the list reads only "backfillUid == 0", so the sync counters are cleared. A sync step then
+    // does not emit again.
+    val folders: StateFlow<List<Folder>> = app.folders.observeVisible()
+        .map { list ->
+            list.map { it.copy(uidNext = 0, modSeq = 0, syncedAt = 0, backfillUid = if (it.backfillUid == 0L) 0 else 1) }
+        }
+        .distinctUntilChanged()
+        .state(emptyList())
     val unread: StateFlow<Map<Long, Int>> = app.folders.observeUnread().state(emptyMap())
     val unifiedUnread: StateFlow<Int> = app.folders.observeUnifiedUnread().state(0)
 

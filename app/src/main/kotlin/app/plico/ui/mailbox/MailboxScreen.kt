@@ -60,7 +60,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -96,15 +95,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
-
-/** A request to open the [FolderPicker] for [ids]. */
-private data class PickerRequest(
-    val accountId: Long,
-    val mode: FolderPickerMode,
-    val ids: List<Long>,
-    val exclude: Set<Long> = emptySet(),
-    val labels: Map<Long, ToggleableState> = emptyMap(),
-)
 
 /**
  * A message list for [view] (DESIGN §13 Mailbox): search-bar top bar, drawer, swipe actions, multi-select,
@@ -196,11 +186,10 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     val texts = remember { mutableListOf<Job>() }
     val resources = LocalResources.current
     // Saved state keeps these dialogs open after a configuration change. It holds only Bundle types: ids and
-    // flags. The picker request has a label map, so it stays in remember.
+    // flags. The picker request has a label map, so the view model holds it (FR34).
     var confirmDelete by rememberSaveable { mutableStateOf<LongArray?>(null) }
     var confirmEmpty by rememberSaveable { mutableStateOf(false) }
     var confirmRetry by rememberSaveable { mutableStateOf<Long?>(null) }
-    var picker by remember { mutableStateOf<PickerRequest?>(null) }
 
     /**
      * A result in the snackbar. An Undo replaces what shows now and what waits, and stays until 1 s before its
@@ -334,14 +323,14 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                         onSelectAll = { vm.selectAll(rows.map { it.id }) },
                         onMove = {
                             selection.moveAccount?.let { accountId ->
-                                picker = PickerRequest(accountId, FolderPickerMode.MOVE, selected.toList(), setOfNotNull(folder?.id))
+                                vm.picker = PickerRequest(accountId, FolderPickerMode.MOVE, selected.toList(), setOfNotNull(folder?.id))
                             }
                         },
                         onLabels = {
                             val ids = selected.toList()
                             selection.moveAccount?.let { accountId ->
                                 scope.launch {
-                                    picker = PickerRequest(accountId, FolderPickerMode.LABELS, ids, labels = vm.labelStates(ids))
+                                    vm.picker = PickerRequest(accountId, FolderPickerMode.LABELS, ids, labels = vm.labelStates(ids))
                                 }
                             }
                         },
@@ -367,7 +356,10 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                     val expanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
                     ExtendedFloatingActionButton(
                         text = { Text(stringResource(R.string.ui_compose)) },
-                        icon = { Icon(Icons.Edit, contentDescription = stringResource(R.string.ui_compose)) },
+                        // FR37: the text names the button when expanded; the icon names it when collapsed.
+                        icon = {
+                            Icon(Icons.Edit, contentDescription = if (expanded) null else stringResource(R.string.ui_compose))
+                        },
                         onClick = vm::compose,
                         expanded = expanded,
                     )
@@ -451,7 +443,10 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
                             )
                         }
                     }
-                    if (messages != null && rows.isEmpty() && (vm.searching || drafts.isEmpty())) {
+                    // FR20: accounts and folders start empty; wait for them, so that "empty" does not flash before "Loading".
+                    if (messages != null && accounts.isNotEmpty() && (vm.view !is MailView.InFolder || folder != null) &&
+                        rows.isEmpty() && (vm.searching || drafts.isEmpty())
+                    ) {
                         item(key = "empty") {
                             if (listView?.let { MailboxFolders.firstSyncPending(it, accounts, folders) } == true) {
                                 FirstSync(Modifier.fillParentMaxWidth())
@@ -516,11 +511,11 @@ fun MailboxScreen(view: MailView, nav: Navigator) {
     confirmRetry?.let { id -> drafts.find { it.id == id } }?.let { draft ->
         SendAgainDialog(draft, onConfirm = { vm.retrySend(draft.id) }, onDismiss = { confirmRetry = null })
     }
-    picker?.let { request ->
+    vm.picker?.let { request ->
         FolderPicker(
             accountId = request.accountId,
             mode = request.mode,
-            onDismiss = { picker = null },
+            onDismiss = { vm.picker = null },
             exclude = request.exclude,
             labels = request.labels,
             onMove = { target ->
@@ -569,6 +564,7 @@ private fun MailboxBanner.key(): String = when (this) {
     is MailboxBanner.Note -> "note:${account.id}"
     is MailboxBanner.Guard -> "guard:${folder.id}"
     is MailboxBanner.Push -> "push"
+    MailboxBanner.Offline -> "offline"
     MailboxBanner.GmailIp -> "gmail-ip"
 }
 
@@ -643,6 +639,7 @@ private fun MailboxBannerItem(
                 onAction = if (resume) onResume else ({ onFix(banner.problem) }),
             )
         }
+        MailboxBanner.Offline -> Banner(text = stringResource(R.string.mailbox_banner_offline), modifier = modifier)
         MailboxBanner.GmailIp -> Banner(
             text = stringResource(R.string.mailbox_banner_gmail_ip),
             modifier = modifier,
@@ -681,6 +678,8 @@ private fun ServerSearchRow(state: ServerSearch, scope: String, onSearch: () -> 
         .fillMaxWidth()
         .heightIn(min = 56.dp)
         .padding(horizontal = 16.dp, vertical = 4.dp)
+    // FR38: TalkBack reads the progress, the result and the error when they replace the button.
+    val live = modifier.semantics { liveRegion = LiveRegionMode.Polite }
     when (state) {
         ServerSearch.Idle -> Row(modifier, verticalAlignment = Alignment.CenterVertically) {
             FilledTonalButton(onClick = onSearch, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) {
@@ -689,7 +688,7 @@ private fun ServerSearchRow(state: ServerSearch, scope: String, onSearch: () -> 
                 Text(stringResource(R.string.mailbox_search_server, scope))
             }
         }
-        ServerSearch.Running -> Column(modifier, verticalArrangement = Arrangement.Center) {
+        ServerSearch.Running -> Column(live, verticalArrangement = Arrangement.Center) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = stringResource(R.string.mailbox_searching_server),
@@ -700,7 +699,7 @@ private fun ServerSearchRow(state: ServerSearch, scope: String, onSearch: () -> 
             }
             LinearWavyProgressIndicator(Modifier.fillMaxWidth())
         }
-        is ServerSearch.Done -> Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        is ServerSearch.Done -> Row(live, verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (state.ids.isEmpty()) {
                     stringResource(R.string.mailbox_search_server_none, scope)
@@ -711,7 +710,7 @@ private fun ServerSearchRow(state: ServerSearch, scope: String, onSearch: () -> 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        is ServerSearch.Failed -> Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        is ServerSearch.Failed -> Row(live, verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = state.error.text(),
                 style = MaterialTheme.typography.bodyMedium,

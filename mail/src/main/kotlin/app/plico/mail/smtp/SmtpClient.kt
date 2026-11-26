@@ -16,6 +16,7 @@ import java.io.Closeable
 import java.io.EOFException
 import java.io.IOException
 import java.io.OutputStream
+import java.net.IDN
 import java.net.ProtocolException
 import java.util.Base64
 import javax.net.ssl.SSLSocketFactory
@@ -123,7 +124,7 @@ class SmtpClient(
         // The text names no address, so that exception messages carry no personal data.
         require(addresses.all(AddrSpec::isValid)) { "Invalid address" }
 
-        val mailFrom = StringBuilder("MAIL FROM:<").append(from).append('>')
+        val mailFrom = StringBuilder("MAIL FROM:<").append(envelope(from)).append('>')
         if ("SIZE" in extensions) mailFrom.append(" SIZE=").append(DotStuffing.size(message))
         if ("SMTPUTF8" in extensions && addresses.any { a -> a.any { it.code > 0x7f } }) mailFrom.append(" SMTPUTF8")
         command(mailFrom.toString()).expect(Stage.MAIL)
@@ -131,7 +132,7 @@ class SmtpClient(
         val rejected = LinkedHashMap<String, String>()
         var deferred: Reply? = null
         for (rcpt in recipients) {
-            val reply = command("RCPT TO:<$rcpt>")
+            val reply = command("RCPT TO:<${envelope(rcpt)}>")
             when {
                 reply.code / 100 == 2 -> Unit
                 // The server closes the channel: transient, and nothing more can be sent.
@@ -155,6 +156,23 @@ class SmtpClient(
         DotStuffing.write(message, stream.output)
         stream.output.flush() // A failure up to here is certain: the server discards a message without its dot.
         finish().expect(Stage.FINAL)
+    }
+
+    /**
+     * The address for MAIL and RCPT. Without SMTPUTF8 a U-label domain goes out as punycode (FR15; RFC 5321 has no
+     * UTF-8). A non-ASCII local part needs SMTPUTF8, so the address stays as it is.
+     */
+    private fun envelope(address: String): String {
+        if ("SMTPUTF8" in extensions) return address
+        val at = address.lastIndexOf('@')
+        val domain = address.substring(at + 1)
+        if (at < 0 || domain.all { it.code <= 0x7f } || address.substring(0, at).any { it.code > 0x7f }) return address
+        val ascii = try {
+            IDN.toASCII(domain, IDN.ALLOW_UNASSIGNED)
+        } catch (_: IllegalArgumentException) {
+            return address
+        }
+        return address.substring(0, at + 1) + ascii
     }
 
     /** Sends QUIT, waits for 221 and closes. Errors are ignored. */

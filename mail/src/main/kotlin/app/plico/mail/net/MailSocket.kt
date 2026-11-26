@@ -5,8 +5,10 @@ import java.io.BufferedOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.security.cert.CertPathValidatorException
 import java.security.cert.CertificateException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -99,6 +101,9 @@ class MailSocket private constructor(
     companion object {
         private const val BUFFER_SIZE = 8192
 
+        /** Least connect time for one address. */
+        private const val MIN_TRY_MS = 3_000
+
         /** Read timeout before TLS is up: a server that waits for a ClientHello sends no greeting. */
         private const val PLAINTEXT_TIMEOUT_MS = 20_000
 
@@ -117,10 +122,33 @@ class MailSocket private constructor(
             factory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory,
         ): MailSocket {
             require(host.isNotEmpty() && host.all { it in '!'..'~' }) { "Host is not an ASCII name" }
-            val socket = if (tls == TlsMode.IMPLICIT) factory.createSocket() as SSLSocket else Socket()
+            // UnknownHostException from the lookup is not caught here: callers map it.
+            val addresses = InetAddress.getAllByName(host)
+            val deadline = System.nanoTime() + connectTimeoutMs * 1_000_000L
+            var failure: IOException? = null
+            var connected: Socket? = null
+            // FR14: try each address in turn (an unreachable AAAA must not hide a working A). Each try gets a share
+            // of the time, at least 3 s, and never more than what remains. Failed sockets are closed.
+            for (address in addresses) {
+                var tryMs = 0
+                if (connectTimeoutMs > 0) {
+                    val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
+                    if (remainingMs <= 0) break
+                    tryMs = minOf(maxOf(connectTimeoutMs / addresses.size, MIN_TRY_MS).toLong(), remainingMs).toInt()
+                }
+                val candidate = if (tls == TlsMode.IMPLICIT) factory.createSocket() as SSLSocket else Socket()
+                try {
+                    candidate.connect(InetSocketAddress(address, port), tryMs)
+                    connected = candidate
+                    break
+                } catch (e: IOException) {
+                    candidate.closeQuietly()
+                    failure = e
+                }
+            }
+            val socket = connected ?: throw (failure ?: SocketTimeoutException("Connect timed out"))
             try {
-                // An unresolved host name keeps SNI and certificate transparency checks on the real name.
-                socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
+                // SNI and the certificate check use the host name, not the address.
                 hooks.onConnected(socket)
                 if (socket is SSLSocket) {
                     secure(socket, host, hooks, readTimeoutMs)
